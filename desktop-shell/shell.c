@@ -1583,6 +1583,23 @@ struct weston_resize_grab {
 };
 
 static void
+constraint_resize(int *height,
+				  struct weston_pointer *pointer,
+				  struct shell_surface *shsurf)
+{
+	int pWidth,pHeight;
+	struct weston_surface *surface =
+			weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	get_output_panel_size(shsurf->shell, surface->output, &pWidth, &pHeight);
+
+	wl_fixed_t panel_height_fixed = wl_fixed_from_int(pHeight);
+
+	if (pointer->y < panel_height_fixed){
+		*height = *height-(wl_fixed_to_int(panel_height_fixed-pointer->y));
+	}
+}
+
+static void
 resize_grab_motion(struct weston_pointer_grab *grab,
 		   const struct timespec *time,
 		   struct weston_pointer_motion_event *event)
@@ -1619,6 +1636,10 @@ resize_grab_motion(struct weston_pointer_grab *grab,
 	} else if (resize->edges & WL_SHELL_SURFACE_RESIZE_BOTTOM) {
 		height += wl_fixed_to_int(to_y - from_y);
 	}
+
+	if (shsurf->shell->panel_position == WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP &&
+		WL_SHELL_SURFACE_RESIZE_TOP)
+		constraint_resize(&height, pointer, shsurf);
 
 	max_size = weston_desktop_surface_get_max_size(shsurf->desktop_surface);
 	min_size = weston_desktop_surface_get_min_size(shsurf->desktop_surface);
