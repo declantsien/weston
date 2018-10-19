@@ -512,6 +512,7 @@ struct drm_output {
 	/* Holds the properties for the CRTC */
 	struct drm_property_info props_crtc[WDRM_CRTC__COUNT];
 
+	int is_new;
 	int vblank_pending;
 	int page_flip_pending;
 	int atomic_complete_pending;
@@ -3104,7 +3105,12 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
 	drm_output_update_msc(output, frame);
 
 	assert(b->atomic_modeset);
-	assert(output->atomic_complete_pending);
+
+	/* When doing async commits, if we manage to enable a new output before
+	 * the commit is processed, we may get flip event on that output, which
+	 * we weren't expecting. Let's not kill the compositor in such cases. */
+	assert(output->atomic_complete_pending || output->is_new);
+	output->is_new = 0;
 	output->atomic_complete_pending = 0;
 
 	drm_output_update_complete(output, flags, sec, usec);
@@ -6331,6 +6337,7 @@ drm_output_create(struct weston_compositor *compositor, const char *name)
 
 	output->destroy_pending = 0;
 	output->disable_pending = 0;
+	output->is_new = 1;
 
 	output->state_cur = drm_output_state_alloc(output, NULL);
 
