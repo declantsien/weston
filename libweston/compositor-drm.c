@@ -154,6 +154,22 @@ struct drm_property_info {
 	struct drm_property_enum_info *enum_values; /**< array of enum values */
 };
 
+struct drm_dev {
+		int id;
+		int fd;
+		char *filename;
+		struct gbm_device *gbm;
+		struct udev_device *udev;
+		struct wl_event_source *drm_source;
+		/* we need these parameters in order to not fail drmModeAddFB2()
+	 	 * due to out of bounds dimensions, and then mistakenly set
+	 	 * sprites_are_broken:
+	 	 */
+		int min_width, max_width;
+		int min_height, max_height;
+		struct wl_list drm_link;
+};
+
 /**
  * List of properties attached to DRM planes
  */
@@ -295,26 +311,16 @@ struct drm_backend {
 	struct weston_compositor *compositor;
 
 	struct udev *udev;
-	struct wl_event_source *drm_source;
 
 	struct udev_monitor *udev_monitor;
 	struct wl_event_source *udev_drm_source;
 
-	struct {
-		int id;
-		int fd;
-		char *filename;
-	} drm;
-	struct gbm_device *gbm;
+	/* list of drm devices */
+	struct wl_list drm_list;
+	bool multi_drm;
 	struct wl_listener session_listener;
 	uint32_t gbm_format;
 
-	/* we need these parameters in order to not fail drmModeAddFB2()
-	 * due to out of bounds dimensions, and then mistakenly set
-	 * sprites_are_broken:
-	 */
-	int min_width, max_width;
-	int min_height, max_height;
 
 	struct wl_list plane_list;
 	int sprites_are_broken;
@@ -499,6 +505,7 @@ struct drm_head {
 	drmModeConnector *connector;
 	uint32_t connector_id;
 	struct drm_edid edid;
+	struct drm_dev *drm;
 
 	/* Holds the properties for the connector */
 	struct drm_property_info props_conn[WDRM_CONNECTOR__COUNT];
@@ -515,6 +522,7 @@ struct drm_output {
 
 	uint32_t crtc_id; /* object ID to pass to DRM functions */
 	int pipe; /* index of CRTC in resource array / bitmasks */
+	struct drm_dev *drm;
 
 	/* Holds the properties for the CRTC */
 	struct drm_property_info props_crtc[WDRM_CRTC__COUNT];
@@ -741,7 +749,8 @@ drm_property_info_populate(struct drm_backend *b,
 		           const struct drm_property_info *src,
 			   struct drm_property_info *info,
 			   unsigned int num_infos,
-			   drmModeObjectProperties *props)
+			   drmModeObjectProperties *props,
+			   struct drm_dev *drm)
 {
 	drmModePropertyRes *prop;
 	unsigned i, j;
@@ -769,7 +778,7 @@ drm_property_info_populate(struct drm_backend *b,
 	for (i = 0; i < props->count_props; i++) {
 		unsigned int k;
 
-		prop = drmModeGetProperty(b->drm.fd, props->props[i]);
+		prop = drmModeGetProperty(drm->fd, props->props[i]);
 		if (!prop)
 			continue;
 
@@ -1011,7 +1020,7 @@ drm_fb_addfb(struct drm_backend *b, struct drm_fb *fb)
 
 static struct drm_fb *
 drm_fb_create_dumb(struct drm_backend *b, int width, int height,
-		   uint32_t format)
+		   uint32_t format, struct drm_dev *drm)
 {
 	struct drm_fb *fb;
 	int ret;
@@ -1043,7 +1052,7 @@ drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 	create_arg.width = width;
 	create_arg.height = height;
 
-	ret = drmIoctl(b->drm.fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_arg);
+	ret = drmIoctl(drm->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_arg);
 	if (ret)
 		goto err_fb;
 
@@ -1055,7 +1064,7 @@ drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 	fb->size = create_arg.size;
 	fb->width = width;
 	fb->height = height;
-	fb->fd = b->drm.fd;
+	fb->fd = drm->fd;
 
 	if (drm_fb_addfb(b, fb) != 0) {
 		weston_log("failed to create kms fb: %m\n");
@@ -1069,18 +1078,18 @@ drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 		goto err_add_fb;
 
 	fb->map = mmap(NULL, fb->size, PROT_WRITE,
-		       MAP_SHARED, b->drm.fd, map_arg.offset);
+		       MAP_SHARED, drm->fd, map_arg.offset);
 	if (fb->map == MAP_FAILED)
 		goto err_add_fb;
 
 	return fb;
 
 err_add_fb:
-	drmModeRmFB(b->drm.fd, fb->fb_id);
+	drmModeRmFB(drm->fd, fb->fb_id);
 err_bo:
 	memset(&destroy_arg, 0, sizeof(destroy_arg));
 	destroy_arg.handle = create_arg.handle;
-	drmIoctl(b->drm.fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
+	drmIoctl(drm->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_arg);
 err_fb:
 	free(fb);
 	return NULL;
@@ -1105,7 +1114,8 @@ drm_fb_destroy_dmabuf(struct drm_fb *fb)
 
 static struct drm_fb *
 drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
-		       struct drm_backend *backend, bool is_opaque)
+		       struct drm_backend *backend, bool is_opaque,
+		       struct drm_dev *drm)
 {
 #ifdef HAVE_GBM_FD_IMPORT
 	struct drm_fb *fb;
@@ -1174,11 +1184,11 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 	if (dmabuf->attributes.modifier[0] != DRM_FORMAT_MOD_INVALID ||
 	    import_mod.num_fds > 1 ||
 	    import_mod.offsets[0] > 0) {
-		fb->bo = gbm_bo_import(backend->gbm, GBM_BO_IMPORT_FD_MODIFIER,
+		fb->bo = gbm_bo_import(drm->gbm, GBM_BO_IMPORT_FD_MODIFIER,
 				       &import_mod,
 				       GBM_BO_USE_SCANOUT);
 	} else {
-		fb->bo = gbm_bo_import(backend->gbm, GBM_BO_IMPORT_FD,
+		fb->bo = gbm_bo_import(drm->gbm, GBM_BO_IMPORT_FD,
 				       &import_legacy,
 				       GBM_BO_USE_SCANOUT);
 	}
@@ -1190,7 +1200,7 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 	fb->height = dmabuf->attributes.height;
 	fb->modifier = dmabuf->attributes.modifier[0];
 	fb->size = 0;
-	fb->fd = backend->drm.fd;
+	fb->fd = drm->fd;
 
 	static_assert(ARRAY_LENGTH(fb->strides) ==
 		      ARRAY_LENGTH(dmabuf->attributes.stride),
@@ -1215,10 +1225,10 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 	if (is_opaque)
 		fb->format = pixel_format_get_opaque_substitute(fb->format);
 
-	if (backend->min_width > fb->width ||
-	    fb->width > backend->max_width ||
-	    backend->min_height > fb->height ||
-	    fb->height > backend->max_height) {
+	if (drm->min_width > fb->width ||
+	    fb->width > drm->max_width ||
+	    drm->min_height > fb->height ||
+	    fb->height > drm->max_height) {
 		weston_log("bo geometry out of bounds\n");
 		goto err_free;
 	}
@@ -1243,7 +1253,8 @@ err_free:
 
 static struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
-		   bool is_opaque, enum drm_fb_type type)
+		   bool is_opaque, enum drm_fb_type type,
+		   struct drm_dev *drm)
 {
 	struct drm_fb *fb = gbm_bo_get_user_data(bo);
 #ifdef HAVE_GBM_MODIFIERS
@@ -1262,7 +1273,7 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 	fb->type = type;
 	fb->refcnt = 1;
 	fb->bo = bo;
-	fb->fd = backend->drm.fd;
+	fb->fd = drm->fd;
 
 	fb->width = gbm_bo_get_width(bo);
 	fb->height = gbm_bo_get_height(bo);
@@ -1295,10 +1306,10 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 	if (is_opaque)
 		fb->format = pixel_format_get_opaque_substitute(fb->format);
 
-	if (backend->min_width > fb->width ||
-	    fb->width > backend->max_width ||
-	    backend->min_height > fb->height ||
-	    fb->height > backend->max_height) {
+	if (drm->min_width > fb->width ||
+	    fb->width > drm->max_width ||
+	    drm->min_height > fb->height ||
+	    fb->height > drm->max_height) {
 		weston_log("bo geometry out of bounds\n");
 		goto err_free;
 	}
@@ -1604,23 +1615,25 @@ drm_fb_get_from_view(struct drm_output_state *state, struct weston_view *ev)
 		return NULL;
 
 	/* GBM is used for dmabuf import as well as from client wl_buffer. */
-	if (!b->gbm)
+	if (!output->drm->gbm)
 		return NULL;
 
 	dmabuf = linux_dmabuf_buffer_get(buffer->resource);
 	if (dmabuf) {
-		fb = drm_fb_get_from_dmabuf(dmabuf, b, is_opaque);
+		fb = drm_fb_get_from_dmabuf(dmabuf, b, is_opaque,
+					    output->drm);
 		if (!fb)
 			return NULL;
 	} else {
 		struct gbm_bo *bo;
 
-		bo = gbm_bo_import(b->gbm, GBM_BO_IMPORT_WL_BUFFER,
+		bo = gbm_bo_import(output->drm->gbm, GBM_BO_IMPORT_WL_BUFFER,
 				   buffer->resource, GBM_BO_USE_SCANOUT);
 		if (!bo)
 			return NULL;
 
-		fb = drm_fb_get_from_bo(bo, b, is_opaque, BUFFER_CLIENT);
+		fb = drm_fb_get_from_bo(bo, b, is_opaque, BUFFER_CLIENT,
+					output->drm);
 		if (!fb) {
 			gbm_bo_destroy(bo);
 			return NULL;
@@ -2067,7 +2080,8 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 	}
 
 	/* The renderer always produces an opaque image. */
-	ret = drm_fb_get_from_bo(bo, b, true, BUFFER_GBM_SURFACE);
+	ret = drm_fb_get_from_bo(bo, b, true, BUFFER_GBM_SURFACE,
+				 output->drm);
 	if (!ret) {
 		weston_log("failed to get drm_fb for bo\n");
 		gbm_surface_release_buffer(output->gbm_surface, bo);
@@ -2160,14 +2174,12 @@ drm_output_set_gamma(struct weston_output *output_base,
 {
 	int rc;
 	struct drm_output *output = to_drm_output(output_base);
-	struct drm_backend *backend =
-		to_drm_backend(output->base.compositor);
 
 	/* check */
 	if (output_base->gamma_size != size)
 		return;
 
-	rc = drmModeCrtcSetGamma(backend->drm.fd,
+	rc = drmModeCrtcSetGamma(output->drm->fd,
 				 output->crtc_id,
 				 size, r, g, b);
 	if (rc)
@@ -2241,20 +2253,20 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 			if (p->type != WDRM_PLANE_TYPE_OVERLAY)
 				continue;
 
-			ret = drmModeSetPlane(backend->drm.fd, p->plane_id,
+			ret = drmModeSetPlane(output->drm->fd, p->plane_id,
 					      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 			if (ret)
 				weston_log("drmModeSetPlane failed disable: %m\n");
 		}
 
 		if (output->cursor_plane) {
-			ret = drmModeSetCursor(backend->drm.fd, output->crtc_id,
+			ret = drmModeSetCursor(output->drm->fd, output->crtc_id,
 					       0, 0, 0);
 			if (ret)
 				weston_log("drmModeSetCursor failed disable: %m\n");
 		}
 
-		ret = drmModeSetCrtc(backend->drm.fd, output->crtc_id, 0, 0, 0,
+		ret = drmModeSetCrtc(output->drm->fd, output->crtc_id, 0, 0, 0,
 				     NULL, 0, NULL);
 		if (ret)
 			weston_log("drmModeSetCrtc failed disabling: %m\n");
@@ -2289,7 +2301,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 	    !scanout_plane->state_cur->fb ||
 	    scanout_plane->state_cur->fb->strides[0] !=
 	    scanout_state->fb->strides[0]) {
-		ret = drmModeSetCrtc(backend->drm.fd, output->crtc_id,
+		ret = drmModeSetCrtc(output->drm->fd, output->crtc_id,
 				     scanout_state->fb->fb_id,
 				     0, 0,
 				     connectors, n_conn,
@@ -2300,7 +2312,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 		}
 	}
 
-	if (drmModePageFlip(backend->drm.fd, output->crtc_id,
+	if (drmModePageFlip(output->drm->fd, output->crtc_id,
 			    scanout_state->fb->fb_id,
 			    DRM_MODE_PAGE_FLIP_EVENT, output) < 0) {
 		weston_log("queueing pageflip failed: %m\n");
@@ -2339,7 +2351,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 		if (ps->fb && !backend->sprites_hidden)
 			fb_id = ps->fb->fb_id;
 
-		ret = drmModeSetPlane(backend->drm.fd, p->plane_id,
+		ret = drmModeSetPlane(output->drm->fd, p->plane_id,
 				      output->crtc_id, fb_id, flags,
 				      ps->dest_x, ps->dest_y,
 				      ps->dest_w, ps->dest_h,
@@ -2356,7 +2368,7 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 		 * becomes active on the display or has been replaced.
 		 */
 		vbl.request.signal = (unsigned long) ps;
-		ret = drmWaitVBlank(backend->drm.fd, &vbl);
+		ret = drmWaitVBlank(output->drm->fd, &vbl);
 		if (ret) {
 			weston_log("vblank event request failed: %d: %s\n",
 				ret, strerror(errno));
@@ -2369,7 +2381,8 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 			if (dpms_prop->prop_id == 0)
 				continue;
 
-			ret = drmModeConnectorSetProperty(backend->drm.fd,
+			ret =
+			  drmModeConnectorSetProperty(output->drm->fd,
 							  head->connector_id,
 							  dpms_prop->prop_id,
 							  state->dpms);
@@ -2449,14 +2462,15 @@ plane_add_prop(drmModeAtomicReq *req, struct drm_plane *plane,
 }
 
 static int
-drm_mode_ensure_blob(struct drm_backend *backend, struct drm_mode *mode)
+drm_mode_ensure_blob(struct drm_backend *backend, struct drm_mode *mode,
+		    struct drm_dev *drm)
 {
 	int ret;
 
 	if (mode->blob_id)
 		return 0;
 
-	ret = drmModeCreatePropertyBlob(backend->drm.fd,
+	ret = drmModeCreatePropertyBlob(drm->fd,
 					&mode->mode_info,
 					sizeof(mode->mode_info),
 					&mode->blob_id);
@@ -2491,7 +2505,7 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 	}
 
 	if (state->dpms == WESTON_DPMS_ON) {
-		ret = drm_mode_ensure_blob(b, current_mode);
+		ret = drm_mode_ensure_blob(b, current_mode, output->drm);
 		if (ret != 0)
 			return ret;
 
@@ -2563,6 +2577,7 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 {
 	struct drm_backend *b = pending_state->backend;
 	struct drm_output_state *output_state, *tmp;
+	struct drm_output *output;
 	struct drm_plane *plane;
 	drmModeAtomicReq *req = drmModeAtomicAlloc();
 	uint32_t flags;
@@ -2630,7 +2645,11 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 			 * off, as the kernel will refuse to generate an event
 			 * for an off->off state and fail the commit.
 			 */
-			props = drmModeObjectGetProperties(b->drm.fd,
+			output = drm_output_find_by_crtc(b, *unused);
+			if (!output)
+			  continue;
+			props =
+			  drmModeObjectGetProperties(output->drm->fd,
 							   *unused,
 							   DRM_MODE_OBJECT_CRTC);
 			if (!props) {
@@ -2640,7 +2659,7 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 
 			drm_property_info_populate(b, crtc_props, infos,
 						   WDRM_CRTC__COUNT,
-						   props);
+						   props, output->drm);
 
 			info = &infos[WDRM_CRTC_ACTIVE];
 			active = drm_property_get_value(info, props, 0);
@@ -2698,7 +2717,10 @@ drm_pending_state_apply_atomic(struct drm_pending_state *pending_state,
 		goto out;
 	}
 
-	ret = drmModeAtomicCommit(b->drm.fd, req, flags, b);
+	wl_list_for_each(output_state, &pending_state->output_list, link) {
+	    output = output_state->output;
+	    ret = drmModeAtomicCommit(output->drm->fd, req, flags, b);
+	}
 	drm_debug(b, "[atomic] drmModeAtomicCommit\n");
 
 	/* Test commits do not take ownership of the state; return
@@ -2774,6 +2796,7 @@ drm_pending_state_apply(struct drm_pending_state *pending_state)
 {
 	struct drm_backend *b = pending_state->backend;
 	struct drm_output_state *output_state, *tmp;
+	struct drm_output *output;
 	uint32_t *unused;
 
 #ifdef HAVE_DRM_ATOMIC
@@ -2788,9 +2811,13 @@ drm_pending_state_apply(struct drm_pending_state *pending_state)
 		 * disable all the CRTCs we aren't using. This also disables
 		 * all connectors on these CRTCs, so we don't need to do that
 		 * separately with the pre-atomic API. */
-		wl_array_for_each(unused, &b->unused_crtcs)
-			drmModeSetCrtc(b->drm.fd, *unused, 0, 0, 0, NULL, 0,
+		wl_array_for_each(unused, &b->unused_crtcs) {
+			output = drm_output_find_by_crtc(b, *unused);
+			if (!output)
+			  continue;
+			drmModeSetCrtc(output->drm->fd, *unused, 0, 0, 0, NULL, 0,
 				       NULL);
+		}
 	}
 
 	wl_list_for_each_safe(output_state, tmp, &pending_state->output_list,
@@ -2832,6 +2859,7 @@ drm_pending_state_apply_sync(struct drm_pending_state *pending_state)
 {
 	struct drm_backend *b = pending_state->backend;
 	struct drm_output_state *output_state, *tmp;
+	struct drm_output *output;
 	uint32_t *unused;
 
 #ifdef HAVE_DRM_ATOMIC
@@ -2846,9 +2874,12 @@ drm_pending_state_apply_sync(struct drm_pending_state *pending_state)
 		 * disable all the CRTCs we aren't using. This also disables
 		 * all connectors on these CRTCs, so we don't need to do that
 		 * separately with the pre-atomic API. */
-		wl_array_for_each(unused, &b->unused_crtcs)
-			drmModeSetCrtc(b->drm.fd, *unused, 0, 0, 0, NULL, 0,
+		wl_array_for_each(unused, &b->unused_crtcs) {
+			output = drm_output_find_by_crtc(b, *unused);
+			if (!output) continue;
+			drmModeSetCrtc(output->drm->fd, *unused, 0, 0, 0, NULL, 0,
 				       NULL);
+		}
 	}
 
 	wl_list_for_each_safe(output_state, tmp, &pending_state->output_list,
@@ -2948,7 +2979,7 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 
 	/* Try to get current msc and timestamp via instant query */
 	vbl.request.type |= drm_waitvblank_pipe(output);
-	ret = drmWaitVBlank(backend->drm.fd, &vbl);
+	ret = drmWaitVBlank(output->drm->fd, &vbl);
 
 	/* Error ret or zero timestamp means failure to get valid timestamp */
 	if ((ret == 0) && (vbl.reply.tval_sec > 0 || vbl.reply.tval_usec > 0)) {
@@ -3350,7 +3381,7 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 		return NULL;
 
 	/* We use GBM to import SHM buffers. */
-	if (b->gbm == NULL)
+	if (output->drm->gbm == NULL)
 		return NULL;
 
 	if (ev->surface->buffer_ref.buffer == NULL) {
@@ -3458,7 +3489,7 @@ drm_output_set_cursor(struct drm_output_state *output_state)
 	if (!state->fb) {
 		pixman_region32_fini(&plane->base.damage);
 		pixman_region32_init(&plane->base.damage);
-		drmModeSetCursor(b->drm.fd, output->crtc_id, 0, 0, 0);
+		drmModeSetCursor(output->drm->fd, output->crtc_id, 0, 0, 0);
 		return;
 	}
 
@@ -3468,7 +3499,7 @@ drm_output_set_cursor(struct drm_output_state *output_state)
 	if (plane->state_cur->fb != state->fb) {
 		bo = state->fb->bo;
 		handle = gbm_bo_get_handle(bo).s32;
-		if (drmModeSetCursor(b->drm.fd, output->crtc_id, handle,
+		if (drmModeSetCursor(output->drm->fd, output->crtc_id, handle,
 				     b->cursor_width, b->cursor_height)) {
 			weston_log("failed to set cursor: %m\n");
 			goto err;
@@ -3478,8 +3509,8 @@ drm_output_set_cursor(struct drm_output_state *output_state)
 	pixman_region32_fini(&plane->base.damage);
 	pixman_region32_init(&plane->base.damage);
 
-	if (drmModeMoveCursor(b->drm.fd, output->crtc_id,
-	                      state->dest_x, state->dest_y)) {
+	if (drmModeMoveCursor(output->drm->fd, output->crtc_id,
+			      state->dest_x, state->dest_y)) {
 		weston_log("failed to move cursor: %m\n");
 		goto err;
 	}
@@ -3488,7 +3519,7 @@ drm_output_set_cursor(struct drm_output_state *output_state)
 
 err:
 	b->cursors_are_broken = 1;
-	drmModeSetCursor(b->drm.fd, output->crtc_id, 0, 0, 0);
+	drmModeSetCursor(output->drm->fd, output->crtc_id, 0, 0, 0);
 }
 
 static struct drm_output_state *
@@ -4020,14 +4051,23 @@ on_drm_input(int fd, uint32_t mask, void *data)
 static int
 init_kms_caps(struct drm_backend *b)
 {
-	uint64_t cap;
-	int ret;
+	uint64_t cap, final_cap;
+	int ret, final_ret;
 	clockid_t clk_id;
+	struct drm_dev *drm;
 
-	weston_log("using %s\n", b->drm.filename);
+	/* Only use CLOCK_MONOTONIC if all drm devices have the cap */
+	final_cap = 0;
+	final_ret = 0;
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		ret = drmGetCap(drm->fd, DRM_CAP_TIMESTAMP_MONOTONIC, &cap);
+		final_cap &= cap;
+		final_ret |= ret;
+		weston_log("checking DRM_CAP_TIMESTAMP_MONOTONIC %s cap %lu final_cap %lu ret %d final_ret %d \n",
+				drm->filename, cap, final_cap, ret, final_ret);
+	}
 
-	ret = drmGetCap(b->drm.fd, DRM_CAP_TIMESTAMP_MONOTONIC, &cap);
-	if (ret == 0 && cap == 1)
+	if (final_ret == 0 && final_cap == 1)
 		clk_id = CLOCK_MONOTONIC;
 	else
 		clk_id = CLOCK_REALTIME;
@@ -4038,39 +4078,73 @@ init_kms_caps(struct drm_backend *b)
 		return -1;
 	}
 
-	ret = drmGetCap(b->drm.fd, DRM_CAP_CURSOR_WIDTH, &cap);
-	if (ret == 0)
-		b->cursor_width = cap;
-	else
-		b->cursor_width = 64;
-
-	ret = drmGetCap(b->drm.fd, DRM_CAP_CURSOR_HEIGHT, &cap);
-	if (ret == 0)
-		b->cursor_height = cap;
-	else
-		b->cursor_height = 64;
-
-	if (!getenv("WESTON_DISABLE_UNIVERSAL_PLANES")) {
-		ret = drmSetClientCap(b->drm.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
-		b->universal_planes = (ret == 0);
+	/* Only use a non-default cursor width if all drm devices have the same cap */
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		ret = drmGetCap(drm->fd, DRM_CAP_CURSOR_WIDTH, &cap);
+		if (ret == 0) {
+			if (!b->cursor_width)	
+				b->cursor_width = cap;
+			else if (b->cursor_width != (int32_t)cap) {
+				b->cursor_width = 64;
+				break;
+			}
+		}
+		else {
+			b->cursor_width = 64;
+			break;
+		}
 	}
+
+	/* Same for cursor height */
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		ret = drmGetCap(drm->fd, DRM_CAP_CURSOR_HEIGHT, &cap);
+		if (ret == 0) {
+			if (!b->cursor_height)	 
+				b->cursor_width = cap;
+			else if (b->cursor_height != (int32_t)cap) {
+				b->cursor_height = 64;
+				break;
+			}
+		}
+		else {
+			b->cursor_height = 64;
+			break;
+		}
+	}
+
+	/* Only use universal planes if all drm devices have the cap */
+	ret = 0;
+	if (!getenv("WESTON_DISABLE_UNIVERSAL_PLANES"))
+		wl_list_for_each(drm, &b->drm_list, drm_link) {
+			ret |= drmSetClientCap(drm->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+		}
+	b->universal_planes = (ret == 0);
 	weston_log("DRM: %s universal planes\n",
 		   b->universal_planes ? "supports" : "does not support");
 
 #ifdef HAVE_DRM_ATOMIC
+	/* Only use atomic modesetting if all drm devices have the cap */
 	if (b->universal_planes && !getenv("WESTON_DISABLE_ATOMIC")) {
-		ret = drmGetCap(b->drm.fd, DRM_CAP_CRTC_IN_VBLANK_EVENT, &cap);
-		if (ret != 0)
-			cap = 0;
-		ret = drmSetClientCap(b->drm.fd, DRM_CLIENT_CAP_ATOMIC, 1);
-		b->atomic_modeset = ((ret == 0) && (cap == 1));
+		final_ret = 0;
+		final_cap = 0;
+		wl_list_for_each(drm, &b->drm_list, drm_link) {
+			ret = drmGetCap(drm->fd, DRM_CAP_CRTC_IN_VBLANK_EVENT, &cap);
+			if (ret != 0)
+				cap = 0;
+			final_cap &= cap;
+			ret = drmSetClientCap(drm->fd, DRM_CLIENT_CAP_ATOMIC, 1);
+			final_ret |= ret;
+		}
+		b->atomic_modeset = ((final_ret == 0) && (final_cap == 1));
 	}
 #endif
 	weston_log("DRM: %s atomic modesetting\n",
 		   b->atomic_modeset ? "supports" : "does not support");
 
 #ifdef HAVE_DRM_ADDFB2_MODIFIERS
-	ret = drmGetCap(b->drm.fd, DRM_CAP_ADDFB2_MODIFIERS, &cap);
+	ret = 0;
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		ret |= drmGetCap(drm->fd, DRM_CAP_ADDFB2_MODIFIERS, &cap);
 	if (ret == 0)
 		b->fb_modifiers = cap;
 	else
@@ -4088,7 +4162,11 @@ init_kms_caps(struct drm_backend *b)
 	if (!b->atomic_modeset)
 		b->sprites_are_broken = 1;
 
-	ret = drmSetClientCap(b->drm.fd, DRM_CLIENT_CAP_ASPECT_RATIO, 1);
+	/* Only use aspect ratio if all drm devices have the cap */
+	ret = 0;	
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		ret |= drmSetClientCap(drm->fd, DRM_CLIENT_CAP_ASPECT_RATIO, 1);
+	}
 	b->aspect_ratio_supported = (ret == 0);
 	weston_log("DRM: %s picture aspect ratio\n",
 		   b->aspect_ratio_supported ? "supports" : "does not support");
@@ -4101,6 +4179,10 @@ create_gbm_device(int fd)
 {
 	struct gbm_device *gbm;
 
+	/* the module may have already been loaded for a 
+	 * previous drm device.
+	 */
+	if (!gl_renderer)
 	gl_renderer = weston_load_module("gl-renderer.so",
 					 "gl_renderer_interface");
 	if (!gl_renderer)
@@ -4142,7 +4224,7 @@ fallback_format_for(uint32_t format)
 }
 
 static int
-drm_backend_create_gl_renderer(struct drm_backend *b)
+drm_backend_create_gl_renderer(struct drm_backend *b, struct drm_dev *drm)
 {
 	EGLint format[3] = {
 		b->gbm_format,
@@ -4155,7 +4237,7 @@ drm_backend_create_gl_renderer(struct drm_backend *b)
 		n_formats = 3;
 	if (gl_renderer->display_create(b->compositor,
 					EGL_PLATFORM_GBM_KHR,
-					(void *)b->gbm,
+					(void *)drm->gbm,
 					NULL,
 					gl_renderer->opaque_attribs,
 					format,
@@ -4169,14 +4251,15 @@ drm_backend_create_gl_renderer(struct drm_backend *b)
 static int
 init_egl(struct drm_backend *b)
 {
-	b->gbm = create_gbm_device(b->drm.fd);
-
-	if (!b->gbm)
+	struct drm_dev *drm;
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		drm->gbm = create_gbm_device(drm->fd);
+		if (!drm->gbm)
+			return -1;
+	if (drm_backend_create_gl_renderer(b, drm) < 0) {
+		gbm_device_destroy(drm->gbm);
 		return -1;
-
-	if (drm_backend_create_gl_renderer(b) < 0) {
-		gbm_device_destroy(b->gbm);
-		return -1;
+	}
 	}
 
 	return 0;
@@ -4209,7 +4292,8 @@ modifiers_ptr(struct drm_format_modifier_blob *blob)
  */
 static int
 drm_plane_populate_formats(struct drm_plane *plane, const drmModePlane *kplane,
-			   const drmModeObjectProperties *props)
+			   const drmModeObjectProperties *props,
+			   struct drm_dev *drm)
 {
 	unsigned i;
 #ifdef HAVE_DRM_FORMATS_BLOB
@@ -4225,7 +4309,7 @@ drm_plane_populate_formats(struct drm_plane *plane, const drmModePlane *kplane,
 	if (blob_id == 0)
 		goto fallback;
 
-	blob = drmModeGetPropertyBlob(plane->backend->drm.fd, blob_id);
+	blob = drmModeGetPropertyBlob(drm->fd, blob_id);
 	if (!blob)
 		goto fallback;
 
@@ -4307,7 +4391,7 @@ fallback:
 static struct drm_plane *
 drm_plane_create(struct drm_backend *b, const drmModePlane *kplane,
 		 struct drm_output *output, enum wdrm_plane_type type,
-		 uint32_t format)
+		 uint32_t format, struct drm_dev *drm)
 {
 	struct drm_plane *plane;
 	drmModeObjectProperties *props;
@@ -4325,24 +4409,30 @@ drm_plane_create(struct drm_backend *b, const drmModePlane *kplane,
 	plane->state_cur = drm_plane_state_alloc(NULL, plane);
 	plane->state_cur->complete = true;
 
+	if (output)
+		assert (output->drm == drm);
+
+
 	if (kplane) {
 		plane->possible_crtcs = kplane->possible_crtcs;
 		plane->plane_id = kplane->plane_id;
 
-		props = drmModeObjectGetProperties(b->drm.fd, kplane->plane_id,
+		props = drmModeObjectGetProperties(drm->fd, kplane->plane_id,
 						   DRM_MODE_OBJECT_PLANE);
 		if (!props) {
 			weston_log("couldn't get plane properties\n");
 			goto err;
 		}
 		drm_property_info_populate(b, plane_props, plane->props,
-					   WDRM_PLANE__COUNT, props);
+					   WDRM_PLANE__COUNT, props,
+					   drm);
 		plane->type =
 			drm_property_get_value(&plane->props[WDRM_PLANE_TYPE],
 					       props,
 					       WDRM_PLANE_TYPE__COUNT);
 
-		if (drm_plane_populate_formats(plane, kplane, props) < 0) {
+		if (drm_plane_populate_formats(plane, kplane, props,
+					       drm) < 0) {
 			drmModeFreeObjectProperties(props);
 			goto err;
 		}
@@ -4432,7 +4522,8 @@ drm_output_find_special_plane(struct drm_backend *b, struct drm_output *output,
 			break;
 		}
 
-		return drm_plane_create(b, NULL, output, type, format);
+		return drm_plane_create(b, NULL, output, type, format,
+					output->drm);
 	}
 
 	wl_list_for_each(plane, &b->plane_list, link) {
@@ -4477,8 +4568,10 @@ drm_output_find_special_plane(struct drm_backend *b, struct drm_output *output,
 static void
 drm_plane_destroy(struct drm_plane *plane)
 {
+	/*FIXME BUG: plane->state_cur is not always valid leading to a segfault */
 	if (plane->type == WDRM_PLANE_TYPE_OVERLAY)
-		drmModeSetPlane(plane->backend->drm.fd, plane->plane_id,
+		drmModeSetPlane(plane->state_cur->output->drm->fd,
+				plane->plane_id,
 				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 	drm_plane_state_free(plane->state_cur, true);
 	drm_property_info_free(plane->props, WDRM_PLANE__COUNT);
@@ -4559,8 +4652,11 @@ create_sprites(struct drm_backend *b)
 	drmModePlaneRes *kplane_res;
 	drmModePlane *kplane;
 	struct drm_plane *drm_plane;
+	struct drm_dev *drm;
 	uint32_t i;
-	kplane_res = drmModeGetPlaneResources(b->drm.fd);
+
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+	kplane_res = drmModeGetPlaneResources(drm->fd);
 	if (!kplane_res) {
 		weston_log("failed to get plane resources: %s\n",
 			strerror(errno));
@@ -4568,12 +4664,12 @@ create_sprites(struct drm_backend *b)
 	}
 
 	for (i = 0; i < kplane_res->count_planes; i++) {
-		kplane = drmModeGetPlane(b->drm.fd, kplane_res->planes[i]);
+		kplane = drmModeGetPlane(drm->fd, kplane_res->planes[i]);
 		if (!kplane)
 			continue;
 
 		drm_plane = drm_plane_create(b, kplane, NULL,
-		                             WDRM_PLANE_TYPE__COUNT, 0);
+					     WDRM_PLANE_TYPE__COUNT, 0, drm);
 		drmModeFreePlane(kplane);
 		if (!drm_plane)
 			continue;
@@ -4585,6 +4681,7 @@ create_sprites(struct drm_backend *b)
 	}
 
 	drmModeFreePlaneResources(kplane_res);
+	}
 }
 
 /**
@@ -4663,10 +4760,11 @@ drm_output_add_mode(struct drm_output *output, const drmModeModeInfo *info)
  * Destroys a mode, and removes it from the list.
  */
 static void
-drm_output_destroy_mode(struct drm_backend *backend, struct drm_mode *mode)
+drm_output_destroy_mode(struct drm_backend *backend, struct drm_mode *mode,
+			struct drm_dev *drm)
 {
 	if (mode->blob_id)
-		drmModeDestroyPropertyBlob(backend->drm.fd, mode->blob_id);
+		drmModeDestroyPropertyBlob(drm->fd, mode->blob_id);
 	wl_list_remove(&mode->base.link);
 	free(mode);
 }
@@ -4677,12 +4775,13 @@ drm_output_destroy_mode(struct drm_backend *backend, struct drm_mode *mode)
  * @param mode_list The list linked by drm_mode::base.link.
  */
 static void
-drm_mode_list_destroy(struct drm_backend *backend, struct wl_list *mode_list)
+drm_mode_list_destroy(struct drm_backend *backend, struct wl_list *mode_list,
+		      struct drm_dev *drm)
 {
 	struct drm_mode *mode, *next;
 
 	wl_list_for_each_safe(mode, next, mode_list, base.link)
-		drm_output_destroy_mode(backend, mode);
+		drm_output_destroy_mode(backend, mode, drm);
 }
 
 static int
@@ -4915,14 +5014,15 @@ drm_output_init_cursor_egl(struct drm_output *output, struct drm_backend *b)
 	for (i = 0; i < ARRAY_LENGTH(output->gbm_cursor_fb); i++) {
 		struct gbm_bo *bo;
 
-		bo = gbm_bo_create(b->gbm, b->cursor_width, b->cursor_height,
+		bo = gbm_bo_create(output->drm->gbm, b->cursor_width, b->cursor_height,
 				   GBM_FORMAT_ARGB8888,
 				   GBM_BO_USE_CURSOR | GBM_BO_USE_WRITE);
 		if (!bo)
 			goto err;
 
 		output->gbm_cursor_fb[i] =
-			drm_fb_get_from_bo(bo, b, false, BUFFER_CURSOR);
+			drm_fb_get_from_bo(bo, b, false, BUFFER_CURSOR,
+					   output->drm);
 		if (!output->gbm_cursor_fb[i]) {
 			gbm_bo_destroy(bo);
 			goto err;
@@ -4965,7 +5065,7 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 #ifdef HAVE_GBM_MODIFIERS
 	if (plane->formats[i].count_modifiers > 0) {
 		output->gbm_surface =
-			gbm_surface_create_with_modifiers(b->gbm,
+			gbm_surface_create_with_modifiers(output->drm->gbm,
 							  mode->width,
 							  mode->height,
 							  output->gbm_format,
@@ -4975,7 +5075,7 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 #endif
 	{
 		output->gbm_surface =
-		    gbm_surface_create(b->gbm, mode->width, mode->height,
+		    gbm_surface_create(output->drm->gbm, mode->width, mode->height,
 				       output->gbm_format,
 				       output->gbm_bo_flags);
 	}
@@ -5048,7 +5148,8 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 
 	/* FIXME error checking */
 	for (i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
-		output->dumb[i] = drm_fb_create_dumb(b, w, h, format);
+		output->dumb[i] = drm_fb_create_dumb(b, w, h, format,
+						     output->drm);
 		if (!output->dumb[i])
 			goto err;
 
@@ -5064,7 +5165,7 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 		flags |= PIXMAN_RENDERER_OUTPUT_USE_SHADOW;
 
 	if (pixman_renderer_output_create(&output->base, flags) < 0)
- 		goto err;
+		goto err;
 
 	weston_log("DRM: output %s %s shadow framebuffer.\n", output->base.name,
 		   b->use_pixman_shadow ? "uses" : "does not use");
@@ -5175,7 +5276,7 @@ edid_parse(struct drm_edid *edid, const uint8_t *data, size_t length)
 	 * /--08--\/--09--\
 	 * 7654321076543210
 	 * |\---/\---/\---/
-	 * R  C1   C2   C3 */
+	 * R  C1   C2	C3 */
 	edid->pnp_id[0] = 'A' + ((data[EDID_OFFSET_PNPID + 0] & 0x7c) / 4) - 1;
 	edid->pnp_id[1] = 'A' + ((data[EDID_OFFSET_PNPID + 0] & 0x3) * 8) + ((data[EDID_OFFSET_PNPID + 1] & 0xe0) / 32) - 1;
 	edid->pnp_id[2] = 'A' + (data[EDID_OFFSET_PNPID + 1] & 0x1f) - 1;
@@ -5244,7 +5345,7 @@ find_and_parse_output_edid(struct drm_head *head,
 	if (!blob_id)
 		return;
 
-	edid_blob = drmModeGetPropertyBlob(head->backend->drm.fd, blob_id);
+	edid_blob = drmModeGetPropertyBlob(head->drm->fd, blob_id);
 	if (!edid_blob)
 		return;
 
@@ -5347,9 +5448,13 @@ drm_output_attach_head(struct weston_output *output_base,
 		       struct weston_head *head_base)
 {
 	struct drm_backend *b = to_drm_backend(output_base->compositor);
+	struct drm_head *head = to_drm_head(head_base);
+	struct drm_output *output = to_drm_output(output_base);
 
 	if (wl_list_length(&output_base->head_list) >= MAX_CLONED_CONNECTORS)
 		return -1;
+
+	output->drm = head->drm;
 
 	if (!output_base->enabled)
 		return 0;
@@ -5358,13 +5463,15 @@ drm_output_attach_head(struct weston_output *output_base,
 	 * This is actually impossible without major infrastructure
 	 * work. */
 
+
+
 	/* Need to go through modeset to add connectors. */
 	/* XXX: Ideally we'd do this per-output, not globally. */
 	/* XXX: Doing it globally, what guarantees another output's update
 	 * will not clear the flag before this output is updated?
 	 */
 	b->state_invalid = true;
-
+	
 	weston_output_schedule_repaint(output_base);
 
 	return 0;
@@ -5430,7 +5537,6 @@ u32distance(uint32_t a, uint32_t b)
  *         uint16_t vdisplay, vsync_start, vsync_end, vtotal, vscan;
  *
  *         uint32_t vrefresh;
- *
  *         uint32_t flags;
  *         uint32_t type;
  *         char name[DRM_DISPLAY_MODE_LEN];
@@ -5489,7 +5595,7 @@ drm_output_try_add_mode(struct drm_output *output, const drmModeModeInfo *info)
 
 	if (chosen == info) {
 		backend = to_drm_backend(output->base.compositor);
-		drm_output_destroy_mode(backend, mode);
+		drm_output_destroy_mode(backend, mode, output->drm);
 		chosen = NULL;
 	}
 
@@ -5524,7 +5630,7 @@ drm_output_update_modelist_from_heads(struct drm_output *output)
 
 	assert(!output->base.enabled);
 
-	drm_mode_list_destroy(backend, &output->base.mode_list);
+	drm_mode_list_destroy(backend, &output->base.mode_list, output->drm);
 
 	wl_list_for_each(head_base, &output->base.head_list, output_link) {
 		head = to_drm_head(head_base);
@@ -5657,7 +5763,7 @@ drm_output_choose_initial_mode(struct drm_backend *backend,
 static int
 drm_head_read_current_setup(struct drm_head *head, struct drm_backend *backend)
 {
-	int drm_fd = backend->drm.fd;
+	int drm_fd = head->drm->fd;
 	drmModeEncoder *encoder;
 	drmModeCrtc *crtc;
 
@@ -5743,12 +5849,11 @@ drm_output_set_seat(struct weston_output *base,
 static int
 drm_output_init_gamma_size(struct drm_output *output)
 {
-	struct drm_backend *backend = to_drm_backend(output->base.compositor);
 	drmModeCrtc *crtc;
 
 	assert(output->base.compositor);
 	assert(output->crtc_id != 0);
-	crtc = drmModeGetCrtc(backend->drm.fd, output->crtc_id);
+	crtc = drmModeGetCrtc(output->drm->fd, output->crtc_id);
 	if (!crtc)
 		return -1;
 
@@ -5767,7 +5872,7 @@ drm_head_get_possible_crtcs_mask(struct drm_head *head)
 	int i;
 
 	for (i = 0; i < head->connector->count_encoders; i++) {
-		encoder = drmModeGetEncoder(head->backend->drm.fd,
+		encoder = drmModeGetEncoder(head->drm->fd,
 					    head->connector->encoders[i]);
 		if (!encoder)
 			continue;
@@ -5788,7 +5893,6 @@ drm_crtc_get_index(drmModeRes *resources, uint32_t crtc_id)
 		if (resources->crtcs[i] == crtc_id)
 			return i;
 	}
-
 	assert(0 && "unknown crtc id");
 	return -1;
 }
@@ -5822,7 +5926,7 @@ drm_output_pick_crtc(struct drm_output *output, drmModeRes *resources)
 	/* Accumulate a mask of possible crtcs and find existing routings. */
 	wl_list_for_each(base, &output->base.head_list, output_link) {
 		head = to_drm_head(base);
-
+		if (head->drm != output->drm) continue;
 		possible_crtcs &= drm_head_get_possible_crtcs_mask(head);
 
 		crtc_id = head->inherited_crtc_id;
@@ -5939,14 +6043,14 @@ drm_output_init_crtc(struct drm_output *output, drmModeRes *resources)
 	output->crtc_id = resources->crtcs[i];
 	output->pipe = i;
 
-	props = drmModeObjectGetProperties(b->drm.fd, output->crtc_id,
+	props = drmModeObjectGetProperties(output->drm->fd, output->crtc_id,
 					   DRM_MODE_OBJECT_CRTC);
 	if (!props) {
 		weston_log("failed to get CRTC properties\n");
 		goto err_crtc;
 	}
 	drm_property_info_populate(b, crtc_props, output->props_crtc,
-				   WDRM_CRTC__COUNT, props);
+				   WDRM_CRTC__COUNT, props, output->drm);
 	drmModeFreeObjectProperties(props);
 
 	output->scanout_plane =
@@ -6053,7 +6157,7 @@ drm_output_enable(struct weston_output *base)
 
 	assert(!output->virtual);
 
-	resources = drmModeGetResources(b->drm.fd);
+	resources = drmModeGetResources(output->drm->fd);
 	if (!resources) {
 		weston_log("drmModeGetResources failed\n");
 		return -1;
@@ -6134,7 +6238,7 @@ drm_output_deinit(struct weston_output *base)
 			wl_list_remove(&output->cursor_plane->base.link);
 			wl_list_init(&output->cursor_plane->base.link);
 			/* Turn off hardware cursor */
-			drmModeSetCursor(b->drm.fd, output->crtc_id, 0, 0, 0);
+			drmModeSetCursor(output->drm->fd, output->crtc_id, 0, 0, 0);
 		}
 	}
 
@@ -6162,7 +6266,7 @@ drm_output_destroy(struct weston_output *base)
 	if (output->base.enabled)
 		drm_output_deinit(&output->base);
 
-	drm_mode_list_destroy(b, &output->base.mode_list);
+	drm_mode_list_destroy(b, &output->base.mode_list, output->drm);
 
 	if (output->pageflip_timer)
 		wl_event_source_remove(output->pageflip_timer);
@@ -6250,7 +6354,7 @@ drm_head_assign_connector_info(struct drm_head *head,
 	assert(connector);
 	assert(head->connector_id == connector->connector_id);
 
-	props = drmModeObjectGetProperties(head->backend->drm.fd,
+	props = drmModeObjectGetProperties(head->drm->fd,
 					   head->connector_id,
 					   DRM_MODE_OBJECT_CONNECTOR);
 	if (!props) {
@@ -6265,7 +6369,7 @@ drm_head_assign_connector_info(struct drm_head *head,
 
 	drm_property_info_populate(head->backend, connector_props,
 				   head->props_conn,
-				   WDRM_CONNECTOR__COUNT, props);
+				   WDRM_CONNECTOR__COUNT, props, head->drm);
 	find_and_parse_output_edid(head, props, &make, &model, &serial_number);
 	weston_head_set_monitor_strings(&head->base, make, model, serial_number);
 	weston_head_set_non_desktop(&head->base,
@@ -6313,7 +6417,7 @@ drm_head_update_info(struct drm_head *head)
 {
 	drmModeConnector *connector;
 
-	connector = drmModeGetConnector(head->backend->drm.fd,
+	connector = drmModeGetConnector(head->drm->fd,
 					head->connector_id);
 	if (!connector) {
 		weston_log("DRM: getting connector info for '%s' failed.\n",
@@ -6326,6 +6430,22 @@ drm_head_update_info(struct drm_head *head)
 
 	if (head->base.device_changed)
 		drm_head_log_info(head, "updated");
+}
+
+static struct drm_dev*
+get_drm_device_from_udev(struct drm_backend *b, struct udev_device *udev_dev)
+{
+	struct drm_dev *drm;
+
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		if (!strcmp(udev_device_get_syspath(drm->udev),
+			    udev_device_get_syspath(udev_dev)))
+			return drm;
+	}
+	weston_log("%s could not find device %s, aborting\n",
+		   __func__,
+		   udev_device_get_syspath(udev_dev));
+	assert(0);
 }
 
 /**
@@ -6346,12 +6466,15 @@ drm_head_create(struct drm_backend *backend, uint32_t connector_id,
 	struct drm_head *head;
 	drmModeConnector *connector;
 	char *name;
+	struct drm_dev *drm;
 
 	head = zalloc(sizeof *head);
 	if (!head)
 		return NULL;
 
-	connector = drmModeGetConnector(backend->drm.fd, connector_id);
+	drm = get_drm_device_from_udev(backend, drm_device);
+
+	connector = drmModeGetConnector(drm->fd, connector_id);
 	if (!connector)
 		goto err_alloc;
 
@@ -6364,6 +6487,7 @@ drm_head_create(struct drm_backend *backend, uint32_t connector_id,
 
 	head->connector_id = connector_id;
 	head->backend = backend;
+	head->drm = drm;
 
 	head->backlight = backlight_init(drm_device, connector->connector_type);
 
@@ -6430,6 +6554,7 @@ drm_output_create(struct weston_compositor *compositor, const char *name)
 	struct drm_backend *b = to_drm_backend(compositor);
 	struct drm_output *output;
 
+
 	output = zalloc(sizeof *output);
 	if (output == NULL)
 		return NULL;
@@ -6455,23 +6580,27 @@ drm_output_create(struct weston_compositor *compositor, const char *name)
 	return &output->base;
 }
 
+
 static int
 drm_backend_create_heads(struct drm_backend *b, struct udev_device *drm_device)
 {
 	struct drm_head *head;
 	drmModeRes *resources;
+	struct drm_dev *drm;
 	int i;
 
-	resources = drmModeGetResources(b->drm.fd);
+	drm = get_drm_device_from_udev(b, drm_device);
+
+	resources = drmModeGetResources(drm->fd);
 	if (!resources) {
 		weston_log("drmModeGetResources failed\n");
 		return -1;
 	}
 
-	b->min_width  = resources->min_width;
-	b->max_width  = resources->max_width;
-	b->min_height = resources->min_height;
-	b->max_height = resources->max_height;
+	drm->min_width  = resources->min_width;
+	drm->max_width  = resources->max_width;
+	drm->min_height = resources->min_height;
+	drm->max_height = resources->max_height;
 
 	for (i = 0; i < resources->count_connectors; i++) {
 		uint32_t connector_id = resources->connectors[i];
@@ -6497,8 +6626,10 @@ drm_backend_update_heads(struct drm_backend *b, struct udev_device *drm_device)
 	struct weston_head *base, *next;
 	struct drm_head *head;
 	int i;
+	struct drm_dev *drm;
 
-	resources = drmModeGetResources(b->drm.fd);
+	drm = get_drm_device_from_udev(b, drm_device);
+	resources = drmModeGetResources(drm->fd);
 	if (!resources) {
 		weston_log("drmModeGetResources failed\n");
 		return;
@@ -6551,9 +6682,20 @@ udev_event_is_hotplug(struct drm_backend *b, struct udev_device *device)
 {
 	const char *sysnum;
 	const char *val;
+	bool found = false;
+	struct drm_dev *drm;
 
 	sysnum = udev_device_get_sysnum(device);
-	if (!sysnum || atoi(sysnum) != b->drm.id)
+	if (!sysnum)
+		return 0;
+
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		if (atoi(sysnum) == drm->id) {
+			found = true;
+			break;
+		}
+	}
+	if (!found)
 		return 0;
 
 	val = udev_device_get_property_value(device, "HOTPLUG");
@@ -6584,11 +6726,14 @@ drm_destroy(struct weston_compositor *ec)
 {
 	struct drm_backend *b = to_drm_backend(ec);
 	struct weston_head *base, *next;
+	struct drm_dev *drm;
 
 	udev_input_destroy(&b->input);
 
 	wl_event_source_remove(b->udev_drm_source);
-	wl_event_source_remove(b->drm_source);
+
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		wl_event_source_remove(drm->drm_source);
 
 	b->shutting_down = true;
 
@@ -6601,8 +6746,9 @@ drm_destroy(struct weston_compositor *ec)
 	wl_list_for_each_safe(base, next, &ec->head_list, compositor_link)
 		drm_head_destroy(to_drm_head(base));
 
-	if (b->gbm)
-		gbm_device_destroy(b->gbm);
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+	if (drm->gbm)
+		gbm_device_destroy(drm->gbm);
 
 	udev_monitor_unref(b->udev_monitor);
 	udev_unref(b->udev);
@@ -6611,8 +6757,10 @@ drm_destroy(struct weston_compositor *ec)
 
 	wl_array_release(&b->unused_crtcs);
 
-	close(b->drm.fd);
-	free(b->drm.filename);
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+	close(drm->fd);
+	free(drm->filename);
+	}
 	free(b);
 }
 
@@ -6647,7 +6795,7 @@ session_notify(struct wl_listener *listener, void *data)
 		wl_list_for_each(output, &compositor->output_list, base.link) {
 			output->base.repaint_needed = false;
 			if (output->cursor_plane)
-				drmModeSetCursor(b->drm.fd, output->crtc_id,
+				drmModeSetCursor(output->drm->fd, output->crtc_id,
 						 0, 0, 0);
 		}
 
@@ -6658,7 +6806,7 @@ session_notify(struct wl_listener *listener, void *data)
 			if (plane->type != WDRM_PLANE_TYPE_OVERLAY)
 				continue;
 
-			drmModeSetPlane(b->drm.fd,
+			drmModeSetPlane(output->drm->fd,
 					plane->plane_id,
 					output->crtc_id, 0, 0,
 					0, 0, 0, 0, 0, 0, 0, 0);
@@ -6677,6 +6825,7 @@ drm_device_is_kms(struct drm_backend *b, struct udev_device *device)
 	const char *sysnum = udev_device_get_sysnum(device);
 	drmModeRes *res;
 	int id, fd;
+	struct drm_dev *drm;
 
 	if (!filename)
 		return false;
@@ -6702,13 +6851,24 @@ drm_device_is_kms(struct drm_backend *b, struct udev_device *device)
 
 	/* We can be called successfully on multiple devices; if we have,
 	 * clean up old entries. */
-	if (b->drm.fd >= 0)
-		weston_launcher_close(b->compositor->launcher, b->drm.fd);
-	free(b->drm.filename);
 
-	b->drm.fd = fd;
-	b->drm.id = id;
-	b->drm.filename = strdup(filename);
+	if (!b->multi_drm && !wl_list_empty(&b->drm_list)) {
+		wl_list_for_each(drm, &b->drm_list, drm_link) {
+			if (drm->fd >= 0)
+				weston_launcher_close(b->compositor->launcher, drm->fd);
+			free(drm->filename);
+	       }
+	}
+	else 
+	  drm = zalloc (sizeof(struct drm_dev));
+
+	drm->fd = fd;
+	drm->id = id;
+	drm->filename = strdup(filename);
+	drm->udev = device;
+	drm->gbm = NULL;
+	wl_list_insert(&b->drm_list, &drm->drm_link);
+	weston_log("%s drm device %s added\n", __func__, filename);
 
 	drmModeFreeResources(res);
 
@@ -6738,6 +6898,7 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 	struct udev_list_entry *entry;
 	const char *path, *device_seat, *id;
 	struct udev_device *device, *drm_device, *pci;
+	struct drm_dev *drm;
 
 	e = udev_enumerate_new(b->udev);
 	udev_enumerate_add_match_subsystem(e, "drm");
@@ -6802,7 +6963,10 @@ find_primary_gpu(struct drm_backend *b, const char *seat)
 
 	/* If we're returning a device to use, we must have an open FD for
 	 * it. */
-	assert(!!drm_device == (b->drm.fd >= 0));
+	assert (wl_list_length(&b->drm_list) == 1);
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		assert(drm->fd >= 0);
+	assert(drm_device);
 
 	udev_enumerate_unref(e);
 	return drm_device;
@@ -6812,6 +6976,7 @@ static struct udev_device *
 open_specific_drm_device(struct drm_backend *b, const char *name)
 {
 	struct udev_device *device;
+	struct drm_dev *drm;
 
 	device = udev_device_new_from_subsystem_sysname(b->udev, "drm", name);
 	if (!device) {
@@ -6827,9 +6992,63 @@ open_specific_drm_device(struct drm_backend *b, const char *name)
 
 	/* If we're returning a device to use, we must have an open FD for
 	 * it. */
-	assert(b->drm.fd >= 0);
+	assert (wl_list_length(&b->drm_list) == 1);
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		assert(drm->fd >= 0);
 
 	return device;
+}
+
+/*
+ * Find all GPUs
+ */
+
+static void
+find_gpu_devices(struct drm_backend *b, const char *seat)
+{
+	struct udev_enumerate *e;
+	struct udev_list_entry *entry;
+	const char *path, *device_seat;
+	struct udev_device *device, *drm_device;
+	uint32_t num_devices = 0;
+
+	e = udev_enumerate_new(b->udev);
+	udev_enumerate_add_match_subsystem(e, "drm");
+	udev_enumerate_add_match_sysname(e, "card[0-9]*");
+
+	udev_enumerate_scan_devices(e);
+	drm_device = NULL;
+	udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(e)) {
+
+		path = udev_list_entry_get_name(entry);
+		device = udev_device_new_from_syspath(b->udev, path);
+		if (!device)
+			continue;
+		device_seat = udev_device_get_property_value(device, "ID_SEAT");
+		if (!device_seat)
+			device_seat = default_seat;
+		if (strcmp(device_seat, seat)) {
+			udev_device_unref(device);
+			continue;
+		}
+
+		/* Make sure this device is actually capable of modesetting;
+		 * if this call succeeds, b->drm.{fd,filename} will be set,
+		 * and any old values freed. */
+		if (!drm_device_is_kms(b, device)) {
+			udev_device_unref(device);
+			continue;
+		}
+
+		num_devices++;
+	}
+
+	assert (num_devices = wl_list_length(&b->drm_list));
+	weston_log("%s %d drm devices found\n", __func__, num_devices);
+
+	udev_enumerate_unref(e);
+	if (drm_device != NULL)
+	  udev_device_unref(drm_device);
 }
 
 static void
@@ -6880,7 +7099,7 @@ recorder_frame_notify(struct wl_listener *listener, void *data)
 	if (!output->recorder)
 		return;
 
-	ret = drmPrimeHandleToFD(b->drm.fd,
+	ret = drmPrimeHandleToFD(output->drm->fd,
 				 output->scanout_plane->state_cur->fb->handles[0],
 				 DRM_CLOEXEC, &fd);
 	if (ret) {
@@ -6903,13 +7122,17 @@ create_recorder(struct drm_backend *b, int width, int height,
 {
 	int fd;
 	drm_magic_t magic;
+	struct drm_dev *drm;
 
-	fd = open(b->drm.filename, O_RDWR | O_CLOEXEC);
-	if (fd < 0)
-		return NULL;
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		fd = open(drm->filename, O_RDWR | O_CLOEXEC);
+		if (fd < 0)
+			return NULL;
+		else break;
+	}
 
 	drmGetMagic(fd, &magic);
-	drmAuthMagic(b->drm.fd, magic);
+	drmAuthMagic(drm->fd, magic);
 
 	return vaapi_recorder_create(fd, width, height, filename);
 }
@@ -6969,6 +7192,7 @@ switch_to_gl_renderer(struct drm_backend *b)
 {
 	struct drm_output *output;
 	bool dmabuf_support_inited;
+	struct drm_dev *drm;
 
 	if (!b->use_pixman)
 		return;
@@ -6977,11 +7201,13 @@ switch_to_gl_renderer(struct drm_backend *b)
 
 	weston_log("Switching to GL renderer\n");
 
-	b->gbm = create_gbm_device(b->drm.fd);
-	if (!b->gbm) {
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		drm->gbm = create_gbm_device(drm->fd);
+	if (!drm->gbm) {
 		weston_log("Failed to create gbm device. "
 			   "Aborting renderer switch\n");
 		return;
+	}
 	}
 
 	wl_list_for_each(output, &b->compositor->output_list, base.link)
@@ -6989,11 +7215,13 @@ switch_to_gl_renderer(struct drm_backend *b)
 
 	b->compositor->renderer->destroy(b->compositor);
 
-	if (drm_backend_create_gl_renderer(b) < 0) {
-		gbm_device_destroy(b->gbm);
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+	if (drm_backend_create_gl_renderer(b, drm) < 0) {
+		gbm_device_destroy(drm->gbm);
 		weston_log("Failed to create GL renderer. Quitting.\n");
 		/* FIXME: we need a function to shutdown cleanly */
 		assert(0);
+	}
 	}
 
 	wl_list_for_each(output, &b->compositor->output_list, base.link)
@@ -7033,7 +7261,7 @@ drm_virtual_output_submit_frame(struct drm_output *output,
 	int fd, ret;
 
 	assert(fb->num_planes == 1);
-	ret = drmPrimeHandleToFD(b->drm.fd, fb->handles[0], DRM_CLOEXEC, &fd);
+	ret = drmPrimeHandleToFD(output->drm->fd, fb->handles[0], DRM_CLOEXEC, &fd);
 	if (ret) {
 		weston_log("drmPrimeHandleFD failed, errno=%d\n", errno);
 		return -1;
@@ -7291,6 +7519,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	const char *seat_id = default_seat;
 	const char *session_seat;
 	int ret;
+	struct drm_dev *drm;
 
 	session_seat = getenv("XDG_SEAT");
 	if (session_seat)
@@ -7306,17 +7535,19 @@ drm_backend_create(struct weston_compositor *compositor,
 		return NULL;
 
 	b->state_invalid = true;
-	b->drm.fd = -1;
+
+	wl_list_init(&b->drm_list);
 	wl_array_init(&b->unused_crtcs);
 
 	b->compositor = compositor;
 	b->use_pixman = config->use_pixman;
 	b->pageflip_timeout = config->pageflip_timeout;
 	b->use_pixman_shadow = config->use_pixman_shadow;
+	b->multi_drm = config->multi_drm;
 
 	b->debug = weston_compositor_add_debug_scope(compositor, "drm-backend",
 						     "Debug messages from DRM/KMS backend\n",
-					     	     NULL, NULL);
+						     NULL, NULL);
 
 	compositor->backend = &b->base;
 
@@ -7344,12 +7575,10 @@ drm_backend_create(struct weston_compositor *compositor,
 
 	if (config->specific_device)
 		drm_device = open_specific_drm_device(b, config->specific_device);
+	else if (config->multi_drm)
+		find_gpu_devices(b, seat_id);
 	else
 		drm_device = find_primary_gpu(b, seat_id);
-	if (drm_device == NULL) {
-		weston_log("no drm device found\n");
-		goto err_udev;
-	}
 
 	if (init_kms_caps(b) < 0) {
 		weston_log("failed to initialize kms\n");
@@ -7386,20 +7615,22 @@ drm_backend_create(struct weston_compositor *compositor,
 		goto err_sprite;
 	}
 
-	if (drm_backend_create_heads(b, drm_device) < 0) {
-		weston_log("Failed to create heads for %s\n", b->drm.filename);
-		goto err_udev_input;
+	wl_list_for_each(drm, &b->drm_list, drm_link) {
+		if (drm_backend_create_heads(b, drm->udev) < 0) {
+			weston_log("Failed to create heads for %s\n", drm->filename);
+			goto err_udev_input;
+		}
+
+		loop = wl_display_get_event_loop(compositor->wl_display);
+		drm->drm_source =
+			wl_event_loop_add_fd(loop, drm->fd,
+				     WL_EVENT_READABLE, on_drm_input, b);
 	}
 
 	/* A this point we have some idea of whether or not we have a working
 	 * cursor plane. */
 	if (!b->cursors_are_broken)
 		compositor->capabilities |= WESTON_CAP_CURSOR_PLANE;
-
-	loop = wl_display_get_event_loop(compositor->wl_display);
-	b->drm_source =
-		wl_event_loop_add_fd(loop, b->drm.fd,
-				     WL_EVENT_READABLE, on_drm_input, b);
 
 	b->udev_monitor = udev_monitor_new_from_netlink(b->udev, "udev");
 	if (b->udev_monitor == NULL) {
@@ -7408,6 +7639,8 @@ drm_backend_create(struct weston_compositor *compositor,
 	}
 	udev_monitor_filter_add_match_subsystem_devtype(b->udev_monitor,
 							"drm", NULL);
+
+	loop = wl_display_get_event_loop(compositor->wl_display);
 	b->udev_drm_source =
 		wl_event_loop_add_fd(loop,
 				     udev_monitor_get_fd(b->udev_monitor),
@@ -7417,8 +7650,6 @@ drm_backend_create(struct weston_compositor *compositor,
 		weston_log("failed to enable udev-monitor receiving\n");
 		goto err_udev_monitor;
 	}
-
-	udev_device_unref(drm_device);
 
 	weston_compositor_add_debug_binding(compositor, KEY_O,
 					    planes_binding, b);
@@ -7453,24 +7684,28 @@ drm_backend_create(struct weston_compositor *compositor,
 		goto err_udev_monitor;
 	}
 
+	if (drm_device)
+		udev_device_unref(drm_device);
 	return b;
 
 err_udev_monitor:
 	wl_event_source_remove(b->udev_drm_source);
 	udev_monitor_unref(b->udev_monitor);
 err_drm_source:
-	wl_event_source_remove(b->drm_source);
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		wl_event_source_remove(drm->drm_source);
 err_udev_input:
 	udev_input_destroy(&b->input);
 err_sprite:
-	if (b->gbm)
-		gbm_device_destroy(b->gbm);
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		if (drm->gbm)
+			gbm_device_destroy(drm->gbm);
 	destroy_sprites(b);
 err_udev_dev:
-	udev_device_unref(drm_device);
+	wl_list_for_each(drm, &b->drm_list, drm_link)
+		udev_device_unref(drm->udev);
 err_launcher:
 	weston_launcher_destroy(compositor->launcher);
-err_udev:
 	udev_unref(b->udev);
 err_compositor:
 	weston_compositor_shutdown(compositor);

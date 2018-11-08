@@ -223,6 +223,7 @@ struct weston_drm_backend_config {
 
 	/** Use shadow buffer if using Pixman-renderer. */
 	bool use_pixman_shadow;
+        bool multi_drm;
 };
 
 #ifdef  __cplusplus

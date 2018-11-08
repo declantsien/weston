@@ -660,7 +660,8 @@ usage(int error_code)
 		"  --tty=TTY\t\tThe tty to use\n"
 		"  --drm-device=CARD\tThe DRM device to use, e.g. \"card0\".\n"
 		"  --use-pixman\t\tUse the pixman (CPU) renderer\n"
-		"  --current-mode\tPrefer current KMS mode over EDID preferred mode\n\n");
+		"  --current-mode\tPrefer current KMS mode over EDID preferred mode\n"
+		"  --multi-drm\t\tUse all possible drm devices\n\n");
 #endif
 
 #if defined(BUILD_FBDEV_COMPOSITOR)
@@ -2140,7 +2141,10 @@ load_drm_backend(struct weston_compositor *c,
 		{ WESTON_OPTION_STRING, "drm-device", 0, &config.specific_device },
 		{ WESTON_OPTION_BOOLEAN, "current-mode", 0, &wet->drm_use_current_mode },
 		{ WESTON_OPTION_BOOLEAN, "use-pixman", 0, &config.use_pixman },
+		{ WESTON_OPTION_BOOLEAN, "multi-drm", 0, &config.multi_drm },
 	};
+
+	config.multi_drm = false;
 
 	parse_options(options, ARRAY_LENGTH(options), argc, argv);
 
