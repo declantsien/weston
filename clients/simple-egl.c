@@ -43,6 +43,7 @@
 #include <EGL/eglext.h>
 
 #include "xdg-shell-unstable-v6-client-protocol.h"
+#include "alpha-compositing-unstable-v1-client-protocol.h"
 #include <sys/types.h>
 #include <unistd.h>
 #include "ivi-application-client-protocol.h"
@@ -75,6 +76,8 @@ struct display {
 	} egl;
 	struct window *window;
 	struct ivi_application *ivi_application;
+	struct zwp_alpha_compositing_v1 *alpha_compositing;
+	struct wl_array alpha_equations;
 
 	PFNEGLSWAPBUFFERSWITHDAMAGEEXTPROC swap_buffers_with_damage;
 };
@@ -98,6 +101,7 @@ struct window {
 	struct zxdg_surface_v6 *xdg_surface;
 	struct zxdg_toplevel_v6 *xdg_toplevel;
 	struct ivi_surface *ivi_surface;
+	struct zwp_blending_v1 *blending;
 	EGLSurface egl_surface;
 	struct wl_callback *callback;
 	int fullscreen, maximized, opaque, buffer_size, frame_sync, delay;
@@ -421,6 +425,10 @@ create_surface(struct window *window)
 
 	window->surface = wl_compositor_create_surface(display->compositor);
 
+	if (display->alpha_compositing)
+		window->blending = zwp_alpha_compositing_v1_get_blending(
+				display->alpha_compositing, window->surface);
+
 	window->native =
 		wl_egl_window_create(window->surface,
 				     window->geometry.width,
@@ -711,6 +719,28 @@ keyboard_handle_leave(void *data, struct wl_keyboard *keyboard,
 }
 
 static void
+set_blending(struct display *d, struct zwp_blending_v1 *blending,
+	     const char *name, uint32_t equation)
+{
+	int found = 0;
+	uint32_t *iter;
+
+	wl_array_for_each(iter, &d->alpha_equations) {
+		if (*iter == equation) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (found) {
+		printf("Blending equation -> %s!\n", name);
+		zwp_blending_v1_set_blending(blending, equation);
+	} else {
+		printf("Blending mode %s not supported\n", name);
+	}
+}
+
+static void
 keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
 		    uint32_t serial, uint32_t time, uint32_t key,
 		    uint32_t state)
@@ -726,6 +756,37 @@ keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
 		else
 			zxdg_toplevel_v6_set_fullscreen(d->window->xdg_toplevel,
 							NULL);
+	} else if (key >= KEY_1 && key <= KEY_0 && state) {
+		float alpha = 0.1 * (key - KEY_1 + 1);
+		printf("Blending alpha %f!\n", alpha);
+		zwp_blending_v1_set_alpha(d->window->blending, wl_fixed_from_double(alpha));
+	} else if (key == KEY_N && state) {
+		set_blending(d, d->window->blending, "none",
+			ZWP_BLENDING_V1_BLENDING_EQUATION_NONE);
+	} else if (key == KEY_O && state) {
+		set_blending(d, d->window->blending, "opaque",
+			ZWP_BLENDING_V1_BLENDING_EQUATION_OPAQUE);
+	} else if (key == KEY_P && state) {
+		set_blending(d, d->window->blending, "premultiplied",
+			ZWP_BLENDING_V1_BLENDING_EQUATION_PREMULTIPLIED);
+	} else if (key == KEY_S && state) {
+		set_blending(d, d->window->blending, "straight",
+			ZWP_BLENDING_V1_BLENDING_EQUATION_STRAIGHT);
+	} else if (key == KEY_F && state) {
+		set_blending(d, d->window->blending, "fromsource",
+			ZWP_BLENDING_V1_BLENDING_EQUATION_FROMSOURCE);
+	} else if (key == KEY_B && state) {
+		if (d->window->blending) {
+			printf("Blending object destroyed!\n");
+			zwp_blending_v1_destroy(d->window->blending);
+			d->window->blending = NULL;
+		} else {
+			printf("Blending object recreated!\n");
+			d->window->blending =
+				zwp_alpha_compositing_v1_get_blending(
+					d->alpha_compositing, d->window->surface);
+
+		}
 	} else if (key == KEY_ESC && state)
 		running = 0;
 }
@@ -793,6 +854,23 @@ static const struct zxdg_shell_v6_listener xdg_shell_listener = {
 };
 
 static void
+alpha_blending_equation(void *data, struct zwp_alpha_compositing_v1 *alpha,
+	       uint32_t equation)
+{
+	struct display *d = data;
+	uint32_t *new;
+
+	new = wl_array_add(&d->alpha_equations, sizeof *new);
+	if (new) {
+		*new = equation;
+	}
+}
+
+static const struct zwp_alpha_compositing_v1_listener alpha_listener = {
+	alpha_blending_equation,
+};
+
+static void
 registry_handle_global(void *data, struct wl_registry *registry,
 		       uint32_t name, const char *interface, uint32_t version)
 {
@@ -829,6 +907,12 @@ registry_handle_global(void *data, struct wl_registry *registry,
 		d->ivi_application =
 			wl_registry_bind(registry, name,
 					 &ivi_application_interface, 1);
+	} else if (strcmp(interface, "zwp_alpha_compositing_v1") == 0) {
+		d->alpha_compositing =
+			wl_registry_bind(registry, name,
+					 &zwp_alpha_compositing_v1_interface, 1);
+		zwp_alpha_compositing_v1_add_listener(d->alpha_compositing,
+						      &alpha_listener, d);
 	}
 }
 
@@ -871,6 +955,8 @@ main(int argc, char **argv)
 	struct window  window  = { 0 };
 	int i, ret = 0;
 
+	wl_array_init(&display.alpha_equations);
+
 	window.display = &display;
 	display.window = &window;
 	window.geometry.width  = 250;
@@ -904,6 +990,7 @@ main(int argc, char **argv)
 	wl_registry_add_listener(display.registry,
 				 &registry_listener, &display);
 
+	wl_display_dispatch(display.display);
 	wl_display_roundtrip(display.display);
 
 	init_egl(&display, &window);
@@ -952,6 +1039,8 @@ main(int argc, char **argv)
 	wl_registry_destroy(display.registry);
 	wl_display_flush(display.display);
 	wl_display_disconnect(display.display);
+
+	wl_array_release(&display.alpha_equations);
 
 	return 0;
 }
