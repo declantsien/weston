@@ -54,6 +54,7 @@
 #include "vertex-clipping.h"
 #include "linux-dmabuf.h"
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
+#include "alpha-compositing-unstable-v1-server-protocol.h"
 #include "pixel-formats.h"
 
 #include "shared/helpers.h"
@@ -879,11 +880,17 @@ shader_uniforms(struct gl_shader *shader,
 	int i;
 	struct gl_surface_state *gs = get_surface_state(view->surface);
 	struct gl_output_state *go = get_output_state(output);
+	float alpha = view->alpha;
+
+	if (view->blending_equation != ZWP_BLENDING_V1_BLENDING_EQUATION_NONE &&
+	    view->blending_equation != ZWP_BLENDING_V1_BLENDING_EQUATION_OPAQUE) {
+		alpha *= view->blending_alpha;
+	}
 
 	glUniformMatrix4fv(shader->proj_uniform,
 			   1, GL_FALSE, go->output_matrix.d);
 	glUniform4fv(shader->color_uniform, 1, gs->color);
-	glUniform1f(shader->alpha_uniform, view->alpha);
+	glUniform1f(shader->alpha_uniform, alpha);
 
 	for (i = 0; i < gs->num_textures; i++)
 		glUniform1i(shader->tex_uniforms[i], i);
@@ -900,6 +907,8 @@ draw_view(struct weston_view *ev, struct weston_output *output,
 	pixman_region32_t repaint;
 	/* opaque region in surface coordinates: */
 	pixman_region32_t surface_opaque;
+	pixman_region32_t surface_opaque_full;
+	pixman_region32_t *surface_opaque_src_ptr;
 	/* non-opaque region in surface coordinates: */
 	pixman_region32_t surface_blend;
 	GLint filter;
@@ -919,7 +928,18 @@ draw_view(struct weston_view *ev, struct weston_output *output,
 	if (!pixman_region32_not_empty(&repaint))
 		goto out;
 
-	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	/* Use glBlendFuncSeparate to stop the alpha component of the weston
+	 * window being changed, which would make content behind it visible.
+	 * */
+	if (ev->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_PREMULTIPLIED) {
+		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	} else if (ev->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_STRAIGHT) {
+		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+	} else if (ev->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_FROMSOURCE) {
+		glBlendFuncSeparate(GL_SRC_ALPHA, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
+	} else {
+		glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	}
 
 	if (gr->fan_debug) {
 		use_shader(gr, &gr->solid_shader);
@@ -951,14 +971,23 @@ draw_view(struct weston_view *ev, struct weston_output *output,
 	pixman_region32_subtract(&surface_blend, &surface_blend,
 				 &ev->surface->opaque);
 
+	if (ev->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_OPAQUE) {
+		pixman_region32_clear(&surface_blend);
+		pixman_region32_init_rect(&surface_opaque_full, 0, 0,
+					  ev->surface->width, ev->surface->height);
+		surface_opaque_src_ptr = &surface_opaque_full;
+	} else {
+		surface_opaque_src_ptr = &ev->surface->opaque;
+	}
+
 	/* XXX: Should we be using ev->transform.opaque here? */
 	pixman_region32_init(&surface_opaque);
 	if (ev->geometry.scissor_enabled)
 		pixman_region32_intersect(&surface_opaque,
-					  &ev->surface->opaque,
+					  surface_opaque_src_ptr,
 					  &ev->geometry.scissor);
 	else
-		pixman_region32_copy(&surface_opaque, &ev->surface->opaque);
+		pixman_region32_copy(&surface_opaque, surface_opaque_src_ptr);
 
 	if (pixman_region32_not_empty(&surface_opaque)) {
 		if (gs->shader == &gr->texture_shader_rgba) {
@@ -2186,6 +2215,21 @@ gl_renderer_query_dmabuf_modifiers(struct weston_compositor *wc, int format,
 	}
 
 	*num_modifiers = num;
+}
+
+static const uint32_t *
+gl_renderer_query_alpha_equations(struct weston_compositor *wc,
+				  int *num_equations) {
+	static const uint32_t equations[] = {
+		ZWP_BLENDING_V1_BLENDING_EQUATION_NONE,
+		ZWP_BLENDING_V1_BLENDING_EQUATION_OPAQUE,
+		ZWP_BLENDING_V1_BLENDING_EQUATION_PREMULTIPLIED,
+		ZWP_BLENDING_V1_BLENDING_EQUATION_STRAIGHT,
+		ZWP_BLENDING_V1_BLENDING_EQUATION_FROMSOURCE,
+	};
+
+	*num_equations = ARRAY_LENGTH(equations);
+	return equations;
 }
 
 static bool
@@ -3564,6 +3608,8 @@ gl_renderer_display_create(struct weston_compositor *ec, EGLenum platform,
 		gr->base.query_dmabuf_modifiers =
 			gl_renderer_query_dmabuf_modifiers;
 	}
+
+	gr->base.query_alpha_equations = gl_renderer_query_alpha_equations;
 
 	if (gr->has_surfaceless_context) {
 		weston_log("EGL_KHR_surfaceless_context available\n");
