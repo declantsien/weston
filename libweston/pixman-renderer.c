@@ -34,6 +34,7 @@
 
 #include "pixman-renderer.h"
 #include "shared/helpers.h"
+#include "alpha-compositing-unstable-v1-server-protocol.h"
 
 #include <linux/input.h>
 
@@ -342,6 +343,10 @@ repaint_region(struct weston_view *ev, struct weston_output *output,
 	pixman_filter_t filter;
 	pixman_image_t *mask_image;
 	pixman_color_t mask = { 0, };
+	float alpha = ev->alpha;
+
+	if (ev->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_PREMULTIPLIED)
+		alpha *= ev->blending_alpha;
 
 	if (po->shadow_image)
 		target_image = po->shadow_image;
@@ -361,8 +366,8 @@ repaint_region(struct weston_view *ev, struct weston_output *output,
 	if (ps->buffer_ref.buffer)
 		wl_shm_buffer_begin_access(ps->buffer_ref.buffer->shm_buffer);
 
-	if (ev->alpha < 1.0) {
-		mask.alpha = 0xffff * ev->alpha;
+	if (alpha < 1.0) {
+		mask.alpha = 0xffff * alpha;
 		mask_image = pixman_image_create_solid_fill(&mask);
 	} else {
 		mask_image = NULL;
@@ -402,6 +407,8 @@ draw_view_translated(struct weston_view *view, struct weston_output *output,
 	struct weston_surface *surface = view->surface;
 	/* non-opaque region in surface coordinates: */
 	pixman_region32_t surface_blend;
+	pixman_region32_t surface_opaque_full;
+	pixman_region32_t *surface_opaque_ptr;
 	/* region to be painted in output coordinates: */
 	pixman_region32_t repaint_output;
 
@@ -412,15 +419,27 @@ draw_view_translated(struct weston_view *view, struct weston_output *output,
 	 */
 	pixman_region32_init_rect(&surface_blend, 0, 0,
 				  surface->width, surface->height);
+	pixman_region32_init_rect(&surface_opaque_full, 0, 0,
+				  surface->width, surface->height);
 
-	if (!(view->alpha < 1.0)) {
+	float alpha = view->alpha;
+
+	if (view->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_PREMULTIPLIED)
+		alpha *= view->blending_alpha;
+
+	if (!(alpha < 1.0)) {
+		if (view->blending_equation == ZWP_BLENDING_V1_BLENDING_EQUATION_OPAQUE)
+			surface_opaque_ptr = &surface_opaque_full;
+		else
+			surface_opaque_ptr = &surface->opaque;
+
 		pixman_region32_subtract(&surface_blend, &surface_blend,
-					 &surface->opaque);
+					 surface_opaque_ptr);
 
-		if (pixman_region32_not_empty(&surface->opaque)) {
+		if (pixman_region32_not_empty(surface_opaque_ptr)) {
 			region_intersect_only_translation(&repaint_output,
 							  repaint_global,
-							  &surface->opaque,
+							  surface_opaque_ptr,
 							  view);
 			region_global_to_output(output, &repaint_output);
 
@@ -833,6 +852,20 @@ pixman_renderer_surface_copy_content(struct weston_surface *surface,
 	return 0;
 }
 
+static const uint32_t *
+pixman_renderer_surface_query_alpha_equations(struct weston_compositor *ec,
+					      int *num_equations)
+{
+	static const uint32_t equations[] = {
+		ZWP_BLENDING_V1_BLENDING_EQUATION_NONE,
+		ZWP_BLENDING_V1_BLENDING_EQUATION_OPAQUE,
+		ZWP_BLENDING_V1_BLENDING_EQUATION_PREMULTIPLIED,
+	};
+
+	*num_equations = ARRAY_LENGTH(equations);
+	return equations;
+}
+
 static void
 debug_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 	      uint32_t key, void *data)
@@ -875,6 +908,8 @@ pixman_renderer_init(struct weston_compositor *ec)
 		pixman_renderer_surface_get_content_size;
 	renderer->base.surface_copy_content =
 		pixman_renderer_surface_copy_content;
+	renderer->base.query_alpha_equations =
+		pixman_renderer_surface_query_alpha_equations;
 	ec->renderer = &renderer->base;
 	ec->capabilities |= WESTON_CAP_ROTATION_ANY;
 	ec->capabilities |= WESTON_CAP_CAPTURE_YFLIP;
