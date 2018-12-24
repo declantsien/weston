@@ -172,6 +172,13 @@ option(
 	description: 'List of DRM drivers to be supported by weston-simple-dmabuf-drm'
 )
 option(
+	'simple-hdr-video',
+	type: 'array',
+	choices: [ 'auto', 'intel' ],
+	value: [ 'intel' ],
+	description: 'List of DRM drivers to be supported by weston-simple-hdr-video'
+)
+option(
 	'demo-clients',
 	type: 'boolean',
 	value: true,
