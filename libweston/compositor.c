@@ -452,8 +452,8 @@ weston_surface_state_init(struct weston_surface_state *state)
 	state->buffer_viewport.buffer.src_width = wl_fixed_from_int(-1);
 	state->buffer_viewport.surface.width = -1;
 	state->buffer_viewport.changed = 0;
-
 	state->acquire_fence_fd = -1;
+	state->colorspace = WESTON_CS_BT709;
 }
 
 static void
@@ -531,6 +531,7 @@ weston_surface_create(struct weston_compositor *compositor)
 
 	weston_matrix_init(&surface->buffer_to_surface_matrix);
 	weston_matrix_init(&surface->surface_to_buffer_matrix);
+	surface->colorspace = WESTON_CS_BT709;
 
 	wl_list_init(&surface->pointer_constraints);
 
@@ -3384,6 +3385,8 @@ weston_surface_commit_state(struct weston_surface *surface,
 		free(surface->hdr_metadata);
 		surface->hdr_metadata = NULL;
 	}
+
+	surface->colorspace = state->colorspace;
 
 	wl_signal_emit(&surface->commit_signal, surface);
 }

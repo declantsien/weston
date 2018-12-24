@@ -46,6 +46,7 @@ extern "C" {
 #include <libweston/zalloc.h>
 #include <libweston/timeline-object.h>
 #include <libweston/hdr_metadata_defs.h>
+#include <libweston/colorspace.h>
 
 struct weston_geometry {
 	int32_t x, y;
@@ -1391,6 +1392,8 @@ struct weston_surface_state {
 	/* zwp_surface_synchronization_v1.get_release */
 	struct weston_buffer_release_reference buffer_release_ref;
 	struct weston_hdr_metadata *hdr_metadata;
+
+	uint32_t colorspace;
 };
 
 struct weston_surface_activation_data {
@@ -1522,6 +1525,7 @@ struct weston_surface {
 	struct weston_buffer_release_reference buffer_release_ref;
 	struct wl_resource *hdr_surface_resource;
 	struct weston_hdr_metadata *hdr_metadata;
+	uint32_t colorspace;
 };
 
 struct weston_subsurface {
@@ -2393,6 +2397,8 @@ void
 weston_buffer_send_server_error(struct weston_buffer *buffer,
 				      const char *msg);
 int weston_hdr_metadata_setup(struct weston_compositor *compositor);
+int weston_colorspace_setup(struct weston_compositor *compositor);
+
 
 #ifdef  __cplusplus
 }
