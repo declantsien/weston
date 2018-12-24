@@ -27,6 +27,7 @@ srcs_libweston = [
 	'touch-calibration.c',
 	'weston-debug.c',
 	'zoom.c',
+	'hdr_metadata.c',
 	'../shared/matrix.c',
 	'../shared/colorspace.c',
 	linux_dmabuf_unstable_v1_protocol_c,
@@ -55,6 +56,8 @@ srcs_libweston = [
 	viewporter_server_protocol_h,
 	weston_debug_protocol_c,
 	weston_debug_server_protocol_h,
+	hdr_metadata_unstable_v1_protocol_c,
+	hdr_metadata_unstable_v1_server_protocol_h,
 ]
 
 if get_option('renderer-gl')
