@@ -65,7 +65,7 @@ struct image {
 
 	struct {
 		double vert, horiz;
-		double vert_discrete, horiz_discrete;
+		double vert_v120, horiz_v120;
 	} axis;
 };
 
@@ -342,9 +342,9 @@ axis_discrete_handler(struct widget *widget, struct input *input,
 	struct image *image = data;
 
 	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
-		image->axis.vert_discrete = discrete;
+		image->axis.vert_v120 = discrete * 120;
 	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
-		image->axis.horiz_discrete = discrete;
+		image->axis.horiz_v120 = discrete * 120;
 }
 
 static void
@@ -356,27 +356,46 @@ axis_stop_handler(struct widget *widget, struct input *input,
 }
 
 static void
+axis_v120_handler(struct widget *widget, struct input *input,
+		  uint32_t axis, int32_t v120, void *data)
+{
+	struct image *image = data;
+
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		image->axis.vert_v120 = v120;
+	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+		image->axis.horiz_v120 = v120;
+}
+
+static void
 pointer_frame_handler(struct widget *widget, struct input *input, void *data)
 {
 	struct image *image = data;
 	double vert = image->axis.vert;
 	double horiz = image->axis.horiz;
 
-	if (image->axis.vert_discrete) {
-		if (input_get_seat_version(input) < 7)
-			vert = image->axis.vert_discrete * 10;
+	/* wl_pointer version < 8: 1 discrete value per wheel click
+	 * which was traditionally 10 axis units.
+	 * wl_pointer version 8+: one wheel click is a value of 120,
+	 * so let's normalize this into the same space.
+	 */
+	if (image->axis.vert_v120) {
+		if (input_get_seat_version(input) <
+		    WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
+			vert = image->axis.vert_v120 * 10;
 		else
-			vert = image->axis.vert_discrete / 12.0;
+			vert = image->axis.vert_v120 / 12.0;
 	}
 
-	if (image->axis.horiz_discrete) {
-		if (input_get_seat_version(input) < 7)
-			horiz = image->axis.horiz_discrete * 10;
+	if (image->axis.horiz_v120) {
+		if (input_get_seat_version(input) <
+		    WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
+			horiz = image->axis.horiz_v120 * 10;
 		else
-			horiz = image->axis.horiz_discrete / 12.0;
+			horiz = image->axis.horiz_v120 / 12.0;
 	}
 
-	if (image->axis.vert != 0.0 &&
+	if (vert != 0.0 &&
 	    input_get_modifiers(input) == MOD_CONTROL_MASK) {
 		/* set zoom level to 10% per 10 axis units */
 		zoom(image, (1.0 - vert / 100.0));
@@ -390,8 +409,8 @@ pointer_frame_handler(struct widget *widget, struct input *input, void *data)
 
 	image->axis.vert = 0.0;
 	image->axis.horiz = 0.0;
-	image->axis.vert_discrete = 0.0;
-	image->axis.horiz_discrete = 0.0;
+	image->axis.vert_v120 = 0;
+	image->axis.horiz_v120 = 0;
 }
 
 static void
@@ -467,7 +486,8 @@ image_create(struct display *display, const char *filename,
 				 axis_handler,
 				 axis_source_handler,
 				 axis_stop_handler,
-				 axis_discrete_handler);
+				 axis_discrete_handler,
+				 axis_v120_handler);
 	widget_set_pointer_frame_handler(image->widget,
 					 pointer_frame_handler);
 	window_set_key_handler(image->window, key_handler);
