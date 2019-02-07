@@ -157,6 +157,12 @@ option(
 	value: true,
 	description: 'WebP loading support'
 )
+option(
+	'image-svg',
+	type: 'boolean',
+	value: true,
+	description: 'SVG loading support'
+)
 
 option(
 	'tools',

@@ -45,6 +45,11 @@
 #include <webp/decode.h>
 #endif
 
+#ifdef HAVE_LIBRSVG
+#include <librsvg/rsvg.h>
+#include <gio/gunixinputstream.h>
+#endif
+
 static int
 stride_for_width(int width)
 {
@@ -380,6 +385,97 @@ load_webp(FILE *fp)
 
 #endif
 
+#ifdef HAVE_LIBRSVG
+
+static pixman_image_t *
+load_svg(FILE *fp)
+{
+	int fd;
+	GInputStream *input_stream;
+	GError *error = NULL;
+	RsvgDimensionData dimension;
+	cairo_surface_t *surface;
+	cairo_t *cr;
+	cairo_status_t status;
+	unsigned char *surface_data;
+
+	fd = fileno(fp);
+	if (fd < 0) {
+		fprintf(stderr, "invalid SVG file pointer: %s\n", strerror(errno));
+		return NULL;
+	}
+
+	// close_fd is FALSE, because fp is still owning the file descriptor.
+	input_stream = g_unix_input_stream_new(fd, FALSE);
+	if (!input_stream) {
+		fprintf(stderr, "impossible to create an input stream\n");
+		return NULL;
+	}
+
+	RsvgHandle *handle = rsvg_handle_new_from_stream_sync(input_stream,
+	                                                      NULL,
+	                                                      RSVG_HANDLE_FLAGS_NONE,
+	                                                      NULL, &error);
+	g_input_stream_close(input_stream, NULL, NULL);
+	if (!handle) {
+		fprintf(stderr, "couldn't parse SVG file: %s\n", error->message);
+		return NULL;
+	}
+
+	rsvg_handle_get_dimensions(handle, &dimension);
+
+	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+	                                     dimension.width,
+	                                     dimension.height);
+	if (!surface) {
+		fprintf(stderr, "couldn't create cairo surface\n");
+		rsvg_handle_close(handle, &error);
+		return NULL;
+	}
+
+	cr = cairo_create(surface);
+	if (!cr) {
+		fprintf(stderr, "couldn't create cairo context\n");
+		cairo_surface_destroy(surface);
+		rsvg_handle_close(handle, &error);
+		return NULL;
+	}
+
+	rsvg_handle_render_cairo(handle, cr);
+	status = cairo_status(cr);
+	rsvg_handle_close(handle, &error);
+	cairo_destroy(cr);
+	if (status != CAIRO_STATUS_SUCCESS) {
+		fprintf(stderr, "couldn't render SVG: %s\n", cairo_status_to_string(status));
+		cairo_surface_destroy(surface);
+		return NULL;
+	}
+
+	surface_data = cairo_image_surface_get_data(surface);
+	if (!surface_data) {
+		fprintf(stderr, "couldn't get image surface data\n");
+		cairo_surface_destroy(surface);
+		return NULL;
+	}
+
+	return pixman_image_create_bits(PIXMAN_a8r8g8b8,
+					dimension.width,
+					dimension.height,
+					(uint32_t *) surface_data,
+					stride_for_width(dimension.width));
+}
+
+#else
+
+static pixman_image_t *
+load_svg(FILE *fp)
+{
+	fprintf(stderr, "SVG support disabled at compile-time\n");
+	return NULL;
+}
+
+#endif
+
 
 struct image_loader {
 	unsigned char header[4];
@@ -390,7 +486,9 @@ struct image_loader {
 static const struct image_loader loaders[] = {
 	{ { 0x89, 'P', 'N', 'G' }, 4, load_png },
 	{ { 0xff, 0xd8 }, 2, load_jpeg },
-	{ { 'R', 'I', 'F', 'F' }, 4, load_webp }
+	{ { 'R', 'I', 'F', 'F' }, 4, load_webp },
+	{ { '<', '?', 'x', 'm' }, 4, load_svg },
+	{ { '<', 's', 'v', 'g' }, 4, load_svg },
 };
 
 pixman_image_t *

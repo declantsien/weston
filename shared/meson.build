@@ -64,6 +64,20 @@ if get_option('image-webp')
 	config_h.set('HAVE_WEBP', '1')
 endif
 
+if get_option('image-svg')
+	dep_librsvg = dependency('librsvg-2.0', required: false)
+	if not dep_librsvg.found()
+		error('SVG image loading requires librsvg which was not found. Or, you can use \'-Dimage-svg=false\'.')
+	endif
+	dep_gio_unix = dependency('gio-unix-2.0', required: false)
+	if not dep_gio_unix.found()
+		error('SVG image loading requires gio-unix which was not found. Or, you can use \'-Dimage-svg=false\'.')
+	endif
+	deps_cairo_shared += dep_librsvg
+	deps_cairo_shared += dep_gio_unix
+	config_h.set('HAVE_LIBRSVG', '1')
+endif
+
 lib_cairo_shared = static_library(
 	'cairo-shared',
 	srcs_cairo_shared,
