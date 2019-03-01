@@ -35,4 +35,7 @@ linux_sync_file_is_valid(int fd);
 int
 linux_sync_file_read_timestamp(int fd, struct timespec *ts);
 
+int
+linux_sync_file_merge(int fd1, int fd2);
+
 #endif /* WESTON_LINUX_SYNC_FILE_H */

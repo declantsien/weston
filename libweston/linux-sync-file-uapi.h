@@ -6,6 +6,14 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
+struct sync_merge_data {
+	char name[32];
+	__s32 fd2;
+	__s32 fence;
+	__u32 flags;
+	__u32 pad;
+};
+
 struct sync_fence_info {
 	char obj_name[32];
 	char driver_name[32];
@@ -25,6 +33,7 @@ struct sync_file_info {
 };
 
 #define SYNC_IOC_MAGIC '>'
+#define SYNC_IOC_MERGE _IOWR(SYNC_IOC_MAGIC, 3, struct sync_merge_data)
 #define SYNC_IOC_FILE_INFO _IOWR(SYNC_IOC_MAGIC, 4, struct sync_file_info)
 
 #endif /* WESTON_LINUX_SYNC_FILE_UAPI_H */

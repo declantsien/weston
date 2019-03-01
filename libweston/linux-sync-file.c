@@ -80,3 +80,25 @@ linux_sync_file_read_timestamp(int fd, struct timespec *ts)
 
 	return 0;
 }
+
+/* Merge two sync file fds
+ *
+ * Creates a new sync file fd that will become ready when
+ * both the source sync file fds are ready.
+ *
+ * \param fd1[in] the first sync file fd to merge
+ * \param fd2[in] the second sync file fd to merge
+ * \return the merged sync file fd, -1 on error
+ */
+int
+linux_sync_file_merge(int fd1, int fd2)
+{
+	struct sync_merge_data merge_data = { { 0 } };
+
+	merge_data.fd2 = fd2;
+
+	if (ioctl(fd1, SYNC_IOC_MERGE, &merge_data) < 0)
+		return -1;
+
+	return merge_data.fence;
+}
