@@ -2017,6 +2017,21 @@ drm_output_update_fences(struct drm_output *output)
 		}
 
 		fd_update(&fence_ctx->fence_fd, out_fence_fd);
+
+		/* XXX: Are the assumptions below correct? Could, for example,
+		 * someone increase the refcnt between this point and the end
+		 * of the commit, thus not destroying the fb when the last
+		 * state is destroyed? */
+
+		/* If the buffer is only referenced from the last state, its
+		 * buffer_release would be unreferenced when the commit is
+		 * done. Since we now have a release fence for it, we can
+		 * unreference the buffer_release here instead, potentially
+		 * emitting a fenced_release event to the client earlier. */
+		if (fb->refcnt == 1) {
+			weston_buffer_release_reference(&fb->buffer_release_ref,
+							NULL);
+		}
 	}
 }
 
