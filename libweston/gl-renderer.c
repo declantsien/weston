@@ -107,6 +107,9 @@ struct gl_output_state {
 
 	/* struct timeline_render_point::link */
 	struct wl_list timeline_render_point_list;
+
+	/* struct weston_buffer_release_fence_context::owner_link */
+	struct wl_list fence_context_list;
 };
 
 enum buffer_type {
@@ -1071,55 +1074,80 @@ update_buffer_release_fences(struct weston_compositor *compositor,
 
 	wl_list_for_each_reverse(view, &compositor->view_list, link) {
 		struct gl_surface_state *gs;
+		struct gl_output_state *go;
 		struct weston_buffer_release *buffer_release;
+		struct weston_buffer_release_fence_context *fence_ctx;
 		int fence_fd;
 
 		if (view->plane != &compositor->primary_plane)
 			continue;
 
 		gs = get_surface_state(view->surface);
+		go = get_output_state(output);
 		buffer_release = gs->buffer_release_ref.buffer_release;
 
-		if (!gs->used_in_output_repaint || !buffer_release)
+		if (!buffer_release)
 			continue;
 
-		fence_fd = gl_renderer_create_fence_fd(output);
+		fence_ctx = weston_buffer_release_find_fence_context(
+				buffer_release, go);
+
+		if (!gs->used_in_output_repaint) {
+			/* If we painted this buffer previously, but not
+			 * anymore, ensure we destroy any associated fence
+			 * context. */
+			if (fence_ctx)
+				weston_buffer_release_fence_context_destroy(fence_ctx);
+			continue;
+		}
+
+		if (!fence_ctx) {
+			fence_ctx = weston_buffer_release_create_fence_context(
+					buffer_release, go, &go->fence_context_list);
+			if (!fence_ctx) {
+				linux_explicit_synchronization_send_server_error(
+					buffer_release->resource,
+					"Failed to create release fence context");
+				continue;
+			}
+		}
 
 		/* If we have a buffer_release then it means we support fences,
 		 * and we should be able to create the release fence. If we
 		 * can't, something has gone horribly wrong, so disconnect the
 		 * client.
 		 */
+		fence_fd = gl_renderer_create_fence_fd(output);
 		if (fence_fd == -1) {
 			linux_explicit_synchronization_send_server_error(
 				buffer_release->resource,
 				"Failed to create release fence");
-			fd_clear(&buffer_release->fence_fd);
+			weston_buffer_release_fence_context_destroy(fence_ctx);
 			continue;
 		}
 
-		/* At the moment it is safe to just replace the fence_fd,
-		 * discarding the previous one:
-		 *
-		 * 1. If the previous fence fd represents a sync fence from
-		 *    a previous repaint cycle, that fence fd is now not
-		 *    sufficient to provide the release guarantee and should
-		 *    be replaced.
-		 *
-		 * 2. If the fence fd represents a sync fence from another
-		 *    output in the same repaint cycle, it's fine to replace
-		 *    it since we are rendering to all outputs using the same
-		 *    EGL context, so a fence issued for a later output rendering
-		 *    is guaranteed to signal after fences for previous output
-		 *    renderings.
-		 *
-		 * Note that the above is only valid if the buffer_release
-		 * fences only originate from the GL renderer, which guarantees
-		 * a total order of operations and fences.  If we introduce
-		 * fences from other sources (e.g., plane out-fences), we will
-		 * need to merge fences instead.
-		 */
-		fd_update(&buffer_release->fence_fd, fence_fd);
+		/* It is safe to just replace the fence_fd, discarding the
+		 * previous one:
+                 *
+                 * 1. If the previous fence fd represents a sync fence from
+                 *    a previous repaint cycle, that fence fd is now not
+                 *    sufficient to provide the release guarantee and should
+                 *    be replaced.
+                 *
+                 * 2. If the fence fd represents a sync fence from another
+                 *    output in the same repaint cycle, it's fine to replace
+                 *    it since we are rendering to all outputs using the same
+                 *    EGL context, so a fence issued for a later output rendering
+                 *    is guaranteed to signal after fences for previous output
+                 *    renderings.
+                 *
+                 * Note that the above is only valid if the buffer_release
+                 * fences only originate from the GL renderer, which guarantees
+                 * a total order of operations and fences.  Since we are storing
+		 * fences from other sources in separate fence contexts, this is
+		 * always the case for this fence.
+                 */
+		fd_update(&fence_ctx->fence_fd, fence_fd);
 	}
 }
 
@@ -3212,6 +3240,7 @@ gl_renderer_output_create(struct weston_output *output,
 		pixman_region32_init(&go->buffer_damage[i]);
 
 	wl_list_init(&go->timeline_render_point_list);
+	wl_list_init(&go->fence_context_list);
 
 	go->begin_render_sync = EGL_NO_SYNC_KHR;
 	go->end_render_sync = EGL_NO_SYNC_KHR;
@@ -3257,6 +3286,7 @@ gl_renderer_output_destroy(struct weston_output *output)
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
 	struct timeline_render_point *trp, *tmp;
+	struct weston_buffer_release_fence_context *fctx, *fctx_tmp;
 	int i;
 
 	for (i = 0; i < 2; i++)
@@ -3274,6 +3304,9 @@ gl_renderer_output_destroy(struct weston_output *output)
 
 	wl_list_for_each_safe(trp, tmp, &go->timeline_render_point_list, link)
 		timeline_render_point_destroy(trp);
+
+	wl_list_for_each_safe(fctx, fctx_tmp, &go->fence_context_list, owner_link)
+		weston_buffer_release_fence_context_destroy(fctx);
 
 	if (go->begin_render_sync != EGL_NO_SYNC_KHR)
 		gr->destroy_sync(gr->egl_display, go->begin_render_sync);

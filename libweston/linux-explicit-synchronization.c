@@ -39,8 +39,11 @@ destroy_linux_buffer_release(struct wl_resource *resource)
 {
 	struct weston_buffer_release *buffer_release =
 		wl_resource_get_user_data(resource);
+	struct weston_buffer_release_fence_context *ctx, *tmp;
 
-	fd_clear(&buffer_release->fence_fd);
+	wl_list_for_each_safe(ctx, tmp, &buffer_release->fence_context_list, link)
+		weston_buffer_release_fence_context_destroy(ctx);
+
 	free(buffer_release);
 }
 
@@ -131,7 +134,7 @@ linux_surface_synchronization_get_release(struct wl_client *client,
 	if (buffer_release == NULL)
 		goto err_alloc;
 
-	buffer_release->fence_fd = -1;
+	wl_list_init(&buffer_release->fence_context_list);
 	buffer_release->resource =
 		wl_resource_create(client,
 				   &zwp_linux_buffer_release_v1_interface,

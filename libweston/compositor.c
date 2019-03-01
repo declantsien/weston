@@ -62,6 +62,7 @@
 #include "presentation-time-server-protocol.h"
 #include "linux-explicit-synchronization-unstable-v1-server-protocol.h"
 #include "linux-explicit-synchronization.h"
+#include "linux-sync-file.h"
 #include "shared/fd-util.h"
 #include "shared/helpers.h"
 #include "shared/os-compatibility.h"
@@ -2128,6 +2129,58 @@ weston_buffer_reference(struct weston_buffer_reference *ref,
 	ref->destroy_listener.notify = weston_buffer_reference_handle_destroy;
 }
 
+WL_EXPORT struct weston_buffer_release_fence_context *
+weston_buffer_release_find_fence_context(
+	struct weston_buffer_release *buffer_release,
+	void *owner)
+{
+	struct weston_buffer_release_fence_context *ctx;
+
+	wl_list_for_each(ctx, &buffer_release->fence_context_list, link) {
+		if (ctx->owner == owner)
+			return ctx;
+	}
+
+	return NULL;
+}
+
+WL_EXPORT struct weston_buffer_release_fence_context *
+weston_buffer_release_create_fence_context(
+	struct weston_buffer_release *buffer_release,
+	void *owner,
+	struct wl_list *owner_list)
+{
+	struct weston_buffer_release_fence_context *ctx;
+
+	/* At the moment all fence contexts use an owner list. If this
+	 * changes, we can relax the requirement for a valid owner_list. */
+	assert(owner_list);
+	assert(!weston_buffer_release_find_fence_context(buffer_release, owner));
+
+	ctx = zalloc(sizeof *ctx);
+	if (ctx == NULL)
+		return NULL;
+
+	ctx->owner = owner;
+	ctx->fence_fd = -1;
+
+	wl_list_insert(&buffer_release->fence_context_list,
+		       &ctx->link);
+	wl_list_insert(owner_list, &ctx->owner_link);
+
+	return ctx;
+}
+
+WL_EXPORT void
+weston_buffer_release_fence_context_destroy(
+	struct weston_buffer_release_fence_context *ctx)
+{
+	fd_clear(&ctx->fence_fd);
+	wl_list_remove(&ctx->link);
+	wl_list_remove(&ctx->owner_link);
+	free(ctx);
+}
+
 static void
 weston_buffer_release_reference_handle_destroy(struct wl_listener *listener,
 					       void *data)
@@ -2144,7 +2197,28 @@ static void
 weston_buffer_release_destroy(struct weston_buffer_release *buffer_release)
 {
 	struct wl_resource *resource = buffer_release->resource;
-	int release_fence_fd = buffer_release->fence_fd;
+	struct weston_buffer_release_fence_context *ctx;
+	int release_fence_fd = -1;
+
+	/* Merge all fences to get the release fence fd. */
+	wl_list_for_each(ctx, &buffer_release->fence_context_list, link) {
+		if (ctx->fence_fd == -1)
+			continue;
+
+		if (release_fence_fd == -1) {
+			release_fence_fd = ctx->fence_fd;
+		} else {
+			int merged_fence_fd = linux_sync_file_merge(
+				release_fence_fd, ctx->fence_fd);
+			fd_update(&release_fence_fd, merged_fence_fd);
+			if (merged_fence_fd == -1) {
+				linux_explicit_synchronization_send_server_error(
+					resource,
+					"Failed to merge buffer release fences");
+				break;
+			}
+		}
+	}
 
 	if (release_fence_fd >= 0) {
 		zwp_linux_buffer_release_v1_send_fenced_release(

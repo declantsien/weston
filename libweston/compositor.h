@@ -1215,15 +1215,27 @@ struct weston_buffer_viewport {
 	int changed;
 };
 
+struct weston_buffer_release_fence_context {
+	/* weston_buffer_release::fence_context_list */
+	struct wl_list link;
+	/* Used by the owner to track their fence contexts. */
+	struct wl_list owner_link;
+	/* Pointer to the component that owns this fence context. Each owner
+	 * can have only one fence context per buffer release. */
+	void *owner;
+	/* The associated release fence. */
+	int fence_fd;
+};
+
 struct weston_buffer_release {
 	/* The associated zwp_linux_buffer_release_v1 resource. */
 	struct wl_resource *resource;
 	/* How many weston_buffer_release_reference objects point to this
 	 * object. */
 	uint32_t ref_count;
-	/* The fence fd, if any, associated with this release. If the fence fd
-	 * is -1 then this is considered an immediate release. */
-	int fence_fd;
+	 /* weston_buffer_release_fence_context::link */
+	struct wl_list fence_context_list;
+
 };
 
 struct weston_buffer_release_reference {
@@ -1967,6 +1979,21 @@ weston_buffer_from_resource(struct wl_resource *resource);
 void
 weston_buffer_reference(struct weston_buffer_reference *ref,
 			struct weston_buffer *buffer);
+
+struct weston_buffer_release_fence_context*
+weston_buffer_release_find_fence_context(
+	struct weston_buffer_release *buffer_release,
+	void *owner);
+
+struct weston_buffer_release_fence_context*
+weston_buffer_release_create_fence_context(
+	struct weston_buffer_release *buffer_release,
+	void *owner,
+	struct wl_list *owner_list);
+
+void
+weston_buffer_release_fence_context_destroy(
+	struct weston_buffer_release_fence_context *ctx);
 
 void
 weston_buffer_release_reference(struct weston_buffer_release_reference *ref,
