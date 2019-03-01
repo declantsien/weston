@@ -53,6 +53,7 @@
 #include "compositor.h"
 #include "compositor-drm.h"
 #include "weston-debug.h"
+#include "shared/fd-util.h"
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "gl-renderer.h"
@@ -269,12 +270,14 @@ static const struct drm_property_info connector_props[] = {
 enum wdrm_crtc_property {
 	WDRM_CRTC_MODE_ID = 0,
 	WDRM_CRTC_ACTIVE,
+	WDRM_CRTC_OUT_FENCE_PTR,
 	WDRM_CRTC__COUNT
 };
 
 static const struct drm_property_info crtc_props[] = {
 	[WDRM_CRTC_MODE_ID] = { .name = "MODE_ID", },
 	[WDRM_CRTC_ACTIVE] = { .name = "ACTIVE", },
+	[WDRM_CRTC_OUT_FENCE_PTR] = { .name = "OUT_FENCE_PTR" },
 };
 
 /**
@@ -435,6 +438,11 @@ struct drm_output_state {
 	struct wl_list link;
 	enum dpms_enum dpms;
 	struct wl_list plane_list;
+	/* The out fence fd is currently only valid internally in
+	 * drm_pending_state_apply_atomic(), after a successful atomic commit,
+	 * and until drm_output_assign_state() is called.
+	 */
+	int out_fence_fd;
 };
 
 /**
@@ -1717,6 +1725,7 @@ drm_output_state_alloc(struct drm_output *output,
 		wl_list_init(&state->link);
 
 	wl_list_init(&state->plane_list);
+	state->out_fence_fd = -1;
 
 	return state;
 }
@@ -1738,6 +1747,7 @@ drm_output_state_duplicate(struct drm_output_state *src,
 	struct drm_plane_state *ps;
 
 	assert(dst);
+	assert(src->out_fence_fd == -1);
 
 	/* Copy the whole structure, then individually modify the
 	 * pending_state, as well as the list link into our pending
@@ -1782,6 +1792,10 @@ drm_output_state_free(struct drm_output_state *state)
 		drm_plane_state_free(ps, false);
 
 	wl_list_remove(&state->link);
+
+	/* The out fence should only be valid inside
+	 * drm_pending_state_apply_atomic(). */
+	assert(state->out_fence_fd == -1);
 
 	free(state);
 }
@@ -1976,6 +1990,10 @@ drm_output_assign_state(struct drm_output_state *state,
 		drm_debug(b, "\t[CRTC:%u] setting pending flip\n", output->crtc_id);
 		output->atomic_complete_pending = 1;
 	}
+
+	/* At the moment we don't care about keeping the out fence fd beyond
+	 * this point. */
+	fd_clear(&state->out_fence_fd);
 
 	/* Replace state_cur on each affected plane with the new state, being
 	 * careful to dispose of orphaned (but only orphaned) previous state.
@@ -2550,6 +2568,13 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 		wl_list_for_each(head, &output->base.head_list, base.output_link) {
 			ret |= connector_add_prop(req, head, WDRM_CONNECTOR_CRTC_ID,
 						  output->crtc_id);
+		}
+
+		/* Get an out fence fd if supported. */
+		assert(state->out_fence_fd == -1);
+		if (output->props_crtc[WDRM_CRTC_OUT_FENCE_PTR].prop_id > 0) {
+			ret |= crtc_add_prop(req, output, WDRM_CRTC_OUT_FENCE_PTR,
+					     (uint64_t)(uintptr_t)&state->out_fence_fd);
 		}
 	} else {
 		ret |= crtc_add_prop(req, output, WDRM_CRTC_MODE_ID, 0);
