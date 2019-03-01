@@ -579,6 +579,8 @@ struct drm_output {
 	bool virtual;
 
 	submit_frame_cb virtual_submit_frame;
+
+	struct wl_list fence_context_list;
 };
 
 static const char *const aspect_ratio_as_string[] = {
@@ -1959,6 +1961,65 @@ drm_output_update_complete(struct drm_output *output, uint32_t flags,
 		weston_output_schedule_repaint(&output->base);
 }
 
+/* Should only be called in the context of drm_output_assign_state(), while
+ * the current state out_fence_fd, if any, is valid. */
+static void
+drm_output_update_fences(struct drm_output *output)
+{
+	struct drm_plane_state *plane_state;
+	struct weston_buffer_release_fence_context *fctx, *fctx_tmp;
+
+	/* Clear all the old fence contexts. These use the out fence from
+	 * the previous commit, which should have already completed. */
+	/* TODO: Evaluate reusing fence contexts for buffers which are
+	 * also part of the current commit, instead of destroying
+	 * them here and recreating them below. */
+	wl_list_for_each_safe(fctx, fctx_tmp, &output->fence_context_list,
+			      owner_link)
+		weston_buffer_release_fence_context_destroy(fctx);
+
+	if (output->state_cur->out_fence_fd == -1 || !output->state_last)
+		return;
+
+	/* Create new fence contexts for all the last state plane buffers that
+	 * have a buffer_release. */
+	wl_list_for_each(plane_state, &output->state_last->plane_list,
+			 link) {
+		struct weston_buffer_release *buffer_release;
+		struct weston_buffer_release_fence_context *fence_ctx;
+		struct drm_fb *fb = plane_state->fb;
+		int out_fence_fd;
+		if (!fb)
+			continue;
+		buffer_release = fb->buffer_release_ref.buffer_release;
+		if (!buffer_release)
+			continue;
+
+		assert(!weston_buffer_release_find_fence_context(buffer_release,
+								 output));
+		fence_ctx = weston_buffer_release_create_fence_context(
+				buffer_release, output,
+				&output->fence_context_list);
+		if (!fence_ctx) {
+			linux_explicit_synchronization_send_server_error(
+				buffer_release->resource,
+				"Failed to create release fence context");
+			continue;
+		}
+
+		out_fence_fd = dup(output->state_cur->out_fence_fd);
+		if (out_fence_fd == -1) {
+			linux_explicit_synchronization_send_server_error(
+				buffer_release->resource,
+				"Failed to update buffer release fence");
+			weston_buffer_release_fence_context_destroy(fence_ctx);
+			continue;
+		}
+
+		fd_update(&fence_ctx->fence_fd, out_fence_fd);
+	}
+}
+
 /**
  * Mark an output state as current on the output, i.e. it has been
  * submitted to the kernel. The mode argument determines whether this
@@ -1990,6 +2051,9 @@ drm_output_assign_state(struct drm_output_state *state,
 		drm_debug(b, "\t[CRTC:%u] setting pending flip\n", output->crtc_id);
 		output->atomic_complete_pending = 1;
 	}
+
+	/* Apply the out fence fd to the buffer releases of the last state. */
+	drm_output_update_fences(output);
 
 	/* At the moment we don't care about keeping the out fence fd beyond
 	 * this point. */
@@ -6247,6 +6311,7 @@ drm_output_deinit(struct weston_output *base)
 {
 	struct drm_output *output = to_drm_output(base);
 	struct drm_backend *b = to_drm_backend(base->compositor);
+	struct weston_buffer_release_fence_context *fctx, *fctx_tmp;
 
 	if (b->use_pixman)
 		drm_output_fini_pixman(output);
@@ -6268,6 +6333,9 @@ drm_output_deinit(struct weston_output *base)
 			drmModeSetCursor(b->drm.fd, output->crtc_id, 0, 0, 0);
 		}
 	}
+
+	wl_list_for_each_safe(fctx, fctx_tmp, &output->fence_context_list, owner_link)
+		weston_buffer_release_fence_context_destroy(fctx);
 
 	drm_output_fini_crtc(output);
 }
@@ -6567,6 +6635,7 @@ drm_output_create(struct weston_compositor *compositor, const char *name)
 
 	output->backend = b;
 	output->gbm_bo_flags = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
+	wl_list_init(&output->fence_context_list);
 
 	weston_output_init(&output->base, compositor, name);
 
