@@ -31,6 +31,7 @@ srcs_libweston = [
 	'colorspace.c',
 	'../shared/matrix.c',
 	'../shared/colorspace.c',
+	'../shared/csc.c',
 	linux_dmabuf_unstable_v1_protocol_c,
 	linux_dmabuf_unstable_v1_server_protocol_h,
 	linux_explicit_synchronization_unstable_v1_protocol_c,
