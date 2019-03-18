@@ -6,6 +6,7 @@ install_headers(
 	'timeline-object.h',
 	'windowed-output-api.h',
 	'zalloc.h',
+	'colorspace.h',
 	subdir: dir_include_libweston_install
 )
 
