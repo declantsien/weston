@@ -190,8 +190,10 @@ tests = [
 		'name': 'text',
 		'sources': [
 			'text-test.c',
-			text_input_unstable_v1_client_protocol_h,
-			text_input_unstable_v1_protocol_c,
+			text_input_unstable_v3_client_protocol_h,
+			text_input_unstable_v3_protocol_c,
+			input_method_unstable_v2_client_protocol_h,
+			input_method_unstable_v2_protocol_c,
 		],
 	},
 	{
@@ -201,7 +203,7 @@ tests = [
 			'input-timestamps-helper.c',
 			input_timestamps_unstable_v1_client_protocol_h,
 			input_timestamps_unstable_v1_protocol_c,
-		],
+		]
 	},
 	{
 		'name': 'vertex-clip',

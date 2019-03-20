@@ -42,34 +42,36 @@
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
 #include "window.h"
-#include "text-input-unstable-v1-client-protocol.h"
+#include "text-input-unstable-v3-client-protocol.h"
 
 struct text_entry {
 	struct widget *widget;
 	struct window *window;
+	struct editor *editor;
 	char *text;
 	int active;
-	bool panel_visible;
 	uint32_t cursor;
 	uint32_t anchor;
 	struct {
+		char *pending_text;
 		char *text;
-		int32_t cursor;
 		char *commit;
 		PangoAttrList *attr_list;
+		int32_t cursor;
 	} preedit;
 	struct {
 		PangoAttrList *attr_list;
 		int32_t cursor;
 	} preedit_info;
 	struct {
+		char *text;
 		int32_t cursor;
 		int32_t anchor;
 		uint32_t delete_index;
 		uint32_t delete_length;
 		bool invalid_delete;
 	} pending_commit;
-	struct zwp_text_input_v1 *text_input;
+	struct zwp_text_input_v3 *text_input;
 	PangoLayout *layout;
 	struct {
 		xkb_mod_mask_t shift_mask;
@@ -83,7 +85,7 @@ struct text_entry {
 };
 
 struct editor {
-	struct zwp_text_input_manager_v1 *text_input_manager;
+	struct zwp_text_input_manager_v3 *text_input_manager;
 	struct wl_data_source *selection;
 	char *selected_text;
 	struct display *display;
@@ -181,23 +183,22 @@ static void text_entry_delete_text(struct text_entry *entry,
 				   uint32_t index, uint32_t length);
 static void text_entry_delete_selected_text(struct text_entry *entry);
 static void text_entry_reset_preedit(struct text_entry *entry);
+static void text_entry_reset_pending_preedit(struct text_entry *entry);
 static void text_entry_commit_and_reset(struct text_entry *entry);
 static void text_entry_get_cursor_rectangle(struct text_entry *entry, struct rectangle *rectangle);
 static void text_entry_update(struct text_entry *entry);
 
+static void text_entry_update_layout(struct text_entry *entry);
+
 static void
 text_input_commit_string(void *data,
-			 struct zwp_text_input_v1 *text_input,
-			 uint32_t serial,
+			 struct zwp_text_input_v3 *text_input,
 			 const char *text)
 {
 	struct text_entry *entry = data;
 
-	if ((entry->serial - serial) > (entry->serial - entry->reset_serial)) {
-		fprintf(stderr, "Ignore commit. Serial: %u, Current: %u, Reset: %u\n",
-			serial, entry->serial, entry->reset_serial);
-		return;
-	}
+	if (!entry->active)
+	   return;
 
 	if (entry->pending_commit.invalid_delete) {
 		fprintf(stderr, "Ignore commit. Invalid previous delete_surrounding event.\n");
@@ -205,23 +206,7 @@ text_input_commit_string(void *data,
 		return;
 	}
 
-	text_entry_reset_preedit(entry);
-
-	if (entry->pending_commit.delete_length) {
-		text_entry_delete_text(entry,
-				       entry->pending_commit.delete_index,
-				       entry->pending_commit.delete_length);
-	} else {
-		text_entry_delete_selected_text(entry);
-	}
-
-	text_entry_insert_at_cursor(entry, text,
-				    entry->pending_commit.cursor,
-				    entry->pending_commit.anchor);
-
-	memset(&entry->pending_commit, 0, sizeof entry->pending_commit);
-
-	widget_schedule_redraw(entry->widget);
+	entry->pending_commit.text = (char*) text;
 }
 
 static void
@@ -239,17 +224,14 @@ clear_pending_preedit(struct text_entry *entry)
 
 static void
 text_input_preedit_string(void *data,
-			  struct zwp_text_input_v1 *text_input,
-			  uint32_t serial,
+			  struct zwp_text_input_v3 *text_input,
 			  const char *text,
-			  const char *commit)
+			  int32_t cursor_begin,
+			  int32_t cursor_end)
 {
 	struct text_entry *entry = data;
 
-	if ((entry->serial - serial) > (entry->serial - entry->reset_serial)) {
-		fprintf(stderr, "Ignore preedit_string. Serial: %u, Current: %u, Reset: %u\n",
-			serial, entry->serial, entry->reset_serial);
-		clear_pending_preedit(entry);
+	if (!entry->active) {
 		return;
 	}
 
@@ -259,6 +241,136 @@ text_input_preedit_string(void *data,
 		return;
 	}
 
+	entry->preedit.pending_text = strdup(text);
+	entry->preedit.attr_list = pango_attr_list_ref(entry->preedit_info.attr_list);
+
+	clear_pending_preedit(entry);
+}
+
+static void
+text_input_delete_surrounding_text(void *data,
+				   struct zwp_text_input_v3 *text_input,
+				   uint32_t before_len,
+				   uint32_t after_len)
+{
+	struct text_entry *entry = data;
+	uint32_t text_length;
+	uint32_t delete_length;
+
+	if (!entry->active)
+	   return;
+
+	entry->pending_commit.delete_index = entry->cursor - before_len;
+	delete_length = before_len + after_len;
+	entry->pending_commit.delete_length = delete_length;
+	entry->pending_commit.invalid_delete = false;
+
+	text_length = strlen(entry->text);
+
+	if (entry->pending_commit.delete_index > text_length ||
+	    delete_length > text_length ||
+	    entry->pending_commit.delete_index + delete_length > text_length) {
+		fprintf(stderr, "delete_surrounding_text: delete_length %u'; cursor: %u," \
+				" text length: %u\n", delete_length, entry->cursor, text_length);
+		entry->pending_commit.invalid_delete = true;
+	}
+}
+
+static void
+text_entry_activate(struct text_entry *entry)
+{
+	struct text_entry *active_entry;
+	active_entry = entry->editor->active_entry;
+
+	zwp_text_input_v3_enable(entry->text_input);
+
+	entry->active++;
+
+	// make sure only one entry can be active at a time
+	if (active_entry && (active_entry != entry)) {
+			active_entry->active = 0;
+			zwp_text_input_v3_disable(active_entry->text_input);
+			zwp_text_input_v3_commit(active_entry->text_input);
+			active_entry->serial++;
+	}
+
+	entry->editor->active_entry = entry;
+
+	text_entry_update(entry);
+}
+
+static void
+text_input_enter(void *data,
+                struct zwp_text_input_v3 *text_input,
+                struct wl_surface *surface)
+{
+	struct text_entry *entry = data;
+
+	if (surface != widget_get_wl_surface(entry->widget))
+		 return;
+
+	text_entry_activate(entry);
+
+	entry->reset_serial = entry->serial;
+
+	text_entry_update_layout(entry);
+
+	widget_schedule_redraw(entry->widget);
+}
+
+static void
+text_entry_disable(struct text_entry *entry)
+{
+	entry->active = 0;
+
+	entry->editor->active_entry = NULL;
+
+	text_entry_update_layout(entry);
+
+	widget_schedule_redraw(entry->widget);
+}
+
+static void
+text_input_leave(void *data,
+		 struct zwp_text_input_v3 *text_input,
+		 struct wl_surface *surface)
+{
+	struct text_entry *entry = data;
+
+	if (surface != widget_get_wl_surface(entry->widget))
+		 return;
+
+	text_entry_commit_and_reset(entry);
+
+	text_entry_disable(entry);
+
+	text_entry_update_layout(entry);
+
+	widget_schedule_redraw(entry->widget);
+}
+
+static void
+text_input_done(void *data,
+		 struct zwp_text_input_v3 *text_input,
+		 uint32_t serial)
+{
+	struct text_entry *entry = data;
+
+	if (!entry->active)
+	   return;
+
+	if (serial != entry->serial) {
+		fprintf(stderr, "got serial: %d, expected serial: %d\n", serial,
+				entry->serial);
+	}
+
+	// The protocol requires us to do the following steps in order.
+	//
+	// 1. Replace existing preedit string with the cursor.
+	//
+	// Nothing to do (?)
+
+	// 2. Delete requested surrounding text.
 	if (entry->pending_commit.delete_length) {
 		text_entry_delete_text(entry,
 				       entry->pending_commit.delete_index,
@@ -267,303 +379,40 @@ text_input_preedit_string(void *data,
 		text_entry_delete_selected_text(entry);
 	}
 
-	text_entry_set_preedit(entry, text, entry->preedit_info.cursor);
-	entry->preedit.commit = strdup(commit);
-	entry->preedit.attr_list = pango_attr_list_ref(entry->preedit_info.attr_list);
+	// 3. Insert commit string with the cursor at its end.
+	if (entry->pending_commit.text) {
+		text_entry_insert_at_cursor(entry, entry->pending_commit.text,
+							entry->pending_commit.cursor,
+							entry->pending_commit.anchor);
+		memset(&entry->pending_commit, 0, sizeof entry->pending_commit);
+		text_entry_reset_preedit(entry);
+	}
 
-	clear_pending_preedit(entry);
-
+	// 4. Calculate surrounding text to send.
 	text_entry_update(entry);
 
-	widget_schedule_redraw(entry->widget);
-}
-
-static void
-text_input_delete_surrounding_text(void *data,
-				   struct zwp_text_input_v1 *text_input,
-				   int32_t index,
-				   uint32_t length)
-{
-	struct text_entry *entry = data;
-	uint32_t text_length;
-
-	entry->pending_commit.delete_index = entry->cursor + index;
-	entry->pending_commit.delete_length = length;
-	entry->pending_commit.invalid_delete = false;
-
-	text_length = strlen(entry->text);
-
-	if (entry->pending_commit.delete_index > text_length ||
-	    length > text_length ||
-	    entry->pending_commit.delete_index + length > text_length) {
-		fprintf(stderr, "delete_surrounding_text: Invalid index: %d," \
-			"length %u'; cursor: %u text length: %u\n", index, length, entry->cursor, text_length);
-		entry->pending_commit.invalid_delete = true;
-		return;
-	}
-}
-
-static void
-text_input_cursor_position(void *data,
-			   struct zwp_text_input_v1 *text_input,
-			   int32_t index,
-			   int32_t anchor)
-{
-	struct text_entry *entry = data;
-
-	entry->pending_commit.cursor = index;
-	entry->pending_commit.anchor = anchor;
-}
-
-static void
-text_input_preedit_styling(void *data,
-			   struct zwp_text_input_v1 *text_input,
-			   uint32_t index,
-			   uint32_t length,
-			   uint32_t style)
-{
-	struct text_entry *entry = data;
-	PangoAttribute *attr1 = NULL;
-	PangoAttribute *attr2 = NULL;
-
-	if (!entry->preedit_info.attr_list)
-		entry->preedit_info.attr_list = pango_attr_list_new();
-
-	switch (style) {
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_DEFAULT:
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_UNDERLINE:
-			attr1 = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
-			break;
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_INCORRECT:
-			attr1 = pango_attr_underline_new(PANGO_UNDERLINE_ERROR);
-			attr2 = pango_attr_underline_color_new(65535, 0, 0);
-			break;
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_SELECTION:
-			attr1 = pango_attr_background_new(0.3 * 65535, 0.3 * 65535, 65535);
-			attr2 = pango_attr_foreground_new(65535, 65535, 65535);
-			break;
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_HIGHLIGHT:
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_ACTIVE:
-			attr1 = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
-			attr2 = pango_attr_weight_new(PANGO_WEIGHT_BOLD);
-			break;
-		case ZWP_TEXT_INPUT_V1_PREEDIT_STYLE_INACTIVE:
-			attr1 = pango_attr_underline_new(PANGO_UNDERLINE_SINGLE);
-			attr2 = pango_attr_foreground_new(0.3 * 65535, 0.3 * 65535, 0.3 * 65535);
-			break;
+	// 5. Insert new preedit text in cursor position.
+	if (entry->preedit.pending_text) {
+		char *preedit_text = entry->preedit.pending_text;
+		text_entry_set_preedit(entry, preedit_text, entry->preedit.cursor);
+		text_entry_reset_pending_preedit(entry);
 	}
 
-	if (attr1) {
-		attr1->start_index = entry->cursor + index;
-		attr1->end_index = entry->cursor + index + length;
-		pango_attr_list_insert(entry->preedit_info.attr_list, attr1);
-	}
+	text_entry_update_layout(entry);
 
-	if (attr2) {
-		attr2->start_index = entry->cursor + index;
-		attr2->end_index = entry->cursor + index + length;
-		pango_attr_list_insert(entry->preedit_info.attr_list, attr2);
-	}
-}
-
-static void
-text_input_preedit_cursor(void *data,
-			  struct zwp_text_input_v1 *text_input,
-			  int32_t index)
-{
-	struct text_entry *entry = data;
-
-	entry->preedit_info.cursor = index;
-}
-
-static void
-text_input_modifiers_map(void *data,
-			 struct zwp_text_input_v1 *text_input,
-			 struct wl_array *map)
-{
-	struct text_entry *entry = data;
-
-	entry->keysym.shift_mask = keysym_modifiers_get_mask(map, "Shift");
-}
-
-static void
-text_input_keysym(void *data,
-		  struct zwp_text_input_v1 *text_input,
-		  uint32_t serial,
-		  uint32_t time,
-		  uint32_t key,
-		  uint32_t state,
-		  uint32_t modifiers)
-{
-	struct text_entry *entry = data;
-	const char *new_char;
-
-	if (key == XKB_KEY_Left ||
-	    key == XKB_KEY_Right) {
-		if (state != WL_KEYBOARD_KEY_STATE_RELEASED)
-			return;
-
-		if (key == XKB_KEY_Left)
-			new_char = utf8_prev_char(entry->text, entry->text + entry->cursor);
-		else
-			new_char = utf8_next_char(entry->text + entry->cursor);
-
-		if (new_char != NULL) {
-			entry->cursor = new_char - entry->text;
-		}
-
-		if (!(modifiers & entry->keysym.shift_mask))
-			entry->anchor = entry->cursor;
-		widget_schedule_redraw(entry->widget);
-
-		return;
-	}
-
-	if (key == XKB_KEY_Up ||
-	    key == XKB_KEY_Down) {
-		if (state != WL_KEYBOARD_KEY_STATE_RELEASED)
-			return;
-
-		if (key == XKB_KEY_Up)
-			move_up(entry->text, &entry->cursor);
-		else
-			move_down(entry->text, &entry->cursor);
-
-		if (!(modifiers & entry->keysym.shift_mask))
-			entry->anchor = entry->cursor;
-		widget_schedule_redraw(entry->widget);
-
-		return;
-	}
-
-	if (key == XKB_KEY_BackSpace) {
-		const char *start, *end;
-
-		if (state != WL_KEYBOARD_KEY_STATE_RELEASED)
-			return;
-
-		text_entry_commit_and_reset(entry);
-
-		start = utf8_prev_char(entry->text, entry->text + entry->cursor);
-		if (start == NULL)
-			return;
-
-		end = utf8_next_char(start);
-
-		text_entry_delete_text(entry,
-				       start - entry->text,
-				       end - start);
-
-		return;
-	}
-
-	if (key == XKB_KEY_Tab ||
-	    key == XKB_KEY_KP_Enter ||
-	    key == XKB_KEY_Return) {
-		char text[16];
-
-		if (state != WL_KEYBOARD_KEY_STATE_RELEASED)
-			return;
-
-		xkb_keysym_to_utf8(key, text, sizeof(text));
-
-		text_entry_insert_at_cursor(entry, text, 0, 0);
-
-		return;
-	}
-}
-
-static void
-text_input_enter(void *data,
-		 struct zwp_text_input_v1 *text_input,
-		 struct wl_surface *surface)
-{
-	struct text_entry *entry = data;
-
-	if (surface != window_get_wl_surface(entry->window))
-		return;
-
-	entry->active++;
-
-	text_entry_update(entry);
-	entry->reset_serial = entry->serial;
+	// 6. Place cursor inside preedit text.
+	// TODO
 
 	widget_schedule_redraw(entry->widget);
 }
 
-static void
-text_input_leave(void *data,
-		 struct zwp_text_input_v1 *text_input)
-{
-	struct text_entry *entry = data;
-
-	text_entry_commit_and_reset(entry);
-	entry->active--;
-
-	if (!entry->active) {
-		zwp_text_input_v1_hide_input_panel(text_input);
-		entry->panel_visible = false;
-	}
-
-	widget_schedule_redraw(entry->widget);
-}
-
-static void
-text_input_input_panel_state(void *data,
-			     struct zwp_text_input_v1 *text_input,
-			     uint32_t state)
-{
-}
-
-static void
-text_input_language(void *data,
-		    struct zwp_text_input_v1 *text_input,
-		    uint32_t serial,
-		    const char *language)
-{
-	fprintf(stderr, "input language is %s \n", language);
-}
-
-static void
-text_input_text_direction(void *data,
-			  struct zwp_text_input_v1 *text_input,
-			  uint32_t serial,
-			  uint32_t direction)
-{
-	struct text_entry *entry = data;
-	PangoContext *context = pango_layout_get_context(entry->layout);
-	PangoDirection pango_direction;
-
-
-	switch (direction) {
-		case ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_LTR:
-			pango_direction = PANGO_DIRECTION_LTR;
-			break;
-		case ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_RTL:
-			pango_direction = PANGO_DIRECTION_RTL;
-			break;
-		case ZWP_TEXT_INPUT_V1_TEXT_DIRECTION_AUTO:
-		default:
-			pango_direction = PANGO_DIRECTION_NEUTRAL;
-	}
-
-	pango_context_set_base_dir(context, pango_direction);
-}
-
-static const struct zwp_text_input_v1_listener text_input_listener = {
+static const struct zwp_text_input_v3_listener text_input_listener = {
 	text_input_enter,
 	text_input_leave,
-	text_input_modifiers_map,
-	text_input_input_panel_state,
 	text_input_preedit_string,
-	text_input_preedit_styling,
-	text_input_preedit_cursor,
 	text_input_commit_string,
-	text_input_cursor_position,
 	text_input_delete_surrounding_text,
-	text_input_keysym,
-	text_input_language,
-	text_input_text_direction
+	text_input_done,
 };
 
 static void
@@ -698,19 +547,22 @@ static struct text_entry*
 text_entry_create(struct editor *editor, const char *text)
 {
 	struct text_entry *entry;
+	struct wl_seat *seat;
 
 	entry = xzalloc(sizeof *entry);
 
 	entry->widget = widget_add_widget(editor->widget, entry);
 	entry->window = editor->window;
+	entry->editor = editor;
 	entry->text = strdup(text);
 	entry->active = 0;
-	entry->panel_visible = false;
 	entry->cursor = strlen(text);
 	entry->anchor = entry->cursor;
+
+	seat = display_get_seat(editor->display);
 	entry->text_input =
-		zwp_text_input_manager_v1_create_text_input(editor->text_input_manager);
-	zwp_text_input_v1_add_listener(entry->text_input,
+		zwp_text_input_manager_v3_get_text_input(editor->text_input_manager, seat);
+	zwp_text_input_v3_add_listener(entry->text_input,
 				       &text_input_listener, entry);
 
 	widget_set_redraw_handler(entry->widget, text_entry_redraw_handler);
@@ -725,7 +577,7 @@ static void
 text_entry_destroy(struct text_entry *entry)
 {
 	widget_destroy(entry->widget);
-	zwp_text_input_v1_destroy(entry->text_input);
+	zwp_text_input_v3_destroy(entry->text_input);
 	g_clear_object(&entry->layout);
 	free(entry->text);
 	free(entry->preferred_language);
@@ -785,39 +637,6 @@ resize_handler(struct widget *widget,
 	text_entry_allocate(editor->editor,
 			    allocation.x + 20, allocation.y + height / 2 + 20,
 			    width - 40, height / 2 - 40);
-}
-
-static void
-text_entry_activate(struct text_entry *entry,
-		    struct wl_seat *seat)
-{
-	struct wl_surface *surface = window_get_wl_surface(entry->window);
-
-	if (entry->click_to_show && entry->active) {
-		entry->panel_visible = !entry->panel_visible;
-
-		if (entry->panel_visible)
-			zwp_text_input_v1_show_input_panel(entry->text_input);
-		else
-			zwp_text_input_v1_hide_input_panel(entry->text_input);
-
-		return;
-	}
-
-	if (!entry->click_to_show)
-		zwp_text_input_v1_show_input_panel(entry->text_input);
-
-	zwp_text_input_v1_activate(entry->text_input,
-				   seat,
-				   surface);
-}
-
-static void
-text_entry_deactivate(struct text_entry *entry,
-		      struct wl_seat *seat)
-{
-	zwp_text_input_v1_deactivate(entry->text_input,
-				     seat);
 }
 
 static void
@@ -888,27 +707,25 @@ text_entry_update(struct text_entry *entry)
 {
 	struct rectangle cursor_rectangle;
 
-	zwp_text_input_v1_set_content_type(entry->text_input,
-					   ZWP_TEXT_INPUT_V1_CONTENT_HINT_NONE,
+	zwp_text_input_v3_set_content_type(entry->text_input,
+					   ZWP_TEXT_INPUT_V3_CONTENT_HINT_NONE,
 					   entry->content_purpose);
 
-	zwp_text_input_v1_set_surrounding_text(entry->text_input,
+	zwp_text_input_v3_set_surrounding_text(entry->text_input,
 					       entry->text,
 					       entry->cursor,
 					       entry->anchor);
 
-	if (entry->preferred_language)
-		zwp_text_input_v1_set_preferred_language(entry->text_input,
-							 entry->preferred_language);
-
 	text_entry_get_cursor_rectangle(entry, &cursor_rectangle);
-	zwp_text_input_v1_set_cursor_rectangle(entry->text_input,
+	zwp_text_input_v3_set_cursor_rectangle(entry->text_input,
 					       cursor_rectangle.x,
 					       cursor_rectangle.y,
 					       cursor_rectangle.width,
 					       cursor_rectangle.height);
 
-	zwp_text_input_v1_commit_state(entry->text_input, ++entry->serial);
+	zwp_text_input_v3_commit(entry->text_input);
+
+	entry->serial++;
 }
 
 static void
@@ -937,8 +754,6 @@ text_entry_insert_at_cursor(struct text_entry *entry, const char *text,
 	text_entry_update_layout(entry);
 
 	widget_schedule_redraw(entry->widget);
-
-	text_entry_update(entry);
 }
 
 static void
@@ -946,14 +761,21 @@ text_entry_reset_preedit(struct text_entry *entry)
 {
 	entry->preedit.cursor = 0;
 
+	free(entry->preedit.pending_text);
+	entry->preedit.pending_text = NULL;
+
 	free(entry->preedit.text);
 	entry->preedit.text = NULL;
 
-	free(entry->preedit.commit);
-	entry->preedit.commit = NULL;
-
 	pango_attr_list_unref(entry->preedit.attr_list);
 	entry->preedit.attr_list = NULL;
+}
+
+static void
+text_entry_reset_pending_preedit(struct text_entry *entry)
+{
+	free(entry->preedit.pending_text);
+	entry->preedit.pending_text = NULL;
 }
 
 static void
@@ -961,8 +783,8 @@ text_entry_commit_and_reset(struct text_entry *entry)
 {
 	char *commit = NULL;
 
-	if (entry->preedit.commit)
-		commit = strdup(entry->preedit.commit);
+	if (entry->preedit.text)
+		commit = strdup(entry->preedit.text);
 
 	text_entry_reset_preedit(entry);
 	if (commit) {
@@ -970,7 +792,6 @@ text_entry_commit_and_reset(struct text_entry *entry)
 		free(commit);
 	}
 
-	zwp_text_input_v1_reset(entry->text_input);
 	text_entry_update(entry);
 	entry->reset_serial = entry->serial;
 }
@@ -980,56 +801,20 @@ text_entry_set_preedit(struct text_entry *entry,
 		       const char *preedit_text,
 		       int preedit_cursor)
 {
-	text_entry_reset_preedit(entry);
-
 	if (!preedit_text)
 		return;
 
+	if (entry->preedit.text)
+		free(entry->preedit.text);
+
 	entry->preedit.text = strdup(preedit_text);
 	entry->preedit.cursor = preedit_cursor;
-
-	text_entry_update_layout(entry);
-
-	widget_schedule_redraw(entry->widget);
-}
-
-static uint32_t
-text_entry_try_invoke_preedit_action(struct text_entry *entry,
-				     int32_t x, int32_t y,
-				     uint32_t button,
-				     enum wl_pointer_button_state state)
-{
-	int index, trailing;
-	uint32_t cursor;
-	const char *text;
-
-	if (!entry->preedit.text)
-		return 0;
-
-	pango_layout_xy_to_index(entry->layout,
-				 x * PANGO_SCALE, y * PANGO_SCALE,
-				 &index, &trailing);
-
-	text = pango_layout_get_text(entry->layout);
-	cursor = g_utf8_offset_to_pointer(text + index, trailing) - text;
-
-	if (cursor < entry->cursor ||
-	    cursor > entry->cursor + strlen(entry->preedit.text)) {
-		return 0;
-	}
-
-	if (state == WL_POINTER_BUTTON_STATE_RELEASED)
-		zwp_text_input_v1_invoke_action(entry->text_input,
-						button,
-						cursor - entry->cursor);
-
-	return 1;
 }
 
 static bool
 text_entry_has_preedit(struct text_entry *entry)
 {
-	return entry->preedit.text && (strlen(entry->preedit.text) > 0);
+	return entry->preedit.commit && (strlen(entry->preedit.commit) > 0);
 }
 
 static void
@@ -1148,6 +933,9 @@ text_entry_draw_cursor(struct text_entry *entry, cairo_t *cr)
 	PangoRectangle extents;
 	PangoRectangle cursor_pos;
 
+	if (!entry->active)
+		return;
+
 	if (entry->preedit.text && entry->preedit.cursor < 0)
 		return;
 
@@ -1264,7 +1052,6 @@ text_entry_button_handler(struct widget *widget,
 	struct rectangle allocation;
 	struct editor *editor;
 	int32_t x, y;
-	uint32_t result;
 
 	widget_get_allocation(entry->widget, &allocation);
 	input_get_position(input, &x, &y);
@@ -1288,19 +1075,9 @@ text_entry_button_handler(struct widget *widget,
 		break;
 	}
 
-	if (text_entry_has_preedit(entry)) {
-		result = text_entry_try_invoke_preedit_action(entry, x, y, button, state);
-
-		if (result)
-			return;
-	}
-
 	if (state == WL_POINTER_BUTTON_STATE_PRESSED &&
 	    button == BTN_LEFT) {
-		struct wl_seat *seat = input_get_seat(input);
-
-		text_entry_activate(entry, seat);
-		editor->active_entry = entry;
+		text_entry_activate(entry);
 
 		text_entry_set_cursor_position(entry, x, y, true);
 	}
@@ -1312,9 +1089,7 @@ text_entry_touch_handler(struct widget *widget, struct input *input,
 			 float tx, float ty, void *data)
 {
 	struct text_entry *entry = data;
-	struct wl_seat *seat = input_get_seat(input);
 	struct rectangle allocation;
-	struct editor *editor;
 	int32_t x, y;
 
 	widget_get_allocation(entry->widget, &allocation);
@@ -1322,9 +1097,7 @@ text_entry_touch_handler(struct widget *widget, struct input *input,
 	x = tx - (allocation.x + text_offset_left(&allocation));
 	y = ty - (allocation.y + text_offset_top(&allocation));
 
-	editor = window_get_user_data(entry->window);
-	text_entry_activate(entry, seat);
-	editor->active_entry = entry;
+	text_entry_activate(entry);
 
 	text_entry_set_cursor_position(entry, x, y, true);
 }
@@ -1342,11 +1115,8 @@ editor_button_handler(struct widget *widget,
 	}
 
 	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
-		struct wl_seat *seat = input_get_seat(input);
-
-		text_entry_deactivate(editor->entry, seat);
-		text_entry_deactivate(editor->editor, seat);
-		editor->active_entry = NULL;
+		text_entry_disable(editor->entry);
+		text_entry_disable(editor->editor);
 	}
 }
 
@@ -1357,11 +1127,8 @@ editor_touch_handler(struct widget *widget, struct input *input,
 {
 	struct editor *editor = data;
 
-	struct wl_seat *seat = input_get_seat(input);
-
-	text_entry_deactivate(editor->entry, seat);
-	text_entry_deactivate(editor->editor, seat);
-	editor->active_entry = NULL;
+	text_entry_disable(editor->entry);
+	text_entry_disable(editor->editor);
 }
 
 static void
@@ -1496,10 +1263,10 @@ global_handler(struct display *display, uint32_t name,
 {
 	struct editor *editor = data;
 
-	if (!strcmp(interface, "zwp_text_input_manager_v1")) {
+	if (!strcmp(interface, zwp_text_input_manager_v3_interface.name)) {
 		editor->text_input_manager =
 			display_bind(display, name,
-				     &zwp_text_input_manager_v1_interface, 1);
+				     &zwp_text_input_manager_v3_interface, 1);
 	}
 }
 
@@ -1642,11 +1409,13 @@ main(int argc, char *argv[])
 		editor.entry = text_entry_create(&editor, text_buffer);
 	else
 		editor.entry = text_entry_create(&editor, "Entry");
+	editor.entry->content_purpose = ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL;
+
 	editor.entry->click_to_show = opt_click_to_show;
 	if (opt_preferred_language)
 		editor.entry->preferred_language = strdup(opt_preferred_language);
 	editor.editor = text_entry_create(&editor, "Numeric");
-	editor.editor->content_purpose = ZWP_TEXT_INPUT_V1_CONTENT_PURPOSE_NUMBER;
+	editor.editor->content_purpose = ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NUMBER;
 	editor.editor->click_to_show = opt_click_to_show;
 	editor.selection = NULL;
 	editor.selected_text = NULL;

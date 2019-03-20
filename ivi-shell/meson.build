@@ -5,8 +5,6 @@ if get_option('shell-ivi')
 		'ivi-layout-transition.c',
 		ivi_application_server_protocol_h,
 		ivi_application_protocol_c,
-		input_method_unstable_v1_server_protocol_h,
-		input_method_unstable_v1_protocol_c,
 	]
 	plugin_shell_ivi = shared_library(
 		'ivi-shell',
