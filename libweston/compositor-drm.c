@@ -4245,6 +4245,22 @@ drm_get_first_hdr_surface(struct weston_output *output_base)
 }
 
 static void
+drm_head_reset_color_state(struct drm_backend *b,
+		struct weston_output *output_base)
+{
+	struct weston_head *w_head = weston_output_get_first_head(output_base);
+	struct drm_head *head = to_drm_head(w_head);
+	struct drm_conn_color_state *cs;
+
+	if (!head)
+		return;
+
+	cs = &head->color_state;
+	memset(cs, 0, sizeof(*cs));
+	cs->changed = 1;
+}
+
+static void
 drm_assign_planes(struct weston_output *output_base, void *repaint_data)
 {
 	struct drm_backend *b = to_drm_backend(output_base->compositor);
