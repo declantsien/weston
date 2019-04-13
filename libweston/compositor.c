@@ -2479,6 +2479,68 @@ weston_output_take_feedback_list(struct weston_output *output,
 	wl_list_init(&surface->feedback_list);
 }
 
+static void
+weston_compositor_identify_view_occlusion(struct weston_compositor *ec,
+					  struct weston_output *output)
+{
+	struct weston_view *ev;
+	pixman_region32_t occluded_region, clipped_view, surface_overlap;
+	pixman_region32_t opaque_region;
+
+	pixman_region32_init(&occluded_region);
+	wl_list_for_each(ev, &ec->view_list, link) {
+		ev->occlusion = WESTON_VIEW_NOT_OCCLUDED;
+
+		pixman_region32_init(&clipped_view);
+
+		pixman_region32_intersect(&clipped_view,
+					  &ev->transform.boundingbox,
+					  &output->region);
+
+		pixman_region32_init(&surface_overlap);
+		pixman_region32_intersect(&surface_overlap, &clipped_view,
+					  &occluded_region);
+		if (pixman_region32_equal(&surface_overlap, &clipped_view))
+			ev->occlusion = WESTON_VIEW_FULLY_OCCLUDED;
+		else if (pixman_region32_not_empty(&surface_overlap))
+			ev->occlusion = WESTON_VIEW_PARTIALLY_OCCLUDED;
+
+		pixman_region32_fini(&surface_overlap);
+		pixman_region32_fini(&clipped_view);
+
+		if (ev->occlusion == WESTON_VIEW_FULLY_OCCLUDED)
+			continue;
+
+		/* Check if the shell has set an alpha value */
+		if (ev->alpha < 1.0)
+			continue;
+
+		pixman_region32_init(&opaque_region);
+
+		/* Prefer the opaque region set by the client */
+		if (pixman_region32_not_empty(&ev->transform.opaque)) {
+			pixman_region32_intersect(&opaque_region,
+						  &ev->transform.opaque,
+						  &output->region);
+		} else  {
+			/* view is not fully occluded. check if it could be transparent */
+			if (weston_view_is_opaque(ev, &ev->transform.boundingbox))
+				pixman_region32_intersect(&opaque_region,
+							  &ev->transform.boundingbox,
+							  &output->region);
+
+		}
+
+		pixman_region32_union(&occluded_region,
+				      &occluded_region,
+				      &opaque_region);
+
+		pixman_region32_fini(&opaque_region);
+	}
+
+	pixman_region32_fini(&occluded_region);
+}
+
 static int
 weston_output_repaint(struct weston_output *output, void *repaint_data)
 {
@@ -2498,6 +2560,7 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 
 	/* Rebuild the surface list and update surface transforms up front. */
 	weston_compositor_build_view_list(ec);
+	weston_compositor_identify_view_occlusion(ec, output);
 
 	if (output->assign_planes && !output->disable_planes) {
 		output->assign_planes(output, repaint_data);
@@ -2513,7 +2576,8 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 		/* Note: This operation is safe to do multiple times on the
 		 * same surface.
 		 */
-		if (ev->surface->output == output) {
+		if (ev->surface->output == output &&
+		    ev->occlusion != WESTON_VIEW_FULLY_OCCLUDED) {
 			wl_list_insert_list(&frame_callback_list,
 					    &ev->surface->frame_callback_list);
 			wl_list_init(&ev->surface->frame_callback_list);

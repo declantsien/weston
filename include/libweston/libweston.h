@@ -1239,6 +1239,12 @@ struct weston_region {
 	pixman_region32_t region;
 };
 
+enum weston_view_occlusion {
+	WESTON_VIEW_NOT_OCCLUDED = 0,
+	WESTON_VIEW_PARTIALLY_OCCLUDED,
+	WESTON_VIEW_FULLY_OCCLUDED,
+};
+
 /* Using weston_view transformations
  *
  * To add a transformation to a view, create a struct weston_transform, and
@@ -1352,6 +1358,7 @@ struct weston_view {
 	uint32_t psf_flags;
 
 	bool is_mapped;
+	enum weston_view_occlusion occlusion;
 };
 
 struct weston_surface_state {
