@@ -92,7 +92,7 @@ frame_callback_wait_nofail(struct client *client, int *done)
 }
 
 void
-move_client(struct client *client, int x, int y)
+move_client(struct client *client, int x, int y, bool wait_for_callback)
 {
 	struct surface *surface = client->surface;
 	int done;
@@ -108,11 +108,15 @@ move_client(struct client *client, int x, int y)
 	wl_surface_damage(surface->wl_surface, 0, 0, surface->width,
 			  surface->height);
 
-	frame_callback_set(surface->wl_surface, &done);
+	if (wait_for_callback)
+		frame_callback_set(surface->wl_surface, &done);
 
 	wl_surface_commit(surface->wl_surface);
 
-	frame_callback_wait(client, &done);
+	if (wait_for_callback)
+		frame_callback_wait(client, &done);
+	else
+		client_roundtrip(client);
 }
 
 static void
@@ -999,7 +1003,7 @@ create_client_and_test_surface(int x, int y, int width, int height)
 				 width, height);
 	pixman_image_unref(solid);
 
-	move_client(client, x, y);
+	move_client(client, x, y, true);
 
 	return client;
 }

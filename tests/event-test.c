@@ -41,9 +41,9 @@ output_contains_client(struct client *client)
 }
 
 static void
-check_client_move(struct client *client, int x, int y)
+check_client_move(struct client *client, int x, int y, bool wait_for_callback)
 {
-	move_client(client, x, y);
+	move_client(client, x, y, wait_for_callback);
 
 	if (output_contains_client(client)) {
 		assert(client->surface->output == client->output);
@@ -65,36 +65,36 @@ TEST(test_surface_output)
 	/* not visible */
 	x = 0;
 	y = -client->surface->height;
-	check_client_move(client, x, y);
+	check_client_move(client, x, y, false);
 
 	/* visible */
-	check_client_move(client, x, ++y);
+	check_client_move(client, x, ++y, true);
 
 	/* not visible */
 	x = -client->surface->width;
 	y = 0;
-	check_client_move(client, x, y);
+	check_client_move(client, x, y, false);
 
 	/* visible */
-	check_client_move(client, ++x, y);
+	check_client_move(client, ++x, y, true);
 
 	/* not visible */
 	x = client->output->width;
 	y = 0;
-	check_client_move(client, x, y);
+	check_client_move(client, x, y, false);
 
 	/* visible */
-	check_client_move(client, --x, y);
+	check_client_move(client, --x, y, true);
 	assert(output_contains_client(client));
 
 	/* not visible */
 	x = 0;
 	y = client->output->height;
-	check_client_move(client, x, y);
+	check_client_move(client, x, y, false);
 	assert(!output_contains_client(client));
 
 	/* visible */
-	check_client_move(client, x, --y);
+	check_client_move(client, x, --y, true);
 	assert(output_contains_client(client));
 }
 
