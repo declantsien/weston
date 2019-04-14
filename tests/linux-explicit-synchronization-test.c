@@ -430,7 +430,9 @@ TEST(get_release_events_are_emitted_for_same_buffer_on_different_surfaces)
 	int buf_released2 = 0;
 	int frame;
 
-	weston_test_move_surface(client->test->weston_test, surface2, 0, 0);
+	/* Position surface2 at (1, 1) to avoid not receiving wl_callback as
+	 * surface1 is occluding surface2 */
+	weston_test_move_surface(client->test->weston_test, surface2, 1, 1);
 
 	/* Attach buf1 to both surface1 and surface2. */
 	buffer_release1 =
