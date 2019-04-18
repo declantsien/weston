@@ -261,6 +261,7 @@ struct gl_renderer {
 	struct wl_list shader_list;
 
 	bool supports_half_float_texture;
+	struct gl_shader_generator *sg;
 };
 
 enum timeline_render_point_type {
@@ -856,7 +857,7 @@ use_gl_program(struct gl_renderer *gr,
 	}
 
 	if (!shader) {
-		shader = gl_shader_create(&reqs);
+		shader = gl_shader_create(gr->sg, &reqs);
 		if (!shader) {
 			weston_log("warning: failed to generate gl program\n");
 			return;
@@ -3307,6 +3308,8 @@ gl_renderer_destroy(struct weston_compositor *ec)
 	if (gr->fan_binding)
 		weston_binding_destroy(gr->fan_binding);
 
+	gl_shader_generator_destroy(gr->sg);
+
 	free(gr);
 }
 
@@ -3705,6 +3708,8 @@ gl_renderer_display_create(struct weston_compositor *ec, EGLenum platform,
 							    gr->dummy_surface);
 		goto fail_with_error;
 	}
+
+	gr->sg = gl_shader_generator_create(ec);
 
 	return 0;
 
