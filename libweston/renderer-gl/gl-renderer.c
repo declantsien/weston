@@ -1053,7 +1053,8 @@ repaint_views(struct weston_output *output, pixman_region32_t *damage)
 	struct weston_view *view;
 
 	wl_list_for_each_reverse(view, &compositor->view_list, link)
-		if (view->plane == &compositor->primary_plane)
+		if (view->occlusion != WESTON_VIEW_FULLY_OCCLUDED &&
+		    view->plane == &compositor->primary_plane)
 			draw_view(view, output, damage);
 }
 
