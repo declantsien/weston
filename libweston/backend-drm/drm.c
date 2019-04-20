@@ -3722,7 +3722,6 @@ drm_output_propose_state(struct weston_output *output_base,
 		struct drm_plane_state *ps = NULL;
 		bool force_renderer = false;
 		pixman_region32_t clipped_view;
-		bool totally_occluded = false;
 		bool overlay_occluded = false;
 
 		drm_debug(b, "\t\t\t[view] evaluating view %p for "
@@ -3752,17 +3751,13 @@ drm_output_propose_state(struct weston_output *output_base,
 			force_renderer = true;
 		}
 
-		/* Ignore views we know to be totally occluded. */
 		pixman_region32_init(&clipped_view);
 		pixman_region32_intersect(&clipped_view,
 					  &ev->transform.boundingbox,
 					  &output->base.region);
 
-		pixman_region32_init(&surface_overlap);
-		pixman_region32_subtract(&surface_overlap, &clipped_view,
-					 &occluded_region);
-		totally_occluded = !pixman_region32_not_empty(&surface_overlap);
-		if (totally_occluded) {
+		/* Ignore views we know to be totally occluded. */
+		if (ev->occlusion == WESTON_VIEW_FULLY_OCCLUDED) {
 			drm_debug(b, "\t\t\t\t[view] ignoring view %p "
 			             "(occluded on our output)\n", ev);
 			pixman_region32_fini(&surface_overlap);
@@ -3773,6 +3768,7 @@ drm_output_propose_state(struct weston_output *output_base,
 		/* Since we process views from top to bottom, we know that if
 		 * the view intersects the calculated renderer region, it must
 		 * be part of, or occluded by, it, and cannot go on a plane. */
+		pixman_region32_init(&surface_overlap);
 		pixman_region32_intersect(&surface_overlap, &renderer_region,
 					  &clipped_view);
 		if (pixman_region32_not_empty(&surface_overlap)) {
