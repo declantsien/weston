@@ -6706,6 +6706,20 @@ debug_scene_view_print(FILE *fp, struct weston_view *view, int view_idx)
 
 	fprintf(fp, "\n");
 
+	fprintf(fp, "\t\tocclusion status: ");
+	switch (view->occlusion) {
+	case WESTON_VIEW_FULLY_OCCLUDED:
+		fprintf(fp, "fully occluded\n");
+		break;
+	case WESTON_VIEW_PARTIALLY_OCCLUDED:
+		fprintf(fp, "partially occluded\n");
+		break;
+	case WESTON_VIEW_NOT_OCCLUDED:
+		fprintf(fp, "not occluded\n");
+		break;
+	}
+
+
 	debug_scene_view_print_buffer(fp, view);
 }
 
