@@ -81,6 +81,27 @@
 #define GBM_BO_USE_LINEAR (1 << 4)
 #endif
 
+/* Colorspace values as per CEA spec */
+#define DRM_MODE_COLORIMETRY_DEFAULT			0
+
+/* CEA 861 Normal Colorimetry options */
+#define DRM_MODE_COLORIMETRY_NO_DATA			0
+#define DRM_MODE_COLORIMETRY_SMPTE_170M_YCC		1
+#define DRM_MODE_COLORIMETRY_BT709_YCC			2
+
+/* CEA 861 Extended Colorimetry Options */
+#define DRM_MODE_COLORIMETRY_XVYCC_601			3
+#define DRM_MODE_COLORIMETRY_XVYCC_709			4
+#define DRM_MODE_COLORIMETRY_SYCC_601			5
+#define DRM_MODE_COLORIMETRY_OPYCC_601			6
+#define DRM_MODE_COLORIMETRY_OPRGB			7
+#define DRM_MODE_COLORIMETRY_BT2020_CYCC		8
+#define DRM_MODE_COLORIMETRY_BT2020_RGB			9
+#define DRM_MODE_COLORIMETRY_BT2020_YCC			10
+/* Additional Colorimetry extension added as part of CTA 861.G */
+#define DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65		11
+#define DRM_MODE_COLORIMETRY_DCI_P3_RGB_THEATER		12
+
 /**
  * A small wrapper to print information into the 'drm-backend' debug scope.
  *
@@ -230,6 +251,7 @@ enum wdrm_connector_property {
 	WDRM_CONNECTOR_CRTC_ID,
 	WDRM_CONNECTOR_NON_DESKTOP,
 	WDRM_CONNECTOR_HDR_METADATA,
+	WDRM_CONNECTOR_OUTPUT_COLORSPACE,
 	WDRM_CONNECTOR__COUNT
 };
 
@@ -256,6 +278,33 @@ static struct drm_property_enum_info dpms_state_enums[] = {
 	},
 };
 
+static struct drm_property_enum_info hdmi_clrspace_enums[] = {
+	/* For Default case, driver will set the colorspace */
+	[DRM_MODE_COLORIMETRY_DEFAULT] = { .name = "Default"},
+	/* Standard Definition Colorimetry based on CEA 861 */
+	[DRM_MODE_COLORIMETRY_SMPTE_170M_YCC] = { .name = "SMPTE_170M_YCC"},
+	[DRM_MODE_COLORIMETRY_BT709_YCC] = { .name = "BT709_YCC"},
+	/* Standard Definition Colorimetry based on IEC 61966-2-4 */
+	[DRM_MODE_COLORIMETRY_XVYCC_601] = { .name = "XVYCC_601"},
+	/* High Definition Colorimetry based on IEC 61966-2-4 */
+	[DRM_MODE_COLORIMETRY_XVYCC_709] = { .name = "XVYCC_709"},
+	/* Colorimetry based on IEC 61966-2-1/Amendment 1 */
+	[DRM_MODE_COLORIMETRY_SYCC_601] = { .name = "SYCC_601"},
+	/* Colorimetry based on IEC 61966-2-5 [33] */
+	[DRM_MODE_COLORIMETRY_OPYCC_601] = { .name = "opYCC_601"},
+	/* Colorimetry based on IEC 61966-2-5 */
+	[DRM_MODE_COLORIMETRY_OPRGB] = { .name = "opRGB"},
+	/* Colorimetry based on ITU-R BT.2020 */
+	[DRM_MODE_COLORIMETRY_BT2020_CYCC] = { .name = "BT2020_CYCC"},
+	/* Colorimetry based on ITU-R BT.2020 */
+	[DRM_MODE_COLORIMETRY_BT2020_RGB] = { .name = "BT2020_RGB"},
+	/* Colorimetry based on ITU-R BT.2020 */
+	[DRM_MODE_COLORIMETRY_BT2020_YCC] = { .name = "BT2020_YCC"},
+	/* Added as part of Additional Colorimetry Extension in 861.G */
+	[DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65] = { .name = "DCI-P3_RGB_D65" },
+	[DRM_MODE_COLORIMETRY_DCI_P3_RGB_THEATER] = { .name = "DCI-P3_RGB_Theater"},
+};
+
 static const struct drm_property_info connector_props[] = {
 	[WDRM_CONNECTOR_EDID] = { .name = "EDID" },
 	[WDRM_CONNECTOR_DPMS] = {
@@ -266,6 +315,11 @@ static const struct drm_property_info connector_props[] = {
 	[WDRM_CONNECTOR_CRTC_ID] = { .name = "CRTC_ID", },
 	[WDRM_CONNECTOR_NON_DESKTOP] = { .name = "non-desktop", },
 	[WDRM_CONNECTOR_HDR_METADATA] = { .name = "HDR_OUTPUT_METADATA", },
+	[WDRM_CONNECTOR_OUTPUT_COLORSPACE] = {
+		.name = "Colorspace",
+		.enum_values = hdmi_clrspace_enums,
+		.num_enum_values = 13,
+	},
 };
 
 /**
@@ -2635,11 +2689,27 @@ plane_add_damage(drmModeAtomicReq *req, struct drm_backend *backend,
 	return 0;
 }
 
+/* Return the colorspace values to be going to AVI infoframe */
+static inline uint32_t
+to_kernel_colorspace(uint8_t colorspace)
+{
+	switch(colorspace) {
+	case DRM_COLORSPACE_DCIP3:
+		return DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65;
+	case DRM_COLORSPACE_REC2020:
+		return DRM_MODE_COLORIMETRY_BT2020_RGB;
+	case DRM_COLORSPACE_REC709:
+	default:
+		return DRM_MODE_COLORIMETRY_DEFAULT;
+	}
+}
+
 static int
 connector_add_color_correction(drmModeAtomicReq *req,
 		struct drm_head *head, uint32_t *flags)
 {
 	int ret;
+	uint32_t kernel_cs;
 	struct drm_conn_color_state *conn_state = &head->color_state;
 
 	if (!conn_state->changed)
@@ -2658,6 +2728,16 @@ connector_add_color_correction(drmModeAtomicReq *req,
 	}
 
 	*flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
+
+	kernel_cs = to_kernel_colorspace(conn_state->o_cs);
+	ret = connector_add_prop(req,
+				 head,
+				 WDRM_CONNECTOR_OUTPUT_COLORSPACE,
+				 kernel_cs);
+	if (ret != 0) {
+		weston_log("Failed to apply output colorspace\n");
+		return ret;
+	}
 
 	if (!(*flags & DRM_MODE_ATOMIC_TEST_ONLY))
 		conn_state->changed = false;
