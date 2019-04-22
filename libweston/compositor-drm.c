@@ -67,6 +67,7 @@
 #include "linux-dmabuf.h"
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
 #include "linux-explicit-synchronization.h"
+#include "drm-hdr-metadata.h"
 
 #ifndef DRM_CLIENT_CAP_ASPECT_RATIO
 #define DRM_CLIENT_CAP_ASPECT_RATIO	4
@@ -510,6 +511,46 @@ struct drm_plane {
 	} formats[];
 };
 
+/* CTA-861-G: HDR Metadata names and types */
+enum drm_hdr_eotf_type {
+	DRM_EOTF_SDR_TRADITIONAL = 0,
+	DRM_EOTF_HDR_TRADITIONAL,
+	DRM_EOTF_HDR_ST2084,
+	DRM_EOTF_HLG_BT2100,
+	DRM_EOTF_MAX
+};
+
+enum drm_colorspace {
+	DRM_COLORSPACE_INVALID,
+	DRM_COLORSPACE_REC709,
+	DRM_COLORSPACE_DCIP3,
+	DRM_COLORSPACE_REC2020,
+	DRM_COLORSPACE_MAX,
+};
+
+/* Static HDR metadata to be sent to kernel, matches kernel structure */
+struct drm_hdr_metadata_static {
+	uint8_t eotf;
+	uint8_t metadata_type;
+	struct {
+		uint16_t x, y;
+	} display_primaries[3];
+	struct {
+		uint16_t x, y;
+	} white_point;
+	uint16_t max_display_mastering_luminance;
+	uint16_t min_display_mastering_luminance;
+	uint16_t max_cll;
+	uint16_t max_fall;
+};
+
+struct hdr_output_metadata {
+	uint32_t metadata_type;
+	union {
+		struct drm_hdr_metadata_static static_md;
+	};
+};
+
 struct drm_head {
 	struct weston_head base;
 	struct drm_backend *backend;
@@ -517,6 +558,12 @@ struct drm_head {
 	drmModeConnector *connector;
 	uint32_t connector_id;
 	struct drm_edid edid;
+
+	/* Display's static HDR metadata */
+	struct drm_edid_hdr_metadata_static *hdr_md;
+
+	/* Display's supported color spaces */
+	uint32_t clrspaces;
 
 	/* Holds the properties for the connector */
 	struct drm_property_info props_conn[WDRM_CONNECTOR__COUNT];
@@ -5421,6 +5468,13 @@ find_and_parse_output_edid(struct drm_head *head,
 		if (head->edid.serial_number[0] != '\0')
 			*serial_number = head->edid.serial_number;
 	}
+
+	if (head->hdr_md)
+		drm_release_hdr_metadata(head->hdr_md);
+	head->hdr_md = drm_get_display_hdr_metadata(edid_blob->data,
+		edid_blob->length);
+	head->clrspaces = drm_get_display_clrspace(edid_blob->data,
+		edid_blob->length);
 	drmModeFreePropertyBlob(edid_blob);
 }
 
@@ -6569,6 +6623,9 @@ drm_head_destroy(struct drm_head *head)
 
 	drm_property_info_free(head->props_conn, WDRM_CONNECTOR__COUNT);
 	drmModeFreeConnector(head->connector);
+
+	if (head->hdr_md)
+		drm_release_hdr_metadata(head->hdr_md);
 
 	if (head->backlight)
 		backlight_destroy(head->backlight);
