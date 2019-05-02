@@ -355,6 +355,7 @@ struct drm_backend {
 	bool fb_modifiers;
 
 	struct weston_debug_scope *debug;
+	struct wl_list fb_list;
 };
 
 struct drm_mode {
@@ -395,6 +396,9 @@ struct drm_fb {
 
 	/* Used by dumb fbs */
 	void *map;
+
+	/* Used by backend to maintain list of fbs */
+	struct wl_list backend_link;
 };
 
 struct drm_edid {
@@ -951,8 +955,24 @@ drm_head_find_by_connector(struct drm_backend *backend, uint32_t connector_id)
 }
 
 static void
+drm_fb_remember(struct drm_backend *b, struct drm_fb *fb)
+{
+	if (!wl_list_empty(&fb->backend_link))
+		wl_list_remove(&fb->backend_link);
+	wl_list_insert(&b->fb_list, &fb->backend_link);
+}
+
+static void
+drm_fb_forget(struct drm_fb *fb)
+{
+	if (!wl_list_empty(&fb->backend_link))
+		wl_list_remove(&fb->backend_link);
+}
+
+static void
 drm_fb_destroy(struct drm_fb *fb)
 {
+	drm_fb_forget(fb);
 	if (fb->fb_id != 0)
 		drmModeRmFB(fb->fd, fb->fb_id);
 	weston_buffer_reference(&fb->buffer_ref, NULL);
@@ -1034,6 +1054,12 @@ drm_fb_addfb(struct drm_backend *b, struct drm_fb *fb)
 	return ret;
 }
 
+static int
+drm_fb_rmfb(struct drm_backend *b, struct drm_fb *fb)
+{
+	return drmModeRmFB(fb->fd, fb->fb_id);
+}
+
 static struct drm_fb *
 drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 		   uint32_t format)
@@ -1081,11 +1107,13 @@ drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 	fb->width = width;
 	fb->height = height;
 	fb->fd = b->drm.fd;
+	wl_list_init(&fb->backend_link);
 
 	if (drm_fb_addfb(b, fb) != 0) {
 		weston_log("failed to create kms fb: %m\n");
 		goto err_bo;
 	}
+	drm_fb_remember(b, fb);
 
 	memset(&map_arg, 0, sizeof map_arg);
 	map_arg.handle = fb->handles[0];
@@ -1216,6 +1244,7 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 	fb->modifier = dmabuf->attributes.modifier[0];
 	fb->size = 0;
 	fb->fd = backend->drm.fd;
+	wl_list_init(&fb->backend_link);
 
 	static_assert(ARRAY_LENGTH(fb->strides) ==
 		      ARRAY_LENGTH(dmabuf->attributes.stride),
@@ -1260,6 +1289,7 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 
 	if (drm_fb_addfb(backend, fb) != 0)
 		goto err_free;
+	drm_fb_remember(backend, fb);
 
 	return fb;
 
@@ -1296,6 +1326,7 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 	fb->height = gbm_bo_get_height(bo);
 	fb->format = pixel_format_get_info(gbm_bo_get_format(bo));
 	fb->size = 0;
+	wl_list_init(&fb->backend_link);
 
 #ifdef HAVE_GBM_MODIFIERS
 	fb->modifier = gbm_bo_get_modifier(bo);
@@ -1336,6 +1367,7 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 			weston_log("failed to create kms fb: %m\n");
 		goto err_free;
 	}
+	drm_fb_remember(backend, fb);
 
 	gbm_bo_set_user_data(bo, fb, drm_fb_destroy_gbm);
 
@@ -2115,6 +2147,7 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 		gbm_surface_release_buffer(output->gbm_surface, bo);
 		return NULL;
 	}
+
 	ret->gbm_surface = output->gbm_surface;
 
 	return ret;
@@ -6788,9 +6821,16 @@ session_notify(struct wl_listener *listener, void *data)
 	struct drm_backend *b = to_drm_backend(compositor);
 	struct drm_plane *plane;
 	struct drm_output *output;
+	struct drm_fb *fb;
 
 	if (compositor->session_active) {
 		weston_log("activating session\n");
+
+		/* Add back any active fbs that were removed when going inactive */
+		wl_list_for_each(fb, &b->fb_list, backend_link) {
+			drm_fb_addfb(b, fb);
+		}
+
 		weston_compositor_wake(compositor);
 		weston_compositor_damage_all(compositor);
 		b->state_invalid = true;
@@ -6800,6 +6840,11 @@ session_notify(struct wl_listener *listener, void *data)
 		udev_input_disable(&b->input);
 
 		weston_compositor_offscreen(compositor);
+
+		/* Remove fbs so they cant be discovered by new vt master */
+		wl_list_for_each(fb, &b->fb_list, backend_link) {
+			drm_fb_rmfb(b, fb);
+		}
 
 		/* If we have a repaint scheduled (either from a
 		 * pending pageflip or the idle handler), make sure we
@@ -7553,6 +7598,7 @@ drm_backend_create(struct weston_compositor *compositor,
 
 	wl_list_init(&b->plane_list);
 	create_sprites(b);
+	wl_list_init(&b->fb_list);
 
 	if (udev_input_init(&b->input,
 			    compositor, b->udev, seat_id,
