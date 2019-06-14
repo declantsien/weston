@@ -82,7 +82,7 @@ timeline_notify_destroy(struct wl_listener *listener, void *data)
 	weston_timeline_close();
 }
 
-void
+WL_EXPORT void
 weston_timeline_open(struct weston_compositor *compositor)
 {
 	if (weston_timeline_enabled_)

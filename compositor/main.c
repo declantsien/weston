@@ -64,6 +64,7 @@
 #include <libweston/windowed-output-api.h>
 #include <libweston/weston-debug.h>
 #include "../remoting/remoting-plugin.h"
+#include "timeline.h"
 
 #define WINDOW_TITLE "Weston Compositor"
 
@@ -2927,6 +2928,7 @@ int main(int argc, char *argv[])
 	struct weston_log_context *log_ctx = NULL;
 	int require_input;
 	sigset_t mask;
+	uint32_t timeline = 0;
 
 	int32_t wait_for_debugger = 0;
 	struct wl_protocol_logger *protologger = NULL;
@@ -2947,6 +2949,7 @@ int main(int argc, char *argv[])
 		{ WESTON_OPTION_STRING, "config", 'c', &config_file },
 		{ WESTON_OPTION_BOOLEAN, "wait-for-debugger", 0, &wait_for_debugger },
 		{ WESTON_OPTION_BOOLEAN, "debug", 0, &debug_protocol },
+		{ WESTON_OPTION_BOOLEAN, "timeline", 0, &timeline },
 	};
 
 	wl_list_init(&wet.layoutput_list);
@@ -3048,6 +3051,9 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 	segv_compositor = wet.compositor;
+
+	if (timeline)
+		weston_timeline_open(wet.compositor);
 
 	log_scope = weston_compositor_add_log_scope(log_ctx, "log",
 			"Weston and Wayland log\n", NULL, NULL);

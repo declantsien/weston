@@ -190,6 +190,9 @@ Weston will export
 with this value in the environment for all child processes to allow them to
 connect to the right server automatically.
 .TP
+.BR \-\-timeline
+Enable timeline recording from the start.
+.TP
 \fB\-\-wait-for-debugger\fR
 Raises SIGSTOP before initializing the compositor. This allows the user to
 attach with a debugger and continue execution by sending SIGCONT. This is
