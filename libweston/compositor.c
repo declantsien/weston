@@ -2490,11 +2490,17 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 	pixman_region32_t output_damage;
 	int r;
 	uint32_t frame_time_msec;
+	struct timespec now;
 
 	if (output->destroying)
 		return 0;
 
 	TL_POINT("core_repaint_begin", TLP_OUTPUT(output), TLP_END);
+	if (timing_debug_enabled(ec)) {
+		weston_compositor_read_presentation_clock(ec, &now);
+		timing_debug(ec, "%s(): begin={%" PRId64 ", %ld}\n", __func__,
+			     (int64_t)now.tv_sec, now.tv_nsec);
+	}
 
 	/* Rebuild the surface list and update surface transforms up front. */
 	weston_compositor_build_view_list(ec);
@@ -2556,6 +2562,11 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 	}
 
 	TL_POINT("core_repaint_posted", TLP_OUTPUT(output), TLP_END);
+	if (timing_debug_enabled(ec)) {
+		weston_compositor_read_presentation_clock(ec, &now);
+		timing_debug(ec, "%s(): end={%" PRId64 ", %ld}\n", __func__,
+			     (int64_t)now.tv_sec, now.tv_nsec);
+	}
 
 	return r;
 }
@@ -2715,6 +2726,8 @@ weston_output_finish_frame(struct weston_output *output,
 	 * repaint as soon as possible so we can get on with it. */
 	if (!stamp) {
 		output->next_repaint = now;
+		timing_debug(compositor, "%s(): !stamp: now={%" PRId64 ", %ld}\n",
+			     __func__, (int64_t)now.tv_sec, now.tv_nsec);
 		goto out;
 	}
 
@@ -2733,6 +2746,14 @@ weston_output_finish_frame(struct weston_output *output,
 	timespec_add_msec(&output->next_repaint, &output->next_repaint,
 			  -compositor->repaint_msec);
 	msec_rel = timespec_sub_to_msec(&output->next_repaint, &now);
+
+	timing_debug(compositor, "%s(): stamp={%" PRId64 ", %ld} "
+		     "next_repaint={%" PRId64 ", %ld} "
+		     "now={%" PRId64 ", %ld}\n",
+		     __func__, (int64_t)stamp->tv_sec, stamp->tv_nsec,
+		     (int64_t)output->next_repaint.tv_sec,
+		     output->next_repaint.tv_nsec,
+		     (int64_t)now.tv_sec, now.tv_nsec);
 
 	if (msec_rel < -1000 || msec_rel > 1000) {
 		static bool warned;
@@ -2771,6 +2792,8 @@ idle_repaint(void *data)
 	assert(output->repaint_status == REPAINT_BEGIN_FROM_IDLE);
 	output->repaint_status = REPAINT_AWAITING_COMPLETION;
 	output->idle_repaint_source = NULL;
+	timing_debug(output->compositor, "%s(): starting repaint loop [%s]\n",
+		     __func__, output->name);
 	output->start_repaint_loop(output);
 }
 
@@ -6893,6 +6916,10 @@ weston_compositor_create(struct wl_display *display,
 						"Scene graph details\n",
 						debug_scene_graph_cb,
 						ec);
+	ec->debug_timing =
+		weston_compositor_add_log_scope(ec->weston_log_ctx, "timing",
+						"Presentation timing\n",
+						NULL, NULL);
 
 	return ec;
 
@@ -7195,6 +7222,7 @@ weston_compositor_destroy(struct weston_compositor *compositor)
 		wl_event_source_remove(compositor->heads_changed_source);
 
 	weston_compositor_log_scope_destroy(compositor->debug_scene);
+	weston_compositor_log_scope_destroy(compositor->debug_timing);
 	compositor->debug_scene = NULL;
 	weston_log_ctx_compositor_destroy(compositor);
 

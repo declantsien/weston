@@ -1933,6 +1933,9 @@ drm_output_update_complete(struct drm_output *output, uint32_t flags,
 		struct drm_pending_state *pending = drm_pending_state_alloc(b);
 		output->dpms_off_pending = 0;
 		drm_output_get_disable_state(pending, output);
+		timing_debug(b->compositor, "%s(): applying pending state %p\n",
+			     __func__, pending);
+
 		drm_pending_state_apply_sync(pending);
 	} else if (output->state_cur->dpms == WESTON_DPMS_OFF &&
 	           output->base.repaint_status != REPAINT_AWAITING_COMPLETION) {
@@ -1946,6 +1949,9 @@ drm_output_update_complete(struct drm_output *output, uint32_t flags,
 
 	ts.tv_sec = sec;
 	ts.tv_nsec = usec * 1000;
+	timing_debug(b->compositor, "%s(): finishing frame: "
+		     "stamp={%" PRId64 ", %ld} flags=0x%x\n",
+		     __func__, (int64_t)ts.tv_sec, ts.tv_nsec, flags);
 	weston_output_finish_frame(&output->base, &ts, flags);
 
 	/* We can't call this from frame_notify, because the output's
@@ -2325,6 +2331,12 @@ drm_output_apply_state_legacy(struct drm_output_state *state)
 
 		drm_output_assign_state(state, DRM_STATE_APPLY_SYNC);
 		weston_compositor_read_presentation_clock(output->base.compositor, &now);
+		timing_debug(backend->compositor, "%s(): update "
+				"complete: [%s] flags=0x%x %u.%u\n",
+				__func__, output->base.name,
+				WP_PRESENTATION_FEEDBACK_KIND_HW_COMPLETION,
+				(unsigned int)now.tv_sec,
+				(unsigned int)(now.tv_nsec / 1000));
 		drm_output_update_complete(output,
 		                           WP_PRESENTATION_FEEDBACK_KIND_HW_COMPLETION,
 					   now.tv_sec, now.tv_nsec / 1000);
@@ -3062,14 +3074,21 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 
 	if (!output->scanout_plane->state_cur->fb) {
 		/* We can't page flip if there's no mode set */
+		timing_debug(backend->compositor, "%s(): Unable to page flip "
+			     "[%s] due to !fb\n",
+			     __func__, output_base->name);
 		goto finish_frame;
 	}
 
 	/* Need to smash all state in from scratch; current timings might not
 	 * be what we want, page flip might not work, etc.
 	 */
-	if (backend->state_invalid)
+	if (backend->state_invalid) {
+		timing_debug(backend->compositor, "%s(): Unable to page flip "
+			     "[%s] due to state_invalid\n",
+			     __func__, output_base->name);
 		goto finish_frame;
+	}
 
 	assert(scanout_plane->state_cur->output == output);
 
@@ -3091,12 +3110,31 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 		timespec_sub(&vbl2now, &tnow, &ts);
 		refresh_nsec =
 			millihz_to_nsec(output->base.current_mode->refresh);
+
+		timing_debug(backend->compositor, "%s(): got vblank stamp: "
+			     "tnow={%" PRId64 ", %ld}"
+			     "stamp={%" PRId64 ", %ld} "
+			     "vbl2now={%" PRId64 ", %ld} "
+			     "refresh_nsec=%" PRId64 "\n",
+			     __func__,
+			     (int64_t)tnow.tv_sec, tnow.tv_nsec,
+			     (int64_t)ts.tv_sec, ts.tv_nsec,
+			     (int64_t)vbl2now.tv_sec, vbl2now.tv_nsec,
+			     refresh_nsec);
+
 		if (timespec_to_nsec(&vbl2now) < refresh_nsec) {
 			drm_output_update_msc(output, vbl.reply.sequence);
+			timing_debug(backend->compositor,
+				     "%s(): finishing frame (vblank): flags=0x%x\n",
+				     __func__, WP_PRESENTATION_FEEDBACK_INVALID);
 			weston_output_finish_frame(output_base, &ts,
 						WP_PRESENTATION_FEEDBACK_INVALID);
 			return;
 		}
+	} else {
+		timing_debug(backend->compositor,
+			     "%s(): unable to get valid vblank: ret=%d\n",
+			     __func__, ret);
 	}
 
 	/* Immediate query didn't provide valid timestamp.
@@ -3110,6 +3148,8 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 	drm_output_state_duplicate(output->state_cur, pending_state,
 				   DRM_OUTPUT_STATE_PRESERVE_PLANES);
 
+	timing_debug(backend->compositor, "%s(): applying pending state %p\n",
+		     __func__, pending_state);
 	ret = drm_pending_state_apply(pending_state);
 	if (ret != 0) {
 		weston_log("applying repaint-start state failed: %s\n",
@@ -3121,6 +3161,9 @@ drm_output_start_repaint_loop(struct weston_output *output_base)
 
 finish_frame:
 	/* if we cannot page-flip, immediately finish frame */
+	timing_debug(backend->compositor, "%s(): finishing frame: "
+		     "stamp=<null> flags=0x%x\n", __func__,
+		     WP_PRESENTATION_FEEDBACK_INVALID);
 	weston_output_finish_frame(output_base, NULL,
 				   WP_PRESENTATION_FEEDBACK_INVALID);
 }
@@ -3158,6 +3201,9 @@ vblank_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec,
 	if (output->page_flip_pending || output->vblank_pending)
 		return;
 
+	timing_debug(b->compositor, "%s(): update complete: [%s] "
+		     "flags=0x%x %u.%u\n", __func__, output->base.name, flags,
+		     sec, usec);
 	drm_output_update_complete(output, flags, sec, usec);
 }
 
@@ -3180,6 +3226,9 @@ page_flip_handler(int fd, unsigned int frame,
 	if (output->vblank_pending)
 		return;
 
+	timing_debug(b->compositor, "%s(): update complete: [%s] "
+		     "flags=0x%x %u.%u\n", __func__, output->base.name, flags,
+		     sec, usec);
 	drm_output_update_complete(output, flags, sec, usec);
 }
 
@@ -3225,6 +3274,8 @@ drm_repaint_flush(struct weston_compositor *compositor, void *repaint_data)
 	struct drm_backend *b = to_drm_backend(compositor);
 	struct drm_pending_state *pending_state = repaint_data;
 
+	timing_debug(compositor, "%s(): applying pending state %p\n",
+		     __func__, pending_state);
 	drm_pending_state_apply(pending_state);
 	drm_debug(b, "[repaint] flushed pending_state %p\n", pending_state);
 	b->repaint_data = NULL;
@@ -3271,6 +3322,9 @@ atomic_flip_handler(int fd, unsigned int frame, unsigned int sec,
 	assert(output->atomic_complete_pending);
 	output->atomic_complete_pending = 0;
 
+	timing_debug(b->compositor, "%s(): update complete: [%s] "
+		     "flags=0x%x %u.%u\n", __func__, output->base.name, flags,
+		     sec, usec);
 	drm_output_update_complete(output, flags, sec, usec);
 	drm_debug(b, "[atomic][CRTC:%u] flip processing completed\n", crtc_id);
 }
@@ -4998,6 +5052,8 @@ drm_set_dpms(struct weston_output *output_base, enum dpms_enum level)
 
 	pending_state = drm_pending_state_alloc(b);
 	drm_output_get_disable_state(pending_state, output);
+	timing_debug(b->compositor, "%s(): applying pending state %p\n",
+		     __func__, pending_state);
 	ret = drm_pending_state_apply_sync(pending_state);
 	if (ret != 0)
 		weston_log("drm_set_dpms: couldn't disable output?\n");

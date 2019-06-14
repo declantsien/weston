@@ -45,6 +45,7 @@ extern "C" {
 #include <libweston/config-parser.h>
 #include <libweston/zalloc.h>
 #include <libweston/timeline-object.h>
+#include <libweston/weston-debug.h>
 
 struct weston_geometry {
 	int32_t x, y;
@@ -1182,7 +1183,27 @@ struct weston_compositor {
 
 	struct weston_log_context *weston_log_ctx;
 	struct weston_log_scope *debug_scene;
+	struct weston_log_scope *debug_timing;
 };
+
+static inline bool
+timing_debug_enabled(struct weston_compositor *compositor)
+{
+	return weston_log_scope_is_enabled(compositor->debug_timing);
+}
+
+static inline void
+timing_debug(struct weston_compositor *compositor, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!timing_debug_enabled(compositor))
+		return;
+
+	va_start(ap, fmt);
+	weston_log_scope_vprintf(compositor->debug_timing, fmt, ap);
+	va_end(ap);
+}
 
 struct weston_buffer {
 	struct wl_resource *resource;
