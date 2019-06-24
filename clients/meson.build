@@ -222,86 +222,92 @@ foreach t : tools_list
 	endif
 endforeach
 
-demo_clients = [
-	{ 'basename': 'clickdot' },
-	{
-		'basename': 'cliptest',
-		'dep_objs': dep_vertex_clipping
-	},
-	{ 'basename': 'confine' },
-	{
-		'basename': 'content_protection',
-		'add_sources': [
-			weston_content_protection_client_protocol_h,
-			weston_content_protection_protocol_c,
-		]
-	},
-
-	{ 'basename': 'dnd' },
-	{
-		'basename': 'editor',
-		'add_sources': [
-			text_input_unstable_v1_client_protocol_h,
-			text_input_unstable_v1_protocol_c,
-		],
-		'deps': [ 'pangocairo', 'gobject-2.0' ]
-	},
-	{ 'basename': 'eventdemo' },
-	{ 'basename': 'flower' },
-	{
-		'basename': 'fullscreen',
-		'add_sources': [
-			fullscreen_shell_unstable_v1_client_protocol_h,
-			fullscreen_shell_unstable_v1_protocol_c,
-		]
-	},
-	{ 'basename': 'image' },
-	{ 'basename': 'multi-resource' },
-	{
-		'basename': 'presentation-shm',
-		'add_sources': [
-			presentation_time_client_protocol_h,
-			presentation_time_protocol_c,
-		]
-	},
-	{ 'basename': 'resizor' },
-	{
-		'basename': 'scaler',
-		'add_sources': [
-			viewporter_client_protocol_h,
-			viewporter_protocol_c,
-		]
-	},
-	{ 'basename': 'smoke' },
-	{ 'basename': 'stacking' },
-	{
-		'basename': 'subsurfaces',
-		'deps': [ 'egl', 'glesv2', 'wayland-egl' ]
-	},
-	{ 'basename': 'transformed' },
-]
+demo_clients = []
 
 if get_option('demo-clients')
-	foreach t : demo_clients
-		t_name = 'weston-' + t.get('basename')
-		t_srcs = [ t.get('basename') + '.c' ] + t.get('add_sources', [])
-		t_deps = [ dep_toytoolkit, t.get('dep_objs', []) ]
-		foreach depname : t.get('deps', [])
-			dep = dependency(depname, required: false)
-			if not dep.found()
-				error('@0@ requires \'@1@\' which was not found. If you rather not build this, set \'-Ddemo-clients=false\'.'.format(t_name, depname))
-			endif
-			t_deps += dep
-		endforeach
-
-		executable(
-			t_name, t_srcs,
-			include_directories: include_directories('..', '../shared'),
-			dependencies: t_deps,
-			install: true
-		)
-	endforeach
+	demo_clients += [
+		{ 'basename': 'clickdot' },
+		{
+			'basename': 'cliptest',
+			'dep_objs': dep_vertex_clipping
+		},
+		{ 'basename': 'confine' },
+		{
+			'basename': 'content_protection',
+			'add_sources': [
+				weston_content_protection_client_protocol_h,
+				weston_content_protection_protocol_c,
+			]
+		},
+		{ 'basename': 'dnd' },
+		{ 'basename': 'eventdemo' },
+		{ 'basename': 'flower' },
+		{
+			'basename': 'fullscreen',
+			'add_sources': [
+				fullscreen_shell_unstable_v1_client_protocol_h,
+				fullscreen_shell_unstable_v1_protocol_c,
+			]
+		},
+		{ 'basename': 'image' },
+		{ 'basename': 'multi-resource' },
+		{
+			'basename': 'presentation-shm',
+			'add_sources': [
+				presentation_time_client_protocol_h,
+				presentation_time_protocol_c,
+			]
+		},
+		{ 'basename': 'resizor' },
+		{
+			'basename': 'scaler',
+			'add_sources': [
+				viewporter_client_protocol_h,
+				viewporter_protocol_c,
+			]
+		},
+		{ 'basename': 'smoke' },
+		{ 'basename': 'stacking' },
+		{
+			'basename': 'subsurfaces',
+			'deps': [ 'egl', 'glesv2', 'wayland-egl' ]
+		},
+		{ 'basename': 'transformed' },
+	]
 endif
+
+if get_option('demo-client-editor')
+	demo_clients += [
+		{
+			'basename': 'editor',
+			'add_sources': [
+				text_input_unstable_v1_client_protocol_h,
+				text_input_unstable_v1_protocol_c,
+			],
+			'deps': [ 'pangocairo', 'gobject-2.0' ]
+		}
+	]
+endif
+
+foreach t : demo_clients
+	t_name = 'weston-' + t.get('basename')
+	t_srcs = [ t.get('basename') + '.c' ] + t.get('add_sources', [])
+	t_deps = [ dep_toytoolkit, t.get('dep_objs', []) ]
+	foreach depname : t.get('deps', [])
+		dep = dependency(depname, required: false)
+		if not dep.found()
+			error('@0@ requires \'@1@\' which was not found. If you rather not build this, set \'-Ddemo-clients=false\'.'.format(t_name, depname))
+		endif
+		t_deps += dep
+	endforeach
+
+	executable(
+		t_name, t_srcs,
+		include_directories: include_directories('..', '../shared'),
+		dependencies: t_deps,
+		install: true
+	)
+endforeach
 
 simple_dmabuf_drm_opts = get_option('simple-dmabuf-drm')
 simple_dmabuf_drm_deps = []
