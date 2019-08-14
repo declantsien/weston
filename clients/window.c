@@ -6245,6 +6245,8 @@ display_destroy_inputs(struct display *display)
 void
 display_destroy(struct display *display)
 {
+	struct global *global, *next;
+
 	if (!wl_list_empty(&display->window_list))
 		fprintf(stderr, "toytoolkit warning: %d windows exist.\n",
 			wl_list_length(&display->window_list));
@@ -6280,6 +6282,15 @@ display_destroy(struct display *display)
 	if (display->data_device_manager)
 		wl_data_device_manager_destroy(display->data_device_manager);
 
+	if (display->relative_pointer_manager)
+		zwp_relative_pointer_manager_v1_destroy(display->relative_pointer_manager);
+
+	if (display->pointer_constraints)
+		zwp_pointer_constraints_v1_destroy(display->pointer_constraints);
+
+	if (display->text_cursor_position)
+		text_cursor_position_destroy(display->text_cursor_position);
+
 	wl_compositor_destroy(display->compositor);
 	wl_registry_destroy(display->registry);
 
@@ -6288,6 +6299,16 @@ display_destroy(struct display *display)
 	if (!(display->display_fd_events & EPOLLERR) &&
 	    !(display->display_fd_events & EPOLLHUP))
 		wl_display_flush(display->display);
+
+	wl_list_for_each_safe(global, next, &display->global_list, link) {
+		if (display->global_handler_remove)
+			display->global_handler_remove(display, global->name, global->interface,
+					global->version, display->user_data);
+
+		wl_list_remove(&global->link);
+		free(global->interface);
+		free(global);
+	}
 
 	wl_display_disconnect(display->display);
 	free(display);
