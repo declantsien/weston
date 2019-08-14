@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <linux/input.h>
 #include <cairo.h>
@@ -1011,31 +1012,41 @@ keyboard_create(struct virtual_keyboard *virtual_keyboard)
 					     display_output_handler);
 }
 
+static struct virtual_keyboard g_virtual_keyboard;
+
+static void
+sigint_handler(int s)
+{
+	display_destroy(g_virtual_keyboard.display);
+}
+
 int
 main(int argc, char *argv[])
 {
-	struct virtual_keyboard virtual_keyboard;
+	memset(&g_virtual_keyboard, 0, sizeof g_virtual_keyboard);
 
-	memset(&virtual_keyboard, 0, sizeof virtual_keyboard);
-
-	virtual_keyboard.display = display_create(&argc, argv);
-	if (virtual_keyboard.display == NULL) {
+	g_virtual_keyboard.display = display_create(&argc, argv);
+	if (g_virtual_keyboard.display == NULL) {
 		fprintf(stderr, "failed to create display: %s\n",
 			strerror(errno));
 		return -1;
 	}
 
-	display_set_user_data(virtual_keyboard.display, &virtual_keyboard);
-	display_set_global_handler(virtual_keyboard.display, global_handler);
+	display_set_user_data(g_virtual_keyboard.display, &g_virtual_keyboard);
+	display_set_global_handler(g_virtual_keyboard.display, global_handler);
 
-	if (virtual_keyboard.input_panel == NULL) {
+	if (g_virtual_keyboard.input_panel == NULL) {
 		fprintf(stderr, "No input panel global\n");
 		return -1;
 	}
 
-	keyboard_create(&virtual_keyboard);
+	keyboard_create(&g_virtual_keyboard);
 
-	display_run(virtual_keyboard.display);
+	signal(SIGINT, sigint_handler);
+
+	display_run(g_virtual_keyboard.display);
+
+	display_destroy(g_virtual_keyboard.display);
 
 	return 0;
 }
