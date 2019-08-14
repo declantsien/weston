@@ -1499,55 +1499,69 @@ parse_clock_format(struct desktop *desktop, struct weston_config_section *s)
 	free(clock_format);
 }
 
+static struct desktop g_desktop = { 0 };
+
+static void
+cleanup()
+{
+	grab_surface_destroy(&g_desktop);
+	desktop_destroy_outputs(&g_desktop);
+	if (g_desktop.unlock_dialog)
+		unlock_dialog_destroy(g_desktop.unlock_dialog);
+	weston_desktop_shell_destroy(g_desktop.shell);
+	display_destroy(g_desktop.display);
+	weston_config_destroy(g_desktop.config);
+}
+
+static void
+sigint_handler(int s)
+{
+	cleanup();
+}
+
 int main(int argc, char *argv[])
 {
-	struct desktop desktop = { 0 };
 	struct output *output;
 	struct weston_config_section *s;
 	const char *config_file;
 
-	desktop.unlock_task.run = unlock_dialog_finish;
-	wl_list_init(&desktop.outputs);
+	g_desktop.unlock_task.run = unlock_dialog_finish;
+	wl_list_init(&g_desktop.outputs);
 
 	config_file = weston_config_get_name_from_env();
-	desktop.config = weston_config_parse(config_file);
-	s = weston_config_get_section(desktop.config, "shell", NULL, NULL);
-	weston_config_section_get_bool(s, "locking", &desktop.locking, 1);
-	parse_panel_position(&desktop, s);
-	parse_clock_format(&desktop, s);
+	g_desktop.config = weston_config_parse(config_file);
+	s = weston_config_get_section(g_desktop.config, "shell", NULL, NULL);
+	weston_config_section_get_bool(s, "locking", &g_desktop.locking, 1);
+	parse_panel_position(&g_desktop, s);
+	parse_clock_format(&g_desktop, s);
 
-	desktop.display = display_create(&argc, argv);
-	if (desktop.display == NULL) {
+	g_desktop.display = display_create(&argc, argv);
+	if (g_desktop.display == NULL) {
 		fprintf(stderr, "failed to create display: %s\n",
 			strerror(errno));
 		return -1;
 	}
 
-	display_set_user_data(desktop.display, &desktop);
-	display_set_global_handler(desktop.display, global_handler);
-	display_set_global_handler_remove(desktop.display, global_handler_remove);
+	display_set_user_data(g_desktop.display, &g_desktop);
+	display_set_global_handler(g_desktop.display, global_handler);
+	display_set_global_handler_remove(g_desktop.display, global_handler_remove);
 
 	/* Create panel and background for outputs processed before the shell
 	 * global interface was processed */
-	if (desktop.want_panel)
-		weston_desktop_shell_set_panel_position(desktop.shell, desktop.panel_position);
-	wl_list_for_each(output, &desktop.outputs, link)
+	if (g_desktop.want_panel)
+		weston_desktop_shell_set_panel_position(g_desktop.shell, g_desktop.panel_position);
+	wl_list_for_each(output, &g_desktop.outputs, link)
 		if (!output->panel)
-			output_init(output, &desktop);
+			output_init(output, &g_desktop);
 
-	grab_surface_create(&desktop);
+	grab_surface_create(&g_desktop);
 
+	signal(SIGINT, sigint_handler);
 	signal(SIGCHLD, sigchild_handler);
 
-	display_run(desktop.display);
+	display_run(g_desktop.display);
 
-	/* Cleanup */
-	grab_surface_destroy(&desktop);
-	desktop_destroy_outputs(&desktop);
-	if (desktop.unlock_dialog)
-		unlock_dialog_destroy(desktop.unlock_dialog);
-	weston_desktop_shell_destroy(desktop.shell);
-	display_destroy(desktop.display);
+	cleanup();
 
 	return 0;
 }
