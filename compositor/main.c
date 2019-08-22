@@ -730,9 +730,15 @@ usage(int error_code)
 static int on_term_signal(int signal_number, void *data)
 {
 	struct wl_display *display = data;
+	struct weston_process *p, *next;
 
 	weston_log("caught signal %d\n", signal_number);
 	wl_display_terminate(display);
+
+	wl_list_for_each_safe(p, next, &child_process_list, link) {
+		wl_list_remove(&p->link);
+		p->cleanup(p, 0);
+	}
 
 	return 1;
 }
