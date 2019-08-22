@@ -5991,10 +5991,33 @@ registry_handle_global_remove(void *data, struct wl_registry *registry,
 		if (global->name != name)
 			continue;
 
-		if (strcmp(global->interface, "wl_output") == 0)
+		/* Destroy bound globals */
+		if (strcmp(global->interface, "wl_compositor") == 0) {
+			wl_compositor_destroy(d->compositor);
+		} else if (strcmp(global->interface, "wl_output") == 0) {
 			display_destroy_output(d, name);
-
-		/* XXX: Should destroy remaining bound globals */
+		} else if (strcmp(global->interface, "zwp_relative_pointer_manager_v1") == 0) {
+			if (d->relative_pointer_manager)
+				zwp_relative_pointer_manager_v1_destroy(d->relative_pointer_manager);
+		} else if (strcmp(global->interface, "zwp_pointer_constraints_v1") == 0)  {
+			if (d->pointer_constraints)
+				zwp_pointer_constraints_v1_destroy(d->pointer_constraints);
+		} else if (strcmp(global->interface, "wl_shm") == 0) {
+			if (d->shm)
+				wl_shm_destroy(d->shm);
+		} else if (strcmp(global->interface, "wl_data_device_manager") == 0) {
+			if (d->data_device_manager)
+				wl_data_device_manager_destroy(d->data_device_manager);
+		} else if (strcmp(global->interface, "xdg_wm_base") == 0) {
+			if (d->xdg_shell)
+				xdg_wm_base_destroy(d->xdg_shell);
+		} else if (strcmp(global->interface, "text_cursor_position") == 0) {
+			if (d->text_cursor_position)
+				text_cursor_position_destroy(d->text_cursor_position);
+		} else if (strcmp(global->interface, "wl_subcompositor") == 0) {
+			if (d->subcompositor)
+				wl_subcompositor_destroy(d->subcompositor);
+		}
 
 		if (d->global_handler_remove)
 			d->global_handler_remove(d, name, global->interface,
