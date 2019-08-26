@@ -3119,6 +3119,9 @@ WL_EXPORT int
 weston_compositor_set_xkb_rule_names(struct weston_compositor *ec,
 				     struct xkb_rule_names *names)
 {
+	struct weston_seat *seat;
+	struct xkb_keymap *keymap;
+
 	if (ec->xkb_context == NULL) {
 		ec->xkb_context = xkb_context_new(0);
 		if (ec->xkb_context == NULL) {
@@ -3136,6 +3139,19 @@ weston_compositor_set_xkb_rule_names(struct weston_compositor *ec,
 	if (!ec->xkb_names.layout)
 		ec->xkb_names.layout = strdup("us");
 
+	keymap = xkb_keymap_new_from_names(ec->xkb_context, names, 0);
+	if (!keymap) {
+		weston_log("failed to create XKB keymap\n");
+		return -1;
+	}
+	/* destroy the global keymap since no one is using it any more */
+	if (ec->xkb_info) {
+		weston_xkb_info_destroy(ec->xkb_info);
+		xkb_context_unref(ec->xkb_context);
+	}
+	wl_list_for_each(seat, &ec->seat_list, link)
+		weston_seat_update_keymap(seat, keymap);
+	xkb_keymap_unref(keymap);
 	return 0;
 }
 
