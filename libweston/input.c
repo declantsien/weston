@@ -3144,11 +3144,6 @@ weston_compositor_set_xkb_rule_names(struct weston_compositor *ec,
 		weston_log("failed to create XKB keymap\n");
 		return -1;
 	}
-	/* destroy the global keymap since no one is using it any more */
-	if (ec->xkb_info) {
-		weston_xkb_info_destroy(ec->xkb_info);
-		xkb_context_unref(ec->xkb_context);
-	}
 	wl_list_for_each(seat, &ec->seat_list, link)
 		weston_seat_update_keymap(seat, keymap);
 	xkb_keymap_unref(keymap);
@@ -3176,8 +3171,6 @@ weston_compositor_xkb_destroy(struct weston_compositor *ec)
 	free((char *) ec->xkb_names.variant);
 	free((char *) ec->xkb_names.options);
 
-	if (ec->xkb_info)
-		weston_xkb_info_destroy(ec->xkb_info);
 	xkb_context_unref(ec->xkb_context);
 }
 
@@ -3242,13 +3235,10 @@ err_keymap:
 	return NULL;
 }
 
-static int
-weston_compositor_build_global_keymap(struct weston_compositor *ec)
+static struct xkb_keymap *
+weston_compositor_build_keymap_from_names(struct weston_compositor *ec)
 {
 	struct xkb_keymap *keymap;
-
-	if (ec->xkb_info != NULL)
-		return 0;
 
 	keymap = xkb_keymap_new_from_names(ec->xkb_context,
 					   &ec->xkb_names,
@@ -3260,15 +3250,10 @@ weston_compositor_build_global_keymap(struct weston_compositor *ec)
 			ec->xkb_names.rules, ec->xkb_names.model,
 			ec->xkb_names.layout, ec->xkb_names.variant,
 			ec->xkb_names.options);
-		return -1;
+		return NULL;
 	}
 
-	ec->xkb_info = weston_xkb_info_create(keymap);
-	xkb_keymap_unref(keymap);
-	if (ec->xkb_info == NULL)
-		return -1;
-
-	return 0;
+	return keymap;
 }
 
 WL_EXPORT void
@@ -3309,10 +3294,14 @@ weston_seat_init_keyboard(struct weston_seat *seat, struct xkb_keymap *keymap)
 		if (keyboard->xkb_info == NULL)
 			goto err;
 	} else {
-		if (weston_compositor_build_global_keymap(seat->compositor) < 0)
+		keymap = weston_compositor_build_keymap_from_names(
+			seat->compositor);
+		if (keymap == NULL)
 			goto err;
-		keyboard->xkb_info = seat->compositor->xkb_info;
-		keyboard->xkb_info->ref_count++;
+		keyboard->xkb_info = weston_xkb_info_create(keymap);
+		xkb_keymap_unref(keymap);
+		if (!keyboard->xkb_info)
+			goto err;
 	}
 
 	keyboard->xkb_state.state = xkb_state_new(keyboard->xkb_info->keymap);
