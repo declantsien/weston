@@ -234,8 +234,11 @@ get_protection(struct wl_client *client, struct wl_resource *cp_resource,
 	struct content_protection *cp;
 	struct protected_surface *psurface;
 	struct wl_listener *listener;
+	uint32_t version;
 
 	surface = wl_resource_get_user_data(surface_resource);
+	version = wl_resource_get_version(surface_resource);
+
 	assert(surface);
 	cp = wl_resource_get_user_data(cp_resource);
 	assert(cp);
@@ -262,7 +265,7 @@ get_protection(struct wl_client *client, struct wl_resource *cp_resource,
 	}
 	psurface->cp_backptr = cp;
 	resource = wl_resource_create(client, &weston_protected_surface_interface,
-				      1, id);
+				      version, id);
 	if (!resource) {
 		free(psurface);
 		wl_client_post_no_memory(client);
@@ -304,7 +307,7 @@ bind_weston_content_protection(struct wl_client *client, void *data,
 
 	resource = wl_resource_create(client,
 				      &weston_content_protection_interface,
-				      1, id);
+				      version, id);
 	if (!resource) {
 		wl_client_post_no_memory(client);
 		return;
