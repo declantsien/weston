@@ -324,8 +324,8 @@ int main(int argc, char *argv[])
 	static const char str_type_0[] = "TYPE-0";
 	static const char str_type_1[] = "TYPE-1";
 	static const char str_type_off[] = "OFF";
-	static const char str_type_enforced[] = "ENFORCED";
-	static const char str_type_relaxed[] = "RELAXED";
+	static const char str_mode_enforced[] = "ENFORCED";
+	static const char str_mode_relaxed[] = "RELAXED";
 	struct wl_surface *surface;
 
 	pc_player = zalloc(sizeof(struct protected_content_player));
@@ -364,10 +364,10 @@ int main(int argc, char *argv[])
 	pc_player->b0 = create_button(pc_player, str_type_0);
 	pc_player->b1 = create_button(pc_player, str_type_1);
 	pc_player->off = create_button(pc_player, str_type_off);
-	pc_player->enforced = create_button(pc_player, str_type_enforced);
-	pc_player->relaxed = create_button(pc_player, str_type_relaxed);
+	pc_player->enforced = create_button(pc_player, str_mode_enforced);
+	pc_player->relaxed = create_button(pc_player, str_mode_relaxed);
 
-	window_set_title(pc_player->window, "Player");
+	window_set_title(pc_player->window, "Content-Protection Modes and Types");
 	widget_set_redraw_handler(pc_player->widget, redraw_handler);
 	widget_set_resize_handler(pc_player->widget, resize_handler);
 	window_schedule_resize(pc_player->window, WIDTH, HEIGHT);
