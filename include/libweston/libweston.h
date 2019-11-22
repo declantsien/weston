@@ -182,6 +182,11 @@ enum dpms_enum {
 
 enum weston_hdcp_protection {
 	WESTON_HDCP_DISABLE = 0,
+	/**< a new CP-level, to handle 'dc_only' protection type; see
+	 * 'dc_only' in content-protection protocol for a slightly lengthier
+	 * explanation
+	 */
+	WESTON_HDCP_DC_ONLY,
 	WESTON_HDCP_ENABLE_TYPE_0,
 	WESTON_HDCP_ENABLE_TYPE_1
 };

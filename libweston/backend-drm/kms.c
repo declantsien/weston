@@ -890,6 +890,10 @@ drm_connector_set_hdcp_property(struct drm_connector *connector,
 	uint64_t prop_val;
 	struct drm_property_info *props = connector->props;
 
+	/* there's no WESTON_HDCP_DC_ONLY for DRM */
+	if (protection == WESTON_HDCP_DC_ONLY)
+		return;
+
 	get_drm_protection_from_weston(protection, &drm_protection,
 				       &drm_cp_type);
 
