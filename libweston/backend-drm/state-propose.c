@@ -947,10 +947,10 @@ drm_output_propose_state(struct weston_output *output_base,
 		/* In case of enforced mode of content-protection do not
 		 * assign planes for a protected surface on an unsecured output.
 		 */
-		if (ev->surface->protection_mode == WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
-		    ev->surface->desired_protection > output_base->current_protection) {
-			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
-				     "(enforced protection mode on unsecured output)\n", ev);
+		if (weston_verify_protection_level(ev, output_base)) {
+			drm_debug(b, "\t\t\t\t[view] not assigning view %p "
+				     "to plane (enforced protection mode on "
+				     "unsecured output)\n", ev);
 			force_renderer = true;
 		}
 

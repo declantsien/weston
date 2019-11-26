@@ -5760,6 +5760,24 @@ weston_head_set_connection_status(struct weston_head *head, bool connected)
 	weston_head_set_device_changed(head);
 }
 
+/** Determine if the desired protection level of the view is sufficient
+ * for the current output's protection level.
+ */
+WL_EXPORT bool
+weston_verify_protection_level(struct weston_view *ev,
+			       struct weston_output *output)
+{
+	enum weston_hdcp_protection desired_protection =
+			ev->surface->desired_protection;
+	bool enforced = (ev->surface->protection_mode ==
+			 WESTON_SURFACE_PROTECTION_MODE_ENFORCED);
+
+	if (enforced && (desired_protection > output->current_protection))
+		return true;
+
+	return false;
+}
+
 static void
 weston_output_compute_protection(struct weston_output *output)
 {
