@@ -524,6 +524,18 @@ drm_output_set_gamma(struct weston_output *output_base,
 		weston_log("set gamma failed: %s\n", strerror(errno));
 }
 
+/** Verify if the connector could be one suitable for being a DC_ONLY
+ * type: Contains only eDP/LVDS type of connectors. Add more if they seem suitable.
+ */
+static bool
+drm_head_check_suitable_for_dc_only(struct drm_head *head)
+{
+	if (head->base.connection_internal)
+		return true;
+
+	return false;
+}
+
 /**
  * Mark an output state as current on the output, i.e. it has been
  * submitted to the kernel. The mode argument determines whether this
@@ -559,10 +571,16 @@ drm_output_assign_state(struct drm_output_state *state,
 	}
 
 	if (b->atomic_modeset &&
-	    state->protection == WESTON_HDCP_DISABLE)
-		wl_list_for_each(head, &output->base.head_list, base.output_link)
-			weston_head_set_content_protection_status(&head->base,
-							   WESTON_HDCP_DISABLE);
+	    state->protection == WESTON_HDCP_DISABLE) {
+		wl_list_for_each(head, &output->base.head_list, base.output_link) {
+			if (drm_head_check_suitable_for_dc_only(head))
+				weston_head_set_content_protection_status(&head->base,
+								   WESTON_HDCP_DC_ONLY);
+			else
+				weston_head_set_content_protection_status(&head->base,
+								   WESTON_HDCP_DISABLE);
+		}
+	}
 
 	/* Replace state_cur on each affected plane with the new state, being
 	 * careful to dispose of orphaned (but only orphaned) previous state.
