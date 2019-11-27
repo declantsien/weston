@@ -209,21 +209,26 @@ buttons_handler(struct widget *widget, struct input *input, uint32_t time,
 		weston_protected_surface_enforce(pc_player->psurface);
 		pc_player->mode = ENFORCED;
 		window_schedule_redraw(pc_player->window);
-	}
-	else if (strcmp(b->name, "RELAXED") == 0) {
+	} else if (strcmp(b->name, "RELAXED") == 0) {
 		weston_protected_surface_relax(pc_player->psurface);
 		pc_player->mode = RELAXED;
 		window_schedule_redraw(pc_player->window);
-	}
-	else if (strcmp(b->name, "TYPE-0") == 0)
+	} else if (strcmp(b->name, "TYPE-0") == 0) {
 		weston_protected_surface_set_type(pc_player->psurface,
 						  WESTON_PROTECTED_SURFACE_TYPE_HDCP_0);
-	else if (strcmp(b->name, "TYPE-1") == 0)
+		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_HDCP_0;
+		window_schedule_redraw(pc_player->window);
+	} else if (strcmp(b->name, "TYPE-1") == 0) {
 		weston_protected_surface_set_type(pc_player->psurface,
 						  WESTON_PROTECTED_SURFACE_TYPE_HDCP_1);
-	else
+		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_HDCP_1;
+		window_schedule_redraw(pc_player->window);
+	} else {
 		weston_protected_surface_set_type(pc_player->psurface,
 						  WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED);
+		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED;
+		window_schedule_redraw(pc_player->window);
+	}
 
 	surface = window_get_wl_surface(pc_player->window);
 	wl_surface_commit(surface);
