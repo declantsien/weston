@@ -38,7 +38,9 @@
 #include "window.h"
 #include <wayland-client-protocol.h>
 
-#define WIDTH 500
+#include "shared/helpers.h"
+
+#define WIDTH 550
 #define HEIGHT 400
 #define FRAME_H 18
 #define FRAME_W 5
@@ -57,6 +59,7 @@ struct protected_content_player {
 	struct window *window;
 	struct widget *widget;
 	struct button_t *b0, *b1, *off, *enforced, *relaxed;
+	struct button_t *dc_only;
 	int width, height, x, y;
 	enum weston_protected_surface_type protection_type;
 	enum protection_mode mode;
@@ -91,6 +94,9 @@ handle_status_changed(void *data, struct weston_protected_surface *psurface,
 	case WESTON_PROTECTED_SURFACE_TYPE_HDCP_1:
 		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_HDCP_1;
 		break;
+	case WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY:
+		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY;
+		break;
 	case WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED:
 	default:
 		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED;
@@ -118,6 +124,8 @@ draw_content(cairo_surface_t *surface, int x, int y, int width, int height,
 		cairo_set_source_rgba(cr, 0, 1.0, 0, 1.0);
 	else if (type == WESTON_PROTECTED_SURFACE_TYPE_HDCP_1)
 		cairo_set_source_rgba(cr, 0, 0, 1.0, 1.0);
+	else if (type == WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY)
+		cairo_set_source_rgba(cr, 0.5, 0.5, 0, 1.0);
 	else
 		cairo_set_source_rgba(cr, 1.0, 0, 0, 1.0);
 	cairo_fill(cr);
@@ -130,6 +138,8 @@ draw_content(cairo_surface_t *surface, int x, int y, int width, int height,
 		content_text = "Content-Type : Type-0";
 	else if (type == WESTON_PROTECTED_SURFACE_TYPE_HDCP_1)
 		content_text = "Content-Type : Type-1";
+	else if (type == WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY)
+		content_text = "Content-Type : DC_ONLY";
 	else
 		content_text = "Content-Type : Unprotected";
 	cairo_text_extents(cr, content_text, &extents);
@@ -183,16 +193,20 @@ resize_handler(struct widget *widget, int32_t width, int32_t height, void *data)
 			      allocation.x + 20 + BUTTON_WIDTH + 5,
 			      allocation.y + 30,
 			      BUTTON_WIDTH, BUTTON_HEIGHT);
-	widget_set_allocation(pc_player->off->widget,
+	widget_set_allocation(pc_player->dc_only->widget,
 			      allocation.x + 20 + 2 * (BUTTON_WIDTH + 5),
 			      allocation.y + 30,
 			      BUTTON_WIDTH, BUTTON_HEIGHT);
-	widget_set_allocation(pc_player->enforced->widget,
+	widget_set_allocation(pc_player->off->widget,
 			      allocation.x + 20 + 3 * (BUTTON_WIDTH + 5),
 			      allocation.y + 30,
 			      BUTTON_WIDTH, BUTTON_HEIGHT);
-	widget_set_allocation(pc_player->relaxed->widget,
+	widget_set_allocation(pc_player->enforced->widget,
 			      allocation.x + 20 + 4 * (BUTTON_WIDTH + 5),
+			      allocation.y + 30,
+			      BUTTON_WIDTH, BUTTON_HEIGHT);
+	widget_set_allocation(pc_player->relaxed->widget,
+			      allocation.x + 20 + 5 * (BUTTON_WIDTH + 5),
 			      allocation.y + 30,
 			      BUTTON_WIDTH, BUTTON_HEIGHT);
 }
@@ -223,6 +237,11 @@ buttons_handler(struct widget *widget, struct input *input, uint32_t time,
 						  WESTON_PROTECTED_SURFACE_TYPE_HDCP_1);
 		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_HDCP_1;
 		window_schedule_redraw(pc_player->window);
+	} else if (strcmp(b->name, "DC_ONLY") == 0) {
+		weston_protected_surface_set_type(pc_player->psurface,
+						  WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY);
+		pc_player->protection_type = WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY;
+		window_schedule_redraw(pc_player->window);
 	} else {
 		weston_protected_surface_set_type(pc_player->psurface,
 						  WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED);
@@ -243,7 +262,7 @@ handle_global(struct display *display, uint32_t name, const char *interface,
 	if (strcmp(interface, "weston_content_protection") == 0) {
 		pc_player->protection = display_bind(display, name,
 					   &weston_content_protection_interface,
-					   1);
+					   MIN(version, 2));
 	}
 }
 
@@ -315,6 +334,7 @@ static void free_pc_player(struct protected_content_player *pc_player)
 	destroy_button(pc_player->b0);
 	destroy_button(pc_player->b1);
 	destroy_button(pc_player->off);
+	destroy_button(pc_player->dc_only);
 	destroy_button(pc_player->enforced);
 	destroy_button(pc_player->relaxed);
 	widget_destroy(pc_player->widget);
@@ -328,6 +348,7 @@ int main(int argc, char *argv[])
 	struct display *d;
 	static const char str_type_0[] = "TYPE-0";
 	static const char str_type_1[] = "TYPE-1";
+	static const char str_type_dc_only[] = "DC_ONLY";
 	static const char str_type_off[] = "OFF";
 	static const char str_mode_enforced[] = "ENFORCED";
 	static const char str_mode_relaxed[] = "RELAXED";
@@ -368,6 +389,7 @@ int main(int argc, char *argv[])
 
 	pc_player->b0 = create_button(pc_player, str_type_0);
 	pc_player->b1 = create_button(pc_player, str_type_1);
+	pc_player->dc_only = create_button(pc_player, str_type_dc_only);
 	pc_player->off = create_button(pc_player, str_type_off);
 	pc_player->enforced = create_button(pc_player, str_mode_enforced);
 	pc_player->relaxed = create_button(pc_player, str_mode_relaxed);
@@ -379,6 +401,7 @@ int main(int argc, char *argv[])
 	widget_schedule_redraw(pc_player->b0->widget);
 	widget_schedule_redraw(pc_player->b1->widget);
 	widget_schedule_redraw(pc_player->off->widget);
+	widget_schedule_redraw(pc_player->dc_only->widget);
 
 	display_run(d);
 	weston_protected_surface_destroy(pc_player->psurface);
