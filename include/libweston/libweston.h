@@ -1591,6 +1591,7 @@ struct content_protection {
 	struct weston_log_scope *debug;
 	struct wl_list protected_list;
 	struct wl_event_source *surface_protection_update;
+	struct wl_event_source *surface_redraw;
 };
 
 

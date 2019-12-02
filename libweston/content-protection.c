@@ -239,6 +239,7 @@ cp_destroy_listener(struct wl_listener *listener, void *data)
 	cp->debug = NULL;
 	cp->surface_protection_update = NULL;
 	cp->compositor->content_protection = NULL;
+	cp->surface_redraw = NULL;
 	free(cp);
 }
 

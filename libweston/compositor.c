@@ -1202,6 +1202,34 @@ notify_surface_protection_change(void *data)
 			weston_surface_compute_protection(psurface);
 }
 
+static void
+notify_surface_redraw(void *data)
+{
+	struct weston_output *output = data;
+	struct weston_compositor *wc = output->compositor;
+	struct content_protection *cp;
+
+	cp = wc->content_protection;
+	cp->surface_redraw = NULL;
+	weston_output_damage(output);
+}
+
+static void
+weston_schedule_surface_redraw_after_censor(struct weston_output *output)
+{
+	struct weston_compositor *wc = output->compositor;
+	struct content_protection *cp = wc->content_protection;
+	struct wl_event_loop *loop;
+
+	if (!cp || cp->surface_redraw)
+		return;
+
+	loop = wl_display_get_event_loop(wc->wl_display);
+	cp->surface_redraw = wl_event_loop_add_idle(loop,
+						    notify_surface_redraw,
+						    output);
+}
+
 /**
  * \param compositor weston_compositor
  *
@@ -8333,7 +8361,9 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	 * recording is going on any more, and the protected and surfaces can be
 	 * shown without any apprehensions about content being recorded.
 	 */
-	if (output->disable_planes == 0)
+	if (output->disable_planes == 0) {
 		weston_schedule_surface_protection_update(output->compositor);
+		weston_schedule_surface_redraw_after_censor(output);
+	}
 
 }
