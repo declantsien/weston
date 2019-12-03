@@ -1889,6 +1889,10 @@ drm_head_get_current_protection(struct drm_head *head)
 	protection = drm_property_get_value(info, props,
 					    WDRM_CONTENT_PROTECTION__COUNT);
 
+	if (protection == WDRM_CONTENT_PROTECTION__COUNT &&
+	    drm_head_check_suitable_for_dc_only(head))
+	       return WESTON_HDCP_DC_ONLY;
+
 	if (protection == WDRM_CONTENT_PROTECTION__COUNT)
 		return WESTON_HDCP_DISABLE;
 

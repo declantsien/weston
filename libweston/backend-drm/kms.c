@@ -524,10 +524,10 @@ drm_output_set_gamma(struct weston_output *output_base,
 		weston_log("set gamma failed: %s\n", strerror(errno));
 }
 
-/** Verify if the connector could be one suitable for being a DC_ONLY
- * type: Contains only eDP/LVDS type of connectors. Add more if they seem suitable.
+/** Verify if the connector could be one suitable for being a DC_ONLY type:
+ * Contains only eDP/LVDS type of connectors. Add more if they seem suitable.
  */
-static bool
+bool
 drm_head_check_suitable_for_dc_only(struct drm_head *head)
 {
 	if (head->base.connection_internal)
