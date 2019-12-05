@@ -349,7 +349,9 @@ weston_view_create(struct weston_surface *surface)
 	wl_list_init(&view->geometry.child_list);
 	pixman_region32_init(&view->geometry.scissor);
 	pixman_region32_init(&view->transform.boundingbox);
+
 	view->transform.dirty = 1;
+	view->transform.totally_occluded = false;
 
 	return view;
 }
