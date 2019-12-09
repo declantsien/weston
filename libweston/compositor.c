@@ -7658,6 +7658,7 @@ static const char * const backend_map[] = {
 	[WESTON_BACKEND_RDP] =		"rdp-backend.so",
 	[WESTON_BACKEND_WAYLAND] =	"wayland-backend.so",
 	[WESTON_BACKEND_X11] =		"x11-backend.so",
+	[WESTON_BACKEND_TRANSMITTER] =  "transmitter-backend.so",
 };
 
 /** Load a backend into a weston_compositor

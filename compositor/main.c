@@ -61,6 +61,7 @@
 #include <libweston/backend-fbdev.h>
 #include <libweston/backend-x11.h>
 #include <libweston/backend-wayland.h>
+#include <libweston/backend-transmitter.h>
 #include <libweston/windowed-output-api.h>
 #include <libweston/weston-log.h>
 #include "../remoting/remoting-plugin.h"
@@ -633,6 +634,9 @@ usage(int error_code)
 #if defined(BUILD_X11_COMPOSITOR)
 			"\t\t\t\tx11-backend.so\n"
 #endif
+#if defined(BUILD_TRANSMITTER_COMPOSITOR)
+			"\t\t\t\ttransmitter-backend.so\n"
+#endif
 		"  --shell=MODULE\tShell module, defaults to desktop-shell.so\n"
 		"  -S, --socket=NAME\tName of socket to listen on\n"
 		"  -i, --idle-time=SECS\tIdle time in seconds\n"
@@ -724,6 +728,14 @@ usage(int error_code)
 		"  --no-input\t\tDont create input devices\n\n");
 #endif
 
+#if defined(BUILD_TRANSMITTER_COMPOSITOR)
+	fprintf(out,
+		"Options for transmitter-backend.so:\n\n"
+		"  --seat=SEAT\t\tThe seat that weston should run on, instead of the seat defined in XDG_SEAT\n"
+		"  --tty=TTY\t\tThe tty to use\n"
+		"  --drm-device=CARD\tThe DRM device to use, e.g. \"card0\".\n"
+		"  add transmitter-output section in weston.ini\n\n");
+#endif
 	exit(error_code);
 }
 
@@ -2988,6 +3000,68 @@ load_wayland_backend(struct weston_compositor *c,
 	return 0;
 }
 
+static int
+transmitter_backend_output_configure(struct weston_output *output)
+{
+	const struct weston_transmitter_output_api *api =
+			weston_transmitter_output_get_api(output->compositor);
+
+	int width=1920;
+	int height=1080;
+	if (api->output_set_size(output, width, height) < 0) {
+		weston_log("Cannot configure output \"%s\" using weston_transmitter_output_api.\n",
+			   output->name);
+		return -1;
+	}
+	return 0;
+}
+
+static int
+load_transmitter_backend(struct weston_compositor *c,
+			 int *argc, char **argv, struct weston_config *wc)
+{
+	struct weston_transmitter_backend_config config = {{ 0, }};
+	struct weston_config_section *section;
+	int ret = 0;
+	const char *name = NULL;
+
+	section = weston_config_get_section(wc, "core", NULL, NULL);
+
+	const struct weston_option options[] = {
+		{ WESTON_OPTION_STRING, "seat", 0, &config.seat_id },
+		{ WESTON_OPTION_INTEGER, "tty", 0, &config.tty },
+		{ WESTON_OPTION_STRING, "drm-device", 0, &config.specific_device },
+	};
+
+	parse_options(options, ARRAY_LENGTH(options), argc, argv);
+
+	section=NULL;
+		while (weston_config_next_section(wc, &section, &name)) {
+			if (0 == strcmp(name, "transmitter-output")) {
+				weston_config_section_get_string(section, "output-name",
+								 &config.model, 0);
+				weston_config_section_get_string(section, "server-address",
+								 &config.addr, 0);
+				weston_config_section_get_string(section, "port",
+								 &config.port, 0);
+				weston_config_section_get_string(section, "width",
+								 &config.width, 0);
+				weston_config_section_get_string(section, "height",
+								 &config.height, 0);
+
+			}
+		}
+	config.base.struct_version = WESTON_TRANSMITTER_BACKEND_CONFIG_VERSION;
+	config.base.struct_size = sizeof(struct weston_transmitter_backend_config);
+	config.configure_device = configure_input_device;
+
+	wet_set_simple_head_configurator(c, transmitter_backend_output_configure);
+	ret = weston_compositor_load_backend(c, WESTON_BACKEND_TRANSMITTER,
+					     &config.base);
+	free(config.seat_id);
+
+	return ret;
+}
 
 static int
 load_backend(struct weston_compositor *compositor, const char *backend,
@@ -3005,7 +3079,8 @@ load_backend(struct weston_compositor *compositor, const char *backend,
 		return load_x11_backend(compositor, argc, argv, config);
 	else if (strstr(backend, "wayland-backend.so"))
 		return load_wayland_backend(compositor, argc, argv, config);
-
+	else if (strstr(backend, "transmitter-backend.so"))
+		return load_transmitter_backend(compositor, argc, argv, config);
 	weston_log("Error: unknown backend \"%s\"\n", backend);
 	return -1;
 }

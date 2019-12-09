@@ -51,6 +51,12 @@ option(
 	description: 'Weston backend: fbdev'
 )
 option(
+	'backend-transmitter',
+	type: 'boolean',
+	value: true,
+	description: 'Weston backend: transmitter'
+)
+option(
 	'backend-default',
 	type: 'combo',
 	choices: [ 'auto', 'drm', 'wayland', 'x11', 'fbdev', 'headless' ],
