@@ -4,6 +4,7 @@
  * Copyright © 2017, 2018 Collabora, Ltd.
  * Copyright © 2017, 2018 General Electric Company
  * Copyright (c) 2018 DisplayLink (UK) Ltd.
+ * Copyright © 2019 Advanced Driver Information Technology Joint Venture GmbH
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -343,4 +344,58 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct transmitter_backend *backend,
 err_free:
 	free(fb);
 	return NULL;
+}
+
+int
+drm_get_dma_fd_from_view(struct weston_output *base,
+			 struct weston_view *ev, int *buf_stride)
+{
+	struct transmitter_backend *b = to_transmitter_backend(base->compositor);
+	struct weston_buffer *buffer = ev->surface->buffer_ref.buffer;
+	struct gbm_bo *bo;
+	struct drm_fb *current;
+	struct linux_dmabuf_buffer *dmabuf;
+	bool is_opaque = weston_view_is_opaque(ev, &ev->transform.boundingbox);
+	int fd, ret;
+
+	if(!buffer) {
+		weston_log("buffer is NULL\n");
+		return -1;
+	}
+
+	dmabuf = linux_dmabuf_buffer_get(buffer->resource);
+	if(dmabuf) {
+		current = drm_fb_get_from_dmabuf(dmabuf, b, is_opaque);
+		if(!current) {
+			fprintf(stderr, "failed to get drm_fb from dmabuf\n");
+			return -1;
+		}
+		*buf_stride = current->strides[0];
+	} else if(ev->surface->buffer_ref.buffer->legacy_buffer) {
+		bo = gbm_bo_import(b->gbm, GBM_BO_IMPORT_WL_BUFFER,
+				   buffer->resource, GBM_BO_USE_SCANOUT);
+		if (!bo) {
+			weston_log("failed to get gbm_bo\n");
+			return -1;
+		}
+		current = drm_fb_get_from_bo(bo, b, is_opaque, BUFFER_CLIENT);
+
+		if (!current) {
+			weston_log("failed to get drm_fb from bo\n");
+			return -1;
+		}
+		*buf_stride = current->strides[0];
+	} else{
+		weston_log("Buffer is not supported\n");
+		return -1;
+	}
+
+	ret = drmPrimeHandleToFD(b->drm.fd, current->handles[0],
+				 DRM_CLOEXEC, &fd);
+	free(current);
+	if (ret) {
+		weston_log("failed to create prime fd for front buffer\n");
+		return -1;
+	}
+	return fd;
 }

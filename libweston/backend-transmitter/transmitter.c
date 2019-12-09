@@ -66,6 +66,7 @@
 #include "linux-dmabuf.h"
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
 #include "linux-explicit-synchronization.h"
+#include "renderer-waltham/waltham-renderer.h"
 
 #define MAX_EPOLL_WATCHES 2
 #define ESTABLISH_CONNECTION_PERIOD 2000
@@ -79,7 +80,91 @@ static int
 transmitter_output_repaint(struct weston_output *output_base,
 			   pixman_region32_t *damage, void *repaint_data)
 {
-	//For now its dummy function
+	struct transmitter_output* output = to_transmitter_output(output_base);
+	struct weston_transmitter_remote* remote = output->remote;
+	struct weston_transmitter_surface* txs;
+	struct weston_compositor *compositor = output_base->compositor;
+	struct weston_view *view;
+	bool found_output = false;
+
+	/*
+	 * Pick up weston_view in transmitter_output and
+	 * check weston_view's surface
+	 * If the surface hasn't been combined to weston_transmitter_surface,
+	 * then call push_to_remote.
+	 * If the surface has already been combined, call gather_state.
+	 */
+	if (wl_list_empty(&compositor->view_list))
+		goto out;
+
+	if (remote->status != WESTON_TRANSMITTER_CONNECTION_READY)
+		goto out;
+
+	wl_list_for_each_reverse(view, &compositor->view_list, link) {
+		bool found_surface = false;
+		if (view->output == &output->base && (view->surface->width >= 64
+		    && view->surface->height >= 64)) {
+			found_output = true;
+			wl_list_for_each(txs, &remote->surface_list, link) {
+				if (txs->surface == view->surface) {
+					found_surface = true;
+					if (!txs->wthp_surf)
+						transmitter_api_impl.surface_push_to_remote(
+								view->surface,
+								remote, NULL);
+					output->renderer->dmafd =
+							drm_get_dma_fd_from_view(
+									&output->base,
+									view,
+									&output->renderer->buf_stride);
+					if (output->renderer->dmafd < 0) {
+						weston_log("Failed to get dmafd\n");
+						goto out;
+					}
+					output->renderer->surface_width =
+							view->surface->width;
+					output->renderer->surface_height =
+							view->surface->height;
+					output->renderer->repaint_output(output);
+					output->renderer->dmafd = 0;
+					transmitter_api_impl.surface_gather_state(
+							txs);
+					weston_buffer_reference(
+							&view->surface->buffer_ref,
+							NULL);
+					break;
+				}
+			}
+			if (!found_surface){
+				txs = transmitter_api_impl.surface_push_to_remote(
+						view->surface, remote, NULL);
+				output->renderer->dmafd =
+						drm_get_dma_fd_from_view(
+								&output->base,
+								view,
+								&output->renderer->buf_stride);
+				if (output->renderer->dmafd < 0) {
+					weston_log("Failed to get dmafd\n");
+					goto out;
+				}
+				output->renderer->surface_width = view->surface->width;
+				output->renderer->surface_height = view->surface->height;
+				output->renderer->repaint_output(output);
+				output->renderer->dmafd = 0;
+				transmitter_api_impl.surface_gather_state(txs);
+				weston_buffer_reference(&view->surface->buffer_ref,NULL);
+				break;
+			}
+		}
+	}
+	if (!found_output)
+		goto out;
+
+	wl_event_source_timer_update(output->finish_frame_timer, 1);
+	return 0;
+
+out:
+	wl_event_source_timer_update(output->finish_frame_timer,1);
 	return 0;
 }
 
@@ -428,6 +513,10 @@ transmitter_output_create(struct weston_compositor *compositor,
 	output->remote = b->remote;
 	wl_list_init(&output->link);
 	wl_list_insert(&b->remote->output_list, &output->link);
+	if (txr->waltham_renderer->display_create(output) < 0) {
+		weston_log("Failed to create waltham renderer display \n");
+		return NULL;
+	}
 	return &output->base;
 }
 
@@ -887,6 +976,7 @@ transmitter_surface_set_ivi_id(struct weston_transmitter_surface *txs)
 			txs->wthp_ivi_surface = wthp_ivi_application_surface_create
 				(dpy->application, ivi_surf->id_surface,
 				 txs->wthp_surf);
+			wth_connection_flush(remote->display->connection);
 			weston_log("surface ID %d\n", ivi_surf->id_surface);
 			if (!txs->wthp_ivi_surface) {
 				weston_log("Failed to create txs->ivi_surf\n");
@@ -952,6 +1042,7 @@ transmitter_surface_push_to_remote(struct weston_surface *ws,
 		weston_log("txs->wthp_surf is NULL\n");
 		txs->wthp_surf = wthp_compositor_create_surface(
 				 remote->display->compositor);
+		wth_connection_flush(remote->display->connection);
 		transmitter_surface_set_ivi_id(txs);
 	}
 
@@ -1449,6 +1540,13 @@ int init_trans_api(struct weston_compositor *compositor,
 			goto fail;
 		}
 	txr->loop = loop;
+	/* Loading a waltham renderer library */
+	txr->waltham_renderer = weston_load_module("waltham-renderer.so",
+						   "waltham_renderer_interface");
+	if (txr->waltham_renderer == NULL) {
+		weston_log("Failed to load waltham-renderer \n");
+		goto fail;
+	}
 	remote->transmitter = txr;
 	wl_list_insert(&txr->remote_list, &remote->link);
 	remote->status = WESTON_TRANSMITTER_CONNECTION_INITIALIZING;

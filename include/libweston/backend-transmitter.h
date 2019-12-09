@@ -330,6 +330,7 @@ struct weston_transmitter {
 	struct wl_listener stream_listener;
 	struct wl_signal connected_signal;
 	struct wl_event_loop *loop;
+	struct waltham_renderer_interface *waltham_renderer;
 };
 
 struct weston_transmitter_remote {

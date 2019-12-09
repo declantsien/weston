@@ -37,7 +37,7 @@ endif
 plugin_transmitter = shared_library(
 	'transmitter-backend',
 	srcs_transmitter,
-	include_directories: include_directories('../..', '../../shared'),
+	include_directories: include_directories('../..', '../../shared','../../libweston/renderer-waltham'),
 	dependencies: deps_transmitter,
 	name_prefix: '',
 	install: true,

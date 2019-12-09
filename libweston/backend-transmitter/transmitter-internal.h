@@ -149,6 +149,17 @@ struct transmitter_output {
 	struct frame *frame;
 	struct wl_event_source *finish_frame_timer;
 	struct wl_callback *frame_cb;
+	struct renderer *renderer;
+};
+
+struct renderer {
+	void (*repaint_output)(struct transmitter_output *base);
+	struct GstAppContext *ctx;
+	int32_t dmafd;
+	int buf_stride;
+	int surface_width;
+	int surface_height;
+	bool recorder_enabled;
 };
 
 static inline struct transmitter_head *
@@ -175,4 +186,8 @@ drm_fb_ref(struct drm_fb *fb);
 struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct transmitter_backend *backend,
 		   bool is_opaque, enum drm_fb_type type);
+
+int
+drm_get_dma_fd_from_view(struct weston_output *base,
+			 struct weston_view *ev, int *buf_stride);
 #endif
