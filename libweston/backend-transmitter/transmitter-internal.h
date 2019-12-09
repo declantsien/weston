@@ -94,6 +94,7 @@ struct transmitter_backend {
 	struct udev_input input;
 	bool fb_modifiers;
 	struct weston_transmitter_remote *remote;
+	struct wl_list plane_list;
 };
 
 enum drm_fb_type {
@@ -132,6 +133,70 @@ struct transmitter_head {
 	struct transmitter_backend *backend;
 };
 
+/**
+ * Possible values for the WDRM_PLANE_TYPE property.
+ */
+enum wdrm_plane_type {
+	WDRM_PLANE_TYPE_PRIMARY = 0,
+	WDRM_PLANE_TYPE_CURSOR,
+	WDRM_PLANE_TYPE_OVERLAY,
+	WDRM_PLANE_TYPE__COUNT
+};
+
+/**
+ * Output state holds the dynamic state for one Weston output, i.e. a KMS CRTC,
+ * plus >= 1 each of encoder/connector/plane. Since everything but the planes
+ * is currently statically assigned per-output, we mainly use this to track
+ * plane state.
+ */
+struct transmitter_output_state {
+	struct transmitter_output *output;
+	struct wl_list link;
+	struct wl_list plane_list;
+};
+
+/**
+ * Plane state holds the dynamic state for a plane: where it is positioned,
+ * and which buffer it is currently displaying.
+ */
+struct transmitter_plane_state {
+	struct transmitter_plane *plane;
+	struct transmitter_output *output;
+	struct transmitter_output_state *output_state;
+
+	struct drm_fb *fb;
+	struct weston_view *ev; /* maintained for transmitter_assign_planes only */
+	int32_t src_x, src_y;
+	uint32_t src_w, src_h;
+	int32_t dest_x, dest_y;
+	uint32_t dest_w, dest_h;
+	bool complete;
+
+	int in_fence_fd; /* We don't own the fd, so we shouldn't close it */
+	pixman_region32_t damage; /* damage to kernel */
+	struct wl_list link; /* transmitter_output_state::plane_list */
+};
+
+/**
+ * A plane represents one buffer.
+ */
+struct transmitter_plane {
+	struct weston_plane base;
+	struct transmitter_backend *backend;
+	enum wdrm_plane_type type;
+	uint32_t plane_id;
+	uint32_t count_formats;
+	/* The last state submitted to the kernel for this plane. */
+	struct transmitter_plane_state *state_cur;
+	struct wl_list link;
+
+	struct {
+		uint32_t format;
+		uint32_t count_modifiers;
+		uint64_t *modifiers;
+	} formats[];
+};
+
 struct transmitter_output {
 	struct weston_output base;
 	struct transmitter_backend *backend;
@@ -150,6 +215,10 @@ struct transmitter_output {
 	struct wl_event_source *finish_frame_timer;
 	struct wl_callback *frame_cb;
 	struct renderer *renderer;
+	uint32_t gbm_format;
+	uint32_t gbm_bo_flags;
+	struct gbm_surface *gbm_surface;
+	struct transmitter_plane *scanout_plane;
 };
 
 struct renderer {
@@ -208,13 +277,12 @@ to_transmitter_backend(struct weston_compositor *base)
 struct drm_fb *
 drm_fb_ref(struct drm_fb *fb);
 
+void
+drm_fb_unref(struct drm_fb *fb);
+
 struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct transmitter_backend *backend,
 		   bool is_opaque, enum drm_fb_type type);
-
-int
-drm_get_dma_fd_from_view(struct weston_output *base,
-			 struct weston_view *ev, int *buf_stride);
 
 int
 transmitter_remote_create_seat(struct weston_transmitter_remote *remote);

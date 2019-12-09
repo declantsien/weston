@@ -671,7 +671,7 @@ pointer_handle_enter(struct wthp_pointer *wthp_pointer,
 	seat = wl_container_of(seat_list->next, seat, link);
 
 	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (txs->wthp_surf == surface) {
+		if (remote->wthp_surf == surface) {
 			if (txs != seat->pointer_focus)
 				transmitter_seat_pointer_leave(seat, serial,
 				                               seat->pointer_focus);
@@ -696,7 +696,7 @@ pointer_handle_leave(struct wthp_pointer *wthp_pointer,
 	seat = wl_container_of(seat_list->next, seat, link);
 
 	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (txs->wthp_surf == surface) {
+		if (remote->wthp_surf == surface) {
 			transmitter_seat_pointer_leave(seat, serial, txs);
 		}
 	}
@@ -830,7 +830,7 @@ keyboard_handle_enter(struct wthp_keyboard *wthp_keyboard,
 	seat = wl_container_of(seat_list->next, seat, link);
 
 	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (txs->wthp_surf == surface) {
+		if (remote->wthp_surf == surface) {
 			transmitter_seat_keyboard_enter(seat, serial, txs,
 							wl_key);
 		}
@@ -853,7 +853,7 @@ keyboard_handle_leave(struct wthp_keyboard *wthp_keyboard,
 	seat = wl_container_of(seat_list->next, seat, link);
 
 	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (txs->wthp_surf == surface) {
+		if (remote->wthp_surf == surface) {
 			transmitter_seat_keyboard_leave(seat, serial, txs);
 		}
 	}
@@ -924,7 +924,7 @@ touch_handle_down (struct wthp_touch * wthp_touch,
 	seat = wl_container_of(seat_list->next, seat, link);
 
 	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (txs->wthp_surf == surface) {
+		if (remote->wthp_surf == surface) {
 			transmitter_seat_touch_down(seat, serial, time,
 						    txs, id, x, y);
 		}

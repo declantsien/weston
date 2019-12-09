@@ -76,24 +76,150 @@ static struct gl_renderer_interface *gl_renderer;
 static const char default_seat[] = "seat0";
 static const struct weston_transmitter_api transmitter_api_impl;
 
+static struct drm_fb *
+transmitter_output_render_gl(struct transmitter_output* output,
+			     pixman_region32_t *damage)
+{
+	struct transmitter_backend *b = to_transmitter_backend(output->base.compositor);
+	struct gbm_bo *bo;
+	struct drm_fb *ret;
+
+	output->base.compositor->renderer->repaint_output(&output->base,
+							  damage);
+	bo = gbm_surface_lock_front_buffer(output->gbm_surface);
+	if (!bo) {
+		weston_log("failed to lock front buffer: %s\n", strerror(errno));
+		return NULL;
+	}
+	/* The renderer always produces an opaque image. */
+	ret = drm_fb_get_from_bo(bo, b, true, BUFFER_GBM_SURFACE);
+	if (!ret) {
+		weston_log("failed to get drm_fb for bo\n");
+		gbm_surface_release_buffer(output->gbm_surface, bo);
+		return NULL;
+	}
+	ret->gbm_surface = output->gbm_surface;
+	gbm_surface_release_buffer(output->gbm_surface, bo);
+	return ret;
+}
+
+static void
+transmitter_output_render(struct transmitter_output *output, pixman_region32_t *damage)
+{
+	struct transmitter_plane_state *scanout_state = output->scanout_plane->state_cur;
+	struct weston_compositor *c = output->base.compositor;
+	struct transmitter_plane *scanout_plane = output->scanout_plane;
+	struct drm_fb *fb;
+
+	if (!pixman_region32_not_empty(damage) && scanout_plane->state_cur->fb &&
+	    (scanout_plane->state_cur->fb->type == BUFFER_GBM_SURFACE ||
+	    scanout_plane->state_cur->fb->type == BUFFER_PIXMAN_DUMB) &&
+	    scanout_plane->state_cur->fb->width == output->base.current_mode->width &&
+	    scanout_plane->state_cur->fb->height == output->base.current_mode->height)
+		fb = drm_fb_ref(scanout_plane->state_cur->fb);
+	else
+		fb = transmitter_output_render_gl(output, damage);
+
+	if (!fb)
+		weston_log("fb is NULL\n");
+
+	scanout_state->fb = fb;
+	scanout_state->output = output;
+	scanout_state->src_x = 0;
+	scanout_state->src_y = 0;
+	scanout_state->src_w = output->base.current_mode->width << 16;
+	scanout_state->src_h = output->base.current_mode->height << 16;
+	scanout_state->dest_x = 0;
+	scanout_state->dest_y = 0;
+	scanout_state->dest_w = scanout_state->src_w >> 16;
+	scanout_state->dest_h = scanout_state->src_h >> 16;
+	pixman_region32_copy(&scanout_state->damage, damage);
+
+	if (output->base.zoom.active) {
+		weston_matrix_transform_region(&scanout_state->damage,
+					       &output->base.matrix,
+					       &scanout_state->damage);
+	} else {
+		pixman_region32_translate(&scanout_state->damage,
+					  -output->base.x, -output->base.y);
+		weston_transformed_region(output->base.width,
+					  output->base.height,
+					  output->base.transform,
+					  output->base.current_scale,
+					  &scanout_state->damage,
+					  &scanout_state->damage);
+	}
+
+	pixman_region32_subtract(&c->primary_plane.damage,
+				 &c->primary_plane.damage, damage);
+}
+
+int
+get_frame_fd(struct weston_output *base,struct weston_view *ev, int *buf_stride,
+        pixman_region32_t *damage)
+{
+	struct transmitter_output *output = to_transmitter_output(base);
+	struct weston_compositor *c = output->base.compositor;
+	struct transmitter_plane_state *scanout_state;
+	struct transmitter_plane *scanout_plane = output->scanout_plane;
+	struct transmitter_backend *b = to_transmitter_backend(c);
+	scanout_state = scanout_plane->state_cur;
+	int fd, ret;
+
+	/* Drop frame if there isn't free buffers */
+	if (!gbm_surface_has_free_buffers(output->gbm_surface)) {
+		weston_log("%s: Drop frame!!\n", __func__);
+		return -1;
+	}
+	transmitter_output_render(output,damage);
+
+	if (!scanout_state || !scanout_state->fb) {
+		weston_log("scanout_state is NULL \n");
+		return -1;
+	}
+	*buf_stride = scanout_state->fb->strides[0];
+	ret = drmPrimeHandleToFD(b->drm.fd, scanout_state->fb->handles[0],
+				 DRM_CLOEXEC, &fd);
+	if (ret<0) {
+		weston_log("failed to create prime fd for front buffer\n");
+		drm_fb_unref(scanout_state->fb);
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static int
+transmitter_check_remote_output(struct weston_transmitter_surface *txs,
+				struct weston_compositor *compositor,
+				struct weston_transmitter_remote *remote)
+{
+	struct weston_view *view;
+	int transmitter_is_surface_removed = 1;
+
+	wl_list_for_each_reverse(view, &compositor->view_list, link) {
+		if (view->surface == txs->surface)
+			transmitter_is_surface_removed = 0;
+	}
+
+	if (transmitter_is_surface_removed) {
+		transmitter_api_impl.surface_destroy(txs);
+		return 0;
+	}
+	return 1;
+}
+
 static int
 transmitter_output_repaint(struct weston_output *output_base,
 			   pixman_region32_t *damage, void *repaint_data)
 {
 	struct transmitter_output* output = to_transmitter_output(output_base);
-	struct weston_transmitter_remote* remote = output->remote;
-	struct weston_transmitter_surface* txs;
+	struct weston_transmitter_remote *remote = output->remote;
+	struct weston_transmitter_surface *txs, *next;
 	struct weston_compositor *compositor = output_base->compositor;
 	struct weston_view *view;
 	bool found_output = false;
 
-	/*
-	 * Pick up weston_view in transmitter_output and
-	 * check weston_view's surface
-	 * If the surface hasn't been combined to weston_transmitter_surface,
-	 * then call push_to_remote.
-	 * If the surface has already been combined, call gather_state.
-	 */
 	if (wl_list_empty(&compositor->view_list))
 		goto out;
 
@@ -105,18 +231,23 @@ transmitter_output_repaint(struct weston_output *output_base,
 		if (view->output == &output->base && (view->surface->width >= 64
 		    && view->surface->height >= 64)) {
 			found_output = true;
-			wl_list_for_each(txs, &remote->surface_list, link) {
+			wl_list_for_each_safe(txs, next, &remote->surface_list, link) {
+				if (!transmitter_check_remote_output(txs, compositor, remote)) {
+					/* avoid calling push to remote for
+					 * this repaint outside loop */
+					found_surface = true;
+					break;
+				}
 				if (txs->surface == view->surface) {
 					found_surface = true;
-					if (!txs->wthp_surf)
+					if (!remote->wthp_surf)
 						transmitter_api_impl.surface_push_to_remote(
 								view->surface,
 								remote, NULL);
-					output->renderer->dmafd =
-							drm_get_dma_fd_from_view(
-									&output->base,
+					output->renderer->dmafd = get_frame_fd(&output->base,
 									view,
-									&output->renderer->buf_stride);
+									&output->renderer->buf_stride,
+									damage);
 					if (output->renderer->dmafd < 0) {
 						weston_log("Failed to get dmafd\n");
 						goto out;
@@ -129,20 +260,31 @@ transmitter_output_repaint(struct weston_output *output_base,
 					output->renderer->dmafd = 0;
 					transmitter_api_impl.surface_gather_state(
 							txs);
-					weston_buffer_reference(
-							&view->surface->buffer_ref,
-							NULL);
-					break;
 				}
 			}
-			if (!found_surface){
+			if (!found_surface) {
 				txs = transmitter_api_impl.surface_push_to_remote(
 						view->surface, remote, NULL);
-				output->renderer->dmafd =
-						drm_get_dma_fd_from_view(
-								&output->base,
+				if(remote->count==0) {
+					remote->wthp_surf =
+						wthp_compositor_create_surface(remote->display->compositor);
+
+					remote->wthp_ivi_surface =
+						wthp_ivi_application_surface_create(
+						remote->display->application,
+						1000, remote->wthp_surf);
+					wth_connection_flush(remote->display->connection);
+					weston_log("surface ID %d\n", 1000);
+
+					if (!(remote->wthp_surf) || !(remote->wthp_ivi_surface))
+						weston_log("Failed to create txs->ivi_surf\n");
+					else
+						remote->count++;
+				}
+				output->renderer->dmafd = get_frame_fd(&output->base,
 								view,
-								&output->renderer->buf_stride);
+								&output->renderer->buf_stride,
+								damage);
 				if (output->renderer->dmafd < 0) {
 					weston_log("Failed to get dmafd\n");
 					goto out;
@@ -152,13 +294,15 @@ transmitter_output_repaint(struct weston_output *output_base,
 				output->renderer->repaint_output(output);
 				output->renderer->dmafd = 0;
 				transmitter_api_impl.surface_gather_state(txs);
-				weston_buffer_reference(&view->surface->buffer_ref,NULL);
-				break;
 			}
 		}
 	}
-	if (!found_output)
+	if (!found_output) {
+		wl_list_for_each_safe(txs, next, &remote->surface_list, link) {
+			transmitter_api_impl.surface_destroy(txs);
+		}
 		goto out;
+	}
 
 	wl_event_source_timer_update(output->finish_frame_timer, 1);
 	return 0;
@@ -421,18 +565,158 @@ void transmitter_assign_planes(struct weston_output *output_base,
 	struct transmitter_output *output = to_transmitter_output(output_base);
 	struct weston_compositor *compositor = output_base->compositor;
 	struct weston_view *view;
+	struct weston_plane *primary = &output_base->compositor->primary_plane;
+
 	wl_list_for_each_reverse(view,&compositor->view_list,link) {
-		if (view->output == &output->base && (view->surface->width >= 64
-		    && view->surface->height >= 64)) {
-			view->surface->keep_buffer = true;
+		if (view->output == &output->base &&
+		    (view->surface->width >= 64 && view->surface->height >= 64)) {
+			weston_view_move_to_plane(view, primary);
+			view->psf_flags = WP_PRESENTATION_FEEDBACK_KIND_ZERO_COPY;
 		}
 	}
+}
+
+/**
+ * Allocate a new, empty, plane state.
+ */
+struct transmitter_plane_state *
+transmitter_plane_state_alloc(struct transmitter_output_state *state_output,
+		      struct transmitter_plane *plane)
+{
+	struct transmitter_plane_state *state = zalloc(sizeof(*state));
+
+	assert(state);
+	state->output_state = state_output;
+	state->plane = plane;
+	state->in_fence_fd = -1;
+	pixman_region32_init(&state->damage);
+
+	/* Here we only add the plane state to the desired link, and not
+	 * set the member. Having an output pointer set means that the
+	 * plane will be displayed on the output; this won't be the case
+	 * when we go to disable a plane. In this case, it must be part of
+	 * the commit (and thus the output state), but the member must be
+	 * NULL, as it will not be on any output when the state takes
+	 * effect.
+	 */
+	if (state_output)
+		wl_list_insert(&state_output->plane_list, &state->link);
+	else
+		wl_list_init(&state->link);
+
+	return state;
+}
+
+static struct transmitter_plane *
+transmitter_plane_create(struct transmitter_backend *b, struct transmitter_output *output)
+{
+	struct transmitter_plane *plane;
+
+	/* num of formats is one */
+	plane = zalloc(sizeof(*plane) + sizeof(plane->formats[0]));
+	if (!plane) {
+		weston_log("%s: out of memory\n", __func__);
+		return NULL;
+	}
+
+	plane->type = WDRM_PLANE_TYPE_PRIMARY;
+	plane->backend = b;
+	plane->state_cur = transmitter_plane_state_alloc(NULL, plane);
+	plane->state_cur->complete = true;
+	plane->formats[0].format = output->gbm_format;
+	plane->count_formats = 1;
+	if ((output->gbm_bo_flags & GBM_BO_USE_LINEAR) && b->fb_modifiers) {
+		uint64_t *modifiers = zalloc(sizeof *modifiers);
+		if (modifiers) {
+			*modifiers = DRM_FORMAT_MOD_LINEAR;
+			plane->formats[0].modifiers = modifiers;
+			plane->formats[0].count_modifiers = 1;
+		}
+	}
+
+	weston_plane_init(&plane->base, b->compositor, 0, 0);
+	wl_list_insert(&b->plane_list, &plane->link);
+
+	return plane;
+}
+
+/* Init output state that depends on gl or gbm */
+static int
+transmitter_output_init_egl(struct transmitter_output *output, struct transmitter_backend *b)
+{
+	EGLint format[2] = {
+		output->gbm_format,
+		fallback_format_for(output->gbm_format),
+	};
+	int n_formats = 1;
+	struct weston_mode *mode = output->base.current_mode;
+	struct transmitter_plane *plane = output->scanout_plane;
+	unsigned int i;
+
+	assert(output->gbm_surface == NULL);
+
+	for (i = 0; i < plane->count_formats; i++) {
+		if (plane->formats[i].format == output->gbm_format)
+			break;
+	}
+
+	if (i == plane->count_formats) {
+		weston_log("format 0x%x not supported by output %s\n",
+			   output->gbm_format, output->base.name);
+		return -1;
+	}
+
+#ifdef HAVE_GBM_MODIFIERS
+	if (plane->formats[i].count_modifiers > 0) {
+	weston_log("Created gbm_surface with modifiers\n");
+		output->gbm_surface =
+			gbm_surface_create_with_modifiers(b->gbm,
+							  mode->width,
+							  mode->height,
+							  output->gbm_format,
+							  plane->formats[i].modifiers,
+							  plane->formats[i].count_modifiers);
+	}
+
+	/* If allocating with modifiers fails, try again without. This can
+	 * happen when the KMS display device supports modifiers but the
+	 * GBM driver does not, e.g. the old i915 Mesa driver. */
+	if (!output->gbm_surface)
+#endif
+	{
+	weston_log("Created gbm_surface without modifiers\n");
+		output->gbm_surface =
+		    gbm_surface_create(b->gbm, mode->width, mode->height,
+				       output->gbm_format,
+				       output->gbm_bo_flags);
+	}
+
+	if (!output->gbm_surface) {
+		weston_log("failed to create gbm surface\n");
+		return -1;
+	}
+
+	if (format[1])
+		n_formats = 2;
+	if (gl_renderer->output_window_create(&output->base,
+					      (EGLNativeWindowType)output->gbm_surface,
+					      output->gbm_surface,
+					      gl_renderer->opaque_attribs,
+					      format,
+					      n_formats) < 0) {
+		weston_log("failed to create gl renderer output state\n");
+		gbm_surface_destroy(output->gbm_surface);
+		output->gbm_surface = NULL;
+		return -1;
+	}
+	return 0;
 }
 
 static int
 transmitter_output_enable(struct weston_output *base)
 {
 	struct transmitter_output *output = to_transmitter_output(base);
+	struct transmitter_backend *b = to_transmitter_backend(base->compositor);
 	struct wl_event_loop *loop;
 	output->base.start_repaint_loop = transmitter_output_start_repaint_loop;
 	output->base.repaint = transmitter_output_repaint;
@@ -442,9 +726,22 @@ transmitter_output_enable(struct weston_output *base)
 	output->base.set_gamma = NULL;
 	output->base.set_backlight = NULL;
 	output->base.gamma_size = 0;
+	output->scanout_plane = transmitter_plane_create(b, output);
+	if (!output->scanout_plane) {
+		weston_log("Failed to find primary plane for output %s\n",
+			   output->base.name);
+		return -1;
+	}
+	if (transmitter_output_init_egl(output, b) < 0) {
+		weston_log("Failed to init output gl state\n");
+		return -1;
+	}
 	loop = wl_display_get_event_loop(base->compositor->wl_display);
 	output->finish_frame_timer = wl_event_loop_add_timer(loop,
 			transmitter_output_finish_frame_handler, output);
+	weston_compositor_stack_plane(b->compositor,
+				      &output->scanout_plane->base,
+				      &b->compositor->primary_plane);
 	return 0;
 }
 
@@ -464,6 +761,12 @@ static void
 transmitter_output_destroy(struct weston_output *base)
 {
 	struct transmitter_output *output = to_transmitter_output(base);
+
+	if(output->remote->wthp_surf && output->remote->wthp_ivi_surface) {
+		weston_log("Destroying wthp_surface and wthp_ivi_surface\n");
+		wthp_surface_destroy(output->remote->wthp_surf);
+		wthp_ivi_surface_destroy(output->remote->wthp_ivi_surface);
+	}
 	wl_list_remove(&output->link);
 	free_mode_list(&output->base.mode_list);
 	wl_event_source_remove(output->finish_frame_timer);
@@ -511,6 +814,8 @@ transmitter_output_create(struct weston_compositor *compositor,
 	output->base.attach_head = transmitter_output_attach_head;
 	output->base.detach_head = transmitter_output_detach_head;
 	output->remote = b->remote;
+	output->gbm_bo_flags = GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING;
+	output->gbm_format = b->gbm_format;
 	wl_list_init(&output->link);
 	wl_list_insert(&b->remote->output_list, &output->link);
 	if (txr->waltham_renderer->display_create(output) < 0) {
@@ -874,12 +1179,12 @@ transmitter_surface_gather_state(struct weston_transmitter_surface *txs)
 
 		wthp_buffer_set_listener(txs->wthp_buf, &buffer_listener, txs);
 
-		wthp_surface_attach(txs->wthp_surf, txs->wthp_buf,
+		wthp_surface_attach(remote->wthp_surf, txs->wthp_buf,
 				    txs->attach_dx, txs->attach_dy);
-		wthp_surface_damage(txs->wthp_surf, txs->attach_dx,
+		wthp_surface_damage(remote->wthp_surf, txs->attach_dx,
 				    txs->attach_dy, surf->width,
 				    surf->height);
-		wthp_surface_commit(txs->wthp_surf);
+		wthp_surface_commit(remote->wthp_surf);
 
 		wth_connection_flush(remote->display->connection);
 		free(data);
@@ -910,11 +1215,6 @@ transmitter_surface_zombify(struct weston_transmitter_surface *txs)
 	remote = txs->remote;
 	if (!remote->display->compositor)
 		weston_log("remote->compositor is NULL\n");
-	if (txs->wthp_surf)
-		wthp_surface_destroy(txs->wthp_surf);
-	if (txs->wthp_ivi_surface)
-		wthp_ivi_surface_destroy(txs->wthp_ivi_surface);
-
 	/* In case called from destroy_transmitter() */
 	txs->remote = NULL;
 }
@@ -939,52 +1239,6 @@ transmitter_surface_destroyed(struct wl_listener *listener, void *data)
 	transmitter_surface_zombify(txs);
 	wl_list_remove(&txs->link);
 	free(txs);
-}
-
-static void
-transmitter_surface_set_ivi_id(struct weston_transmitter_surface *txs)
-{
-	struct weston_transmitter_remote *remote = txs->remote;
-	struct waltham_display *dpy = remote->display;
-	struct weston_surface *ws;
-	struct ivi_layout_surface **pp_surface = NULL;
-	struct ivi_layout_surface *ivi_surf = NULL;
-	int32_t surface_length = 0;
-	int32_t ret = 0;
-	int32_t i = 0;
-	ret = txs->lyt->get_surfaces(&surface_length, &pp_surface);
-	if (!ret)
-		weston_log("No ivi_surface\n");
-
-	ws = txs->surface;
-
-	for(i = 0; i < surface_length; i++) {
-		ivi_surf = pp_surface[i];
-		if (ivi_surf->surface == ws) {
-			assert(txs->surface);
-			if (!txs->surface)
-				return;
-			if (!dpy)
-				weston_log("no content in waltham_display\n");
-			if (!dpy->compositor)
-				weston_log("no content in compositor object\n");
-			if (!dpy->seat)
-				weston_log("no content in seat object\n");
-			if (!dpy->application)
-				weston_log("no content in ivi-application object\n");
-
-			txs->wthp_ivi_surface = wthp_ivi_application_surface_create
-				(dpy->application, ivi_surf->id_surface,
-				 txs->wthp_surf);
-			wth_connection_flush(remote->display->connection);
-			weston_log("surface ID %d\n", ivi_surf->id_surface);
-			if (!txs->wthp_ivi_surface) {
-				weston_log("Failed to create txs->ivi_surf\n");
-			}
-		}
-	}
-	free(pp_surface);
-	pp_surface = NULL;
 }
 
 static struct weston_transmitter_surface *
@@ -1038,14 +1292,6 @@ transmitter_surface_push_to_remote(struct weston_surface *ws,
 	/* TODO: create the content stream connection... */
 	if (!remote->display->compositor)
 		weston_log("remote->compositor is NULL\n");
-	if (!txs->wthp_surf) {
-		weston_log("txs->wthp_surf is NULL\n");
-		txs->wthp_surf = wthp_compositor_create_surface(
-				 remote->display->compositor);
-		wth_connection_flush(remote->display->connection);
-		transmitter_surface_set_ivi_id(txs);
-	}
-
 	return txs;
 }
 
@@ -1305,10 +1551,10 @@ disconnect_surface(struct weston_transmitter_remote *remote)
 {
 	struct weston_transmitter_surface *txs;
 	wl_list_for_each(txs, &remote->surface_list, link) {
-		free(txs->wthp_ivi_surface);
-		txs->wthp_ivi_surface = NULL;
-		free(txs->wthp_surf);
-		txs->wthp_surf = NULL;
+		free(remote->wthp_surf);
+		remote->wthp_surf = NULL;
+		free(remote->wthp_ivi_surface);
+		remote->wthp_ivi_surface = NULL;
 	}
 }
 
@@ -1697,7 +1943,7 @@ transmitter_backend_create(struct weston_compositor *compositor,
 	b->base.repaint_cancel = NULL;
 	b->base.create_output = transmitter_output_create;
 	b->base.device_changed = NULL;
-
+	wl_list_init(&b->plane_list);
 	weston_setup_vt_switch_bindings(compositor);
 	if (udev_input_init(&b->input,
 			    compositor, b->udev, seat_id,

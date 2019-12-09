@@ -357,6 +357,13 @@ struct weston_transmitter_remote {
 
 	struct waltham_display *display; /* waltham */
 	struct wl_event_source *source;
+
+	/* waltham */
+	struct wthp_surface *wthp_surf;
+	struct wthp_ivi_surface *wthp_ivi_surface;
+
+	/* To create only one wthp_surface and wthp_ivi_surface */
+	int count;
 };
 
 struct weston_transmitter_surface {
@@ -380,10 +387,8 @@ struct weston_transmitter_surface {
 	struct wl_list feedback_list; /* weston_presentation_feedback::link */
 
 	/* waltham */
-	struct wthp_surface *wthp_surf;
 	struct wthp_blob_factory *wthp_blob;
 	struct wthp_buffer *wthp_buf;
-	struct wthp_ivi_surface *wthp_ivi_surface;
 	struct wthp_ivi_application *wthp_ivi_application;
 };
 
