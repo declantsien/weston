@@ -34,6 +34,7 @@
 #include <libweston/libweston.h>
 #include "transmitter-internal.h"
 #include <libweston/backend-transmitter.h>
+#include "shared/timespec-util.h"
 
 /** @file
  * Implementation of a remote input.
@@ -199,105 +200,6 @@ transmitter_seat_create_pointer(struct weston_transmitter_seat *seat)
 		   pointer, seat->base);
 }
 
-static void
-seat_pointer_focus_destroy_handler(struct wl_listener *listener, void *data)
-{
-	struct weston_transmitter_surface *txs = data;
-	struct weston_transmitter_seat *seat;
-
-	seat = wl_container_of(listener, seat, pointer_focus_destroy_listener);
-	assert(seat->pointer_focus == txs);
-	seat->pointer_focus = NULL;
-}
-
-void
-transmitter_seat_pointer_enter(struct weston_transmitter_seat *seat,
-			       uint32_t serial,
-			       struct weston_transmitter_surface *txs,
-			       wl_fixed_t surface_x,
-			       wl_fixed_t surface_y)
-{
-	struct weston_pointer *pointer;
-	struct wl_list *focus_resource_list;
-	struct wl_resource *resource;
-
-	pointer = weston_seat_get_pointer(seat->base);
-	assert(pointer);
-	assert(txs->surface);
-	seat->pointer_focus = txs;
-	seat->pointer_focus_destroy_listener.notify =
-		seat_pointer_focus_destroy_handler;
-	wl_signal_add(&txs->destroy_signal,
-		      &seat->pointer_focus_destroy_listener);
-
-	/* If pointer-focus gets destroyed, txs will get destroyed, the
-	 * remote surface object is destroyed, and the remote will send a
-	 * leave and a frame.
-	 */
-
-	seat->pointer_surface_x = surface_x;
-	seat->pointer_surface_y = surface_y;
-
-	pointer->focus_serial = serial;
-
-	/* pointer->focus is not used, because it is a weston_view, while
-	 * remoted surfaces have no views.
-	 *
-	 * pointer->x,y are not used because they are in global coordinates.
-	 * Remoted surfaces are not in the global space at all, so there are
-	 * no such coordinates.
-	 */
-
-	if (!pointer->focus_client)
-		return;
-
-	focus_resource_list = &pointer->focus_client->pointer_resources;
-	wl_resource_for_each(resource, focus_resource_list) {
-		wl_pointer_send_enter(resource,
-				      serial,
-				      txs->surface->resource,
-				      surface_x, surface_y);
-	}
-}
-
-void
-transmitter_seat_pointer_leave(struct weston_transmitter_seat *seat,
-			       uint32_t serial,
-			       struct weston_transmitter_surface *txs)
-{
-	struct weston_pointer *pointer;
-	struct wl_list *focus_resource_list;
-	struct wl_resource *surface_resource;
-	struct wl_resource *resource;
-
-	if (txs != seat->pointer_focus) {
-		weston_log("Transmitter Warning: pointer leave for %p,expected %p\n",
-			   txs, seat->pointer_focus);
-	}
-
-	seat->pointer_focus = NULL;
-	wl_list_remove(&seat->pointer_focus_destroy_listener.link);
-	wl_list_init(&seat->pointer_focus_destroy_listener.link);
-
-	if (!txs)
-		return;
-	assert(txs->surface);
-	surface_resource = txs->surface->resource;
-
-	pointer = weston_seat_get_pointer(seat->base);
-	assert(pointer);
-	if (!pointer->focus_client)
-		return;
-
-	focus_resource_list = &pointer->focus_client->pointer_resources;
-	wl_resource_for_each(resource, focus_resource_list)
-		wl_pointer_send_leave(resource, serial, surface_resource);
-
-	/* Do not reset pointer->focus_client, because we need to be able to
-	 * send a following 'frame' event in transmitter_seat_pointer_frame().
-	 */
-}
-
 void
 transmitter_seat_pointer_motion(struct weston_transmitter_seat *seat,
 				uint32_t time,
@@ -307,7 +209,6 @@ transmitter_seat_pointer_motion(struct weston_transmitter_seat *seat,
 	struct weston_pointer *pointer;
 	struct wl_list *focus_resource_list;
 	struct wl_resource *resource;
-	struct weston_transmitter_surface *txs;
 
 	pointer = weston_seat_get_pointer(seat->base);
 	assert(pointer);
@@ -318,14 +219,10 @@ transmitter_seat_pointer_motion(struct weston_transmitter_seat *seat,
 	if (!pointer->focus_client)
 		return;
 
-	txs = seat->pointer_focus;
-	if (txs)
-		assert(wl_resource_get_client(txs->surface->resource) ==
-		       pointer->focus_client->client);
-
 	focus_resource_list = &pointer->focus_client->pointer_resources;
 	wl_resource_for_each(resource, focus_resource_list) {
-		wl_pointer_send_motion(resource, time, surface_x, surface_y);
+		wl_pointer_send_motion(resource, time,
+				       surface_x, surface_y);
 	}
 }
 
@@ -526,96 +423,6 @@ transmitter_seat_create_touch(struct weston_transmitter_seat *seat)
 }
 
 static void
-transmitter_seat_touch_down (struct weston_transmitter_seat *seat,
-			     uint32_t serial,
-			     uint32_t time,
-			     struct weston_transmitter_surface *txs,
-			     int32_t touch_id,
-			     wl_fixed_t x,
-			     wl_fixed_t y)
-{
-	struct weston_touch *touch;
-	struct wl_resource *resource = NULL;
-	struct wl_resource *surface_resource;
-
-	touch = weston_seat_get_touch(seat->base);
-	assert(touch);
-	assert(txs->surface);
-	surface_resource = txs->surface->resource;
-	seat->touch_focus = txs;
-
-	wl_resource_for_each(resource, &touch->resource_list) {
-		if (wl_resource_get_client(resource) ==
-                    wl_resource_get_client(surface_resource)) {
-			wl_touch_send_down(resource, serial, time,
-					   surface_resource,
-					   touch_id, x, y);
-		}
-	}
-}
-
-static void
-transmitter_seat_touch_up (struct weston_transmitter_seat *seat,
-			   uint32_t serial,
-			   uint32_t time,
-			   int32_t touch_id)
-{
-	struct weston_touch *touch;
-	struct wl_resource *resource = NULL;
-
-	touch = weston_seat_get_touch(seat->base);
-	assert(touch);
-
-	wl_resource_for_each(resource, &touch->resource_list) {
-		if (wl_resource_get_client(resource) ==
-		    wl_resource_get_client(
-		    seat->touch_focus->surface->resource)) {
-			wl_touch_send_up(resource, serial, time, touch_id);
-		}
-	}
-}
-
-static void
-transmitter_seat_touch_motion (struct weston_transmitter_seat *seat,
-			       uint32_t time,
-			       int32_t touch_id,
-			       wl_fixed_t x,
-			       wl_fixed_t y)
-{
-	struct weston_touch *touch;
-	struct wl_resource *resource = NULL;
-
-	touch = weston_seat_get_touch(seat->base);
-	assert(touch);
-
-	wl_resource_for_each(resource, &touch->resource_list) {
-		if (wl_resource_get_client(resource) ==
-		    wl_resource_get_client(
-		    seat->touch_focus->surface->resource)) {
-			wl_touch_send_motion(resource, time, touch_id, x, y);
-		}
-	}
-}
-
-static void
-transmitter_seat_touch_frame (struct weston_transmitter_seat *seat)
-{
-	struct weston_touch *touch;
-	struct wl_resource *resource = NULL;
-
-	touch = weston_seat_get_touch(seat->base);
-	assert(touch);
-
-	wl_resource_for_each(resource, &touch->resource_list) {
-		if (wl_resource_get_client(resource) ==
-		    wl_resource_get_client(
-		    seat->touch_focus->surface->resource)) {
-			wl_touch_send_frame(resource);
-		}
-	}
-}
-
-static void
 transmitter_seat_touch_cancel (struct weston_transmitter_seat *seat)
 {
 	struct weston_touch *touch;
@@ -666,19 +473,19 @@ pointer_handle_enter(struct wthp_pointer *wthp_pointer,
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
 	struct weston_transmitter_seat *seat;
-	struct weston_transmitter_surface *txs;
+	struct weston_pointer *pointer;
+	struct weston_compositor *ec = remote->transmitter->compositor;
+	struct weston_view *view;
+	wl_fixed_t sx, sy;
 
 	seat = wl_container_of(seat_list->next, seat, link);
+	pointer = weston_seat_get_pointer(seat->base);
+	assert(pointer);
 
-	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (remote->wthp_surf == surface) {
-			if (txs != seat->pointer_focus)
-				transmitter_seat_pointer_leave(seat, serial,
-				                               seat->pointer_focus);
-			transmitter_seat_pointer_enter(seat, serial, txs,
-						       surface_x, surface_y);
-		}
-	}
+	view = weston_compositor_pick_view(ec, surface_x, surface_y, &sx, &sy);
+	if (pointer->focus != view || pointer->sx != sx || pointer->sy != sy)
+		weston_pointer_set_focus(pointer, view, sx, sy);
+	wl_signal_emit(&pointer->motion_signal, pointer);
 }
 
 static void
@@ -691,15 +498,18 @@ pointer_handle_leave(struct wthp_pointer *wthp_pointer,
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
 	struct weston_transmitter_seat *seat;
-	struct weston_transmitter_surface *txs;
+	struct weston_pointer *pointer;
 
 	seat = wl_container_of(seat_list->next, seat, link);
-
-	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (remote->wthp_surf == surface) {
-			transmitter_seat_pointer_leave(seat, serial, txs);
-		}
-	}
+	pointer = weston_seat_get_pointer(seat->base);
+	assert(pointer);
+	struct wl_resource *resource;
+	struct wl_resource *surface_resource;
+	struct wl_list *resource_list;
+	resource_list = &pointer->focus_client->pointer_resources;
+	surface_resource = pointer->focus->surface->resource;
+	wl_resource_for_each(resource, resource_list)
+		wl_pointer_send_leave(resource, serial, surface_resource);
 }
 
 static void
@@ -712,10 +522,11 @@ pointer_handle_motion(struct wthp_pointer *wthp_pointer,
 		wth_object_get_user_data((struct wth_object *)wthp_pointer);
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
+	struct weston_compositor *ec= remote->transmitter->compositor;
 	struct weston_transmitter_seat *seat;
 
 	seat = wl_container_of(seat_list->next, seat, link);
-
+	weston_compositor_wake(ec);
 	transmitter_seat_pointer_motion(seat, time,
 					surface_x,
 					surface_y);
@@ -919,16 +730,19 @@ touch_handle_down (struct wthp_touch * wthp_touch,
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
 	struct weston_transmitter_seat *seat;
-	struct weston_transmitter_surface *txs;
+	struct weston_touch *touch;
+	struct weston_view *ev;
+	wl_fixed_t sx, sy;
+	struct timespec ts;
 
+	timespec_from_msec(&ts, time);
+	struct weston_compositor *ec = remote->transmitter->compositor;
 	seat = wl_container_of(seat_list->next, seat, link);
-
-	wl_list_for_each(txs, &remote->surface_list, link) {
-		if (remote->wthp_surf == surface) {
-			transmitter_seat_touch_down(seat, serial, time,
-						    txs, id, x, y);
-		}
-	}
+	touch = weston_seat_get_touch(seat->base);
+	assert(touch);
+	ev = weston_compositor_pick_view(ec, x, y, &sx, &sy);
+	weston_touch_set_focus(touch, ev);
+	weston_touch_send_down(touch, &ts, id, x, y);
 }
 
 static void
@@ -942,10 +756,14 @@ touch_handle_up (struct wthp_touch * wthp_touch,
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
 	struct weston_transmitter_seat *seat;
+	struct weston_touch *touch;
+	struct timespec ts;
 
+	timespec_from_msec(&ts, time);
 	seat = wl_container_of(seat_list->next, seat, link);
-
-	transmitter_seat_touch_up(seat, serial, time, id);
+	touch = weston_seat_get_touch(seat->base);
+	assert(touch);
+	weston_touch_send_up(touch, &ts, id);
 }
 
 static void
@@ -960,10 +778,14 @@ touch_handle_motion (struct wthp_touch * wthp_touch,
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
 	struct weston_transmitter_seat *seat;
+	struct weston_touch *touch;
+	struct timespec ts;
 
+	timespec_from_msec(&ts, time);
 	seat = wl_container_of(seat_list->next, seat, link);
-
-	transmitter_seat_touch_motion(seat, time, id, x, y);
+	touch = weston_seat_get_touch(seat->base);
+	assert(touch);
+	weston_touch_send_motion(touch, &ts, id, x, y);
 }
 
 static void
@@ -974,10 +796,12 @@ touch_handle_frame (struct wthp_touch * wthp_touch)
 	struct weston_transmitter_remote *remote = dpy->remote;
 	struct wl_list *seat_list = &remote->seat_list;
 	struct weston_transmitter_seat *seat;
+	struct weston_touch *touch;
 
 	seat = wl_container_of(seat_list->next, seat, link);
-
-	transmitter_seat_touch_frame(seat);
+	touch = weston_seat_get_touch(seat->base);
+	assert(touch);
+	weston_touch_send_frame(touch);
 }
 
 static void
