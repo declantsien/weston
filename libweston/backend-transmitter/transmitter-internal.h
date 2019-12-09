@@ -162,6 +162,31 @@ struct renderer {
 	bool recorder_enabled;
 };
 
+enum wthp_seat_capability {
+	WTHP_SEAT_CAPABILITY_POINTER = 1, /* seat has pointer devices */
+	WTHP_SEAT_CAPABILITY_KEYBOARD = 2, /* seat has one or more keyboards */
+	WTHP_SEAT_CAPABILITY_TOUCH = 4, /* seat has touch devices */
+};
+
+struct weston_transmitter_seat {
+	struct weston_seat *base;
+	struct wl_list link;
+
+	/* pointer */
+	wl_fixed_t pointer_surface_x;
+	wl_fixed_t pointer_surface_y;
+
+	struct wl_listener get_pointer_listener;
+	struct weston_transmitter_surface *pointer_focus;
+	struct wl_listener pointer_focus_destroy_listener;
+
+	/* keyboard */
+	struct weston_transmitter_surface *keyboard_focus;
+
+	/* touch */
+	struct weston_transmitter_surface *touch_focus;
+};
+
 static inline struct transmitter_head *
 to_transmitter_head(struct weston_head *base)
 {
@@ -190,4 +215,19 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct transmitter_backend *backend,
 int
 drm_get_dma_fd_from_view(struct weston_output *base,
 			 struct weston_view *ev, int *buf_stride);
+
+int
+transmitter_remote_create_seat(struct weston_transmitter_remote *remote);
+
+void
+transmitter_seat_destroy(struct weston_transmitter_seat *seat);
+
+void
+seat_capabilities(struct wthp_seat *wthp_seat,
+                  enum wthp_seat_capability caps);
+
+static const struct wthp_seat_listener seat_listener = {
+	seat_capabilities,
+	NULL
+};
 #endif

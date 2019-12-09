@@ -1081,7 +1081,12 @@ registry_handle_global(struct wthp_registry *registry,
 				(struct wthp_blob_factory *) wthp_registry_bind(
 				registry, name, interface, 1);
 		/* has no events to handle */
-	} else if (strcmp(interface, "wthp_ivi_application") == 0) {
+	} else if (strcmp(interface, "wthp_seat") == 0) {
+		assert(!dpy->seat);
+		dpy->seat = (struct wthp_seat *) wthp_registry_bind(registry,
+			    name, interface, 1);
+		wthp_seat_set_listener(dpy->seat, &seat_listener, dpy);
+	}else if (strcmp(interface, "wthp_ivi_application") == 0) {
 	        assert(!dpy->application);
 		dpy->application = (struct wthp_ivi_application *)
 				   wthp_registry_bind(registry, name,
@@ -1375,6 +1380,7 @@ transmitter_remote_destroy(struct weston_transmitter_remote *remote)
 {
 	struct weston_transmitter_surface *txs;
 	struct transmitter_output *output, *otmp;
+	struct weston_transmitter_seat *seat, *stmp;
 
 	/* Do not emit connection_status_signal. */
 
@@ -1390,6 +1396,9 @@ transmitter_remote_destroy(struct weston_transmitter_remote *remote)
 	wl_list_for_each(txs, &remote->surface_list, link)
 		txs->remote = NULL;
 	wl_list_remove(&remote->surface_list);
+
+	wl_list_for_each_safe(seat, stmp, &remote->seat_list, link)
+		transmitter_seat_destroy(seat);
 
 	wl_list_for_each_safe(output, otmp, &remote->output_list, link)
 		transmitter_output_destroy(&output->base);
@@ -1502,6 +1511,7 @@ conn_ready_notify(struct wl_listener *l, void *data)
 {
 	struct weston_transmitter_remote *remote =
 	  wl_container_of(l, remote, establish_listener);
+	transmitter_remote_create_seat(remote);
 }
 
 int init_trans_api(struct weston_compositor *compositor,

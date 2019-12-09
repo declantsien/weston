@@ -7,6 +7,7 @@ config_h.set('BUILD_TRANSMITTER_COMPOSITOR', '1')
 srcs_transmitter = [
 	'transmitter.c',
 	'transmitter-fb.c',
+	'transmitter-input.c',
 	linux_dmabuf_unstable_v1_protocol_c,
 	linux_dmabuf_unstable_v1_server_protocol_h,
 	presentation_time_server_protocol_h,
