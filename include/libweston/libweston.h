@@ -69,6 +69,7 @@ struct weston_point2d_device_normalized {
 };
 
 struct weston_surface;
+struct weston_view;
 struct weston_buffer;
 struct shell_surface;
 struct weston_seat;
@@ -350,6 +351,15 @@ struct weston_output {
 	 */
 	void (*detach_head)(struct weston_output *output,
 			    struct weston_head *head);
+
+	/** Retrieve the reason a weston_view could not make into a HW plane,
+	 * and it had to be composited.
+	 *
+	 * @param ev the weston_view in question
+	 * @returns NULL signifies that the view is not composited but rather
+	 * on a HW plane.
+	 */
+	const char *(*get_reason_for_compositing)(struct weston_view *ev);
 };
 
 enum weston_pointer_motion_mask {
@@ -1297,6 +1307,9 @@ struct weston_view {
 
 	/* Per-surface Presentation feedback flags, controlled by backend. */
 	uint32_t psf_flags;
+
+	/* a 0 values means no compositing, buffer is now scanned out directly */
+	uint32_t reason_for_compositing;
 
 	bool is_mapped;
 };

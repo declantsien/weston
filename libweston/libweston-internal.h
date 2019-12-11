@@ -332,4 +332,7 @@ weston_protected_surface_send_event(struct protected_surface *psurface,
 int
 wl_data_device_manager_init(struct wl_display *display);
 
+void
+weston_view_set_reason_for_compositing(struct weston_view *ev, uint32_t reason);
+
 #endif

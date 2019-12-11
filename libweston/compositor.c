@@ -1902,6 +1902,12 @@ weston_view_on_output(struct weston_view *ev, struct weston_output *output)
 	return false;
 }
 
+WL_EXPORT void
+weston_view_set_reason_for_compositing(struct weston_view *ev, uint32_t reason)
+{
+	ev->reason_for_compositing = reason;
+}
+
 /* Check if a surface has a view assigned to it
  *
  * The indicator is set manually when mapping
@@ -7023,6 +7029,31 @@ debug_scene_view_print_buffer(FILE *fp, struct weston_view *view)
 }
 
 static void
+debug_scene_view_print_reason_for_compositing(FILE *fp, struct weston_view *ev)
+{
+	const char *reason = NULL;
+
+	/* not set by backend, or there's no output yet for the view, so
+	 * we just can't tell ... */
+	if (ev->output_mask == 0 || !ev->output->get_reason_for_compositing)
+		return;
+
+	/* could be NULL, hence on a HW plane */
+	reason = ev->output->get_reason_for_compositing(ev);
+
+	fprintf(fp, "\t\tView ");
+
+	/* psf flags should tell us if a view is on plane or not, but only for
+	 * overlay and primary, so use the view's reason directly */
+	if (!reason)
+		fprintf(fp, "on a HW plane");
+	else
+		fprintf(fp, "on renderer, %s", reason);
+
+	fprintf(fp, "\n");
+}
+
+static void
 debug_scene_view_print(FILE *fp, struct weston_view *view, int view_idx)
 {
 	struct weston_compositor *ec = view->surface->compositor;
@@ -7083,6 +7114,7 @@ debug_scene_view_print(FILE *fp, struct weston_view *view, int view_idx)
 
 	fprintf(fp, "\n");
 
+	debug_scene_view_print_reason_for_compositing(fp, view);
 	debug_scene_view_print_buffer(fp, view);
 }
 
