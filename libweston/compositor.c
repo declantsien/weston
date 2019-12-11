@@ -1641,7 +1641,7 @@ weston_view_schedule_repaint(struct weston_view *view)
 	struct weston_output *output;
 
 	wl_list_for_each(output, &view->surface->compositor->output_list, link)
-		if (view->output_mask & (1u << output->id))
+		if (weston_view_on_output(view, output))
 			weston_output_schedule_repaint(output);
 }
 
@@ -1884,6 +1884,22 @@ weston_view_matches_output_entirely(struct weston_view *ev,
 		return false;
 
 	return true;
+}
+
+/** Check if the view is on that output
+ *
+ * @param ev The view to check.
+ * @param output The output to check against.
+ *
+ * Returns true if the view is on that output, false otherwise.
+ */
+WL_EXPORT bool
+weston_view_on_output(struct weston_view *ev, struct weston_output *output)
+{
+	if (ev->output_mask & (1u << output->id))
+		return true;
+
+	return false;
 }
 
 /* Check if a surface has a view assigned to it
@@ -2638,7 +2654,7 @@ weston_output_take_feedback_list(struct weston_output *output,
 	/* All views must have the flag for the flag to survive. */
 	wl_list_for_each(view, &surface->views, surface_link) {
 		/* ignore views that are not on this output at all */
-		if (view->output_mask & (1u << output->id))
+		if (weston_view_on_output(view, output))
 			flags &= view->psf_flags;
 	}
 
@@ -5950,7 +5966,7 @@ weston_compositor_remove_output(struct weston_output *output)
 	assert(output->enabled);
 
 	wl_list_for_each(view, &compositor->view_list, link) {
-		if (view->output_mask & (1u << output->id))
+		if (weston_view_on_output(view, output))
 			weston_view_assign_output(view);
 	}
 
@@ -7053,7 +7069,7 @@ debug_scene_view_print(FILE *fp, struct weston_view *view, int view_idx)
 		bool first_output = true;
 		fprintf(fp, "\t\toutputs: ");
 		wl_list_for_each(output, &ec->output_list, link) {
-			if (!(view->output_mask & (1 << output->id)))
+			if (!weston_view_on_output(view, output))
 				continue;
 			fprintf(fp, "%s%d (%s)%s",
 				(first_output) ? "" : ", ",

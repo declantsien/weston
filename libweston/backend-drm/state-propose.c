@@ -856,7 +856,7 @@ drm_output_propose_state(struct weston_output *output_base,
 
 		/* If this view doesn't touch our output at all, there's no
 		 * reason to do anything with it. */
-		if (!(ev->output_mask & (1u << output->base.id))) {
+		if (!weston_view_on_output(ev, &output->base)) {
 			drm_debug(b, "\t\t\t\t[view] ignoring view %p "
 			             "(not on our output)\n", ev);
 			continue;
@@ -1078,7 +1078,7 @@ drm_assign_planes(struct weston_output *output_base, void *repaint_data)
 
 		/* If this view doesn't touch our output at all, there's no
 		 * reason to do anything with it. */
-		if (!(ev->output_mask & (1u << output->base.id)))
+		if (!weston_view_on_output(ev, &output->base))
 			continue;
 
 		/* Test whether this buffer can ever go into a plane:
