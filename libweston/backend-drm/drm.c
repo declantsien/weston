@@ -593,7 +593,7 @@ drm_repaint_begin(struct weston_compositor *compositor)
 	b->repaint_data = ret;
 
 	if (weston_log_scope_is_enabled(b->debug)) {
-		char *dbg = weston_compositor_print_scene_graph(compositor);
+		char *dbg = weston_compositor_print_scene_graph(compositor, false);
 		drm_debug(b, "[repaint] Beginning repaint; pending_state %p\n",
 			  ret);
 		drm_debug(b, "%s", dbg);

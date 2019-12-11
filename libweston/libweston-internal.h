@@ -86,7 +86,8 @@ void
 weston_compositor_offscreen(struct weston_compositor *compositor);
 
 char *
-weston_compositor_print_scene_graph(struct weston_compositor *ec);
+weston_compositor_print_scene_graph(struct weston_compositor *ec,
+				    bool group_by_output);
 
 void
 weston_compositor_read_presentation_clock(

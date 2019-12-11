@@ -7154,7 +7154,8 @@ debug_scene_view_print_tree(struct weston_view *view,
  * \ingroup compositor
  */
 WL_EXPORT char *
-weston_compositor_print_scene_graph(struct weston_compositor *ec)
+weston_compositor_print_scene_graph(struct weston_compositor *ec,
+				    bool group_by_output)
 {
 	struct weston_output *output;
 	struct weston_layer *layer;
@@ -7175,6 +7176,8 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 	wl_list_for_each(output, &ec->output_list, link) {
 		struct weston_head *head;
 		int head_idx = 0;
+		if (group_by_output)
+			layer_idx = 0;
 
 		fprintf(fp, "Output %d (%s):\n", output->id, output->name);
 		assert(output->enabled);
@@ -7201,33 +7204,73 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 				head_idx++, head->name,
 				(head->connected) ? "" : "not ");
 		}
+
+		if (group_by_output) {
+			fprintf(fp, "\n");
+
+			wl_list_for_each(layer, &ec->layer_list, link) {
+				struct weston_view *view;
+				int view_idx = 0;
+				bool skipped_view = false;
+
+				fprintf(fp, "Layer %d (pos 0x%lx):\n", layer_idx++,
+					(unsigned long) layer->position);
+
+				if (!weston_layer_mask_is_infinite(layer)) {
+					fprintf(fp, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
+						layer->mask.x1, layer->mask.y1,
+						layer->mask.x2, layer->mask.y2);
+				}
+
+				wl_list_for_each(view,
+						 &layer->view_list.link,
+						 layer_link.link) {
+					if (!weston_view_on_output(view, output)) {
+						skipped_view = true;
+						continue;
+					}
+					debug_scene_view_print_tree(view, fp, &view_idx);
+					view_idx++;
+				}
+
+				if (wl_list_empty(&layer->view_list.link))
+					fprintf(fp, "\t[no views]\n");
+				else if (skipped_view)
+					fprintf(fp, "\t[other views present but not "
+							"on %s]\n", output->name);
+
+				fprintf(fp, "\n");
+			}
+		}
+	}
+
+	if (!group_by_output) {
+		wl_list_for_each(layer, &ec->layer_list, link) {
+			struct weston_view *view;
+			int view_idx = 0;
+
+			fprintf(fp, "Layer %d (pos 0x%lx):\n", layer_idx++,
+				(unsigned long) layer->position);
+
+			if (!weston_layer_mask_is_infinite(layer)) {
+				fprintf(fp, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
+					layer->mask.x1, layer->mask.y1,
+					layer->mask.x2, layer->mask.y2);
+			}
+
+			wl_list_for_each(view, &layer->view_list.link, layer_link.link) {
+				debug_scene_view_print_tree(view, fp, &view_idx);
+				view_idx++;
+			}
+
+			if (wl_list_empty(&layer->view_list.link))
+				fprintf(fp, "\t[no views]\n");
+
+			fprintf(fp, "\n");
+		}
 	}
 
 	fprintf(fp, "\n");
-
-	wl_list_for_each(layer, &ec->layer_list, link) {
-		struct weston_view *view;
-		int view_idx = 0;
-
-		fprintf(fp, "Layer %d (pos 0x%lx):\n", layer_idx++,
-			(unsigned long) layer->position);
-
-		if (!weston_layer_mask_is_infinite(layer)) {
-			fprintf(fp, "\t[mask: (%d, %d) -> (%d,%d)]\n\n",
-				layer->mask.x1, layer->mask.y1,
-				layer->mask.x2, layer->mask.y2);
-		}
-
-		wl_list_for_each(view, &layer->view_list.link, layer_link.link) {
-			debug_scene_view_print_tree(view, fp, &view_idx);
-			view_idx++;
-		}
-
-		if (wl_list_empty(&layer->view_list.link))
-			fprintf(fp, "\t[no views]\n");
-
-		fprintf(fp, "\n");
-	}
 
 	err = fclose(fp);
 	assert(err == 0);
@@ -7244,12 +7287,24 @@ static void
 debug_scene_graph_cb(struct weston_log_subscription *sub, void *data)
 {
 	struct weston_compositor *ec = data;
-	char *str = weston_compositor_print_scene_graph(ec);
+	char *str = weston_compositor_print_scene_graph(ec, false);
 
 	weston_log_subscription_printf(sub, "%s", str);
 	free(str);
 	weston_log_subscription_complete(sub);
 }
+
+static void
+debug_scene_graph_cb_by_output(struct weston_log_subscription *sub, void *data)
+{
+	struct weston_compositor *ec = data;
+	char *str = weston_compositor_print_scene_graph(ec, true);
+
+	weston_log_subscription_printf(sub, "%s", str);
+	free(str);
+	weston_log_subscription_complete(sub);
+}
+
 
 /** Create the compositor.
  *
@@ -7372,6 +7427,13 @@ weston_compositor_create(struct wl_display *display,
 		weston_compositor_add_log_scope(ec->weston_log_ctx, "scene-graph",
 						"Scene graph details\n",
 						debug_scene_graph_cb, NULL,
+						ec);
+
+	ec->debug_scene_by_output =
+		weston_compositor_add_log_scope(ec->weston_log_ctx,
+						"scene-graph-by-output",
+						"Scene graph details\n",
+						debug_scene_graph_cb_by_output, NULL,
 						ec);
 
 	ec->timeline =
@@ -7749,6 +7811,9 @@ weston_compositor_tear_down(struct weston_compositor *compositor)
 
 	weston_compositor_log_scope_destroy(compositor->debug_scene);
 	compositor->debug_scene = NULL;
+
+	weston_compositor_log_scope_destroy(compositor->debug_scene_by_output);
+	compositor->debug_scene_by_output = NULL;
 
 	weston_compositor_log_scope_destroy(compositor->timeline);
 	compositor->timeline = NULL;
