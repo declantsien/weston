@@ -681,6 +681,9 @@ struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 		   bool is_opaque, enum drm_fb_type type);
 
+const char *
+weston_view_get_reason_for_compositing(struct weston_view *ev);
+
 #ifdef BUILD_DRM_GBM
 extern struct drm_fb *
 drm_fb_get_from_view(struct drm_output_state *state, struct weston_view *ev);
@@ -791,6 +794,7 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage);
 void
 renderer_switch_binding(struct weston_keyboard *keyboard,
 			const struct timespec *time, uint32_t key, void *data);
+
 #else
 inline static int
 init_egl(struct drm_backend *b)

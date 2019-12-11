@@ -1732,6 +1732,8 @@ drm_output_enable(struct weston_output *base)
 	output->base.set_dpms = drm_set_dpms;
 	output->base.switch_mode = drm_output_switch_mode;
 	output->base.set_gamma = drm_output_set_gamma;
+	output->base.get_reason_for_compositing =
+		weston_view_get_reason_for_compositing;
 
 	if (output->cursor_plane)
 		weston_compositor_stack_plane(b->compositor,

@@ -47,10 +47,71 @@ enum drm_output_propose_state_mode {
 	DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY, /**< no renderer use, only planes */
 };
 
+enum weston_view_reason_for_compositing {
+	VIEW_REASON_HW_PLANE, 	/**< actually on a plane */
+	/* view is skipped */
+	VIEW_REASON_TOTALLY_OCCLUDED,
+
+	/* general reasons, which we know we force thru the renderer */
+	VIEW_REASON_ON_MULTIPLE_OUTPUTS,
+	VIEW_REASON_INVALID_BUFFER,
+	VIEW_REASON_OCCLUDED_BY_RENDERER_VIEWS,
+	VIEW_REASON_PROTECTION_MODE_ENFORCED,
+
+	/* candidate reasons */
+	VIEW_REASON_INVALID_MODE,       /* DRM_OUTPUT_PROPOSE_STATE_RENDERER_ONLY */
+	VIEW_REASON_INVALID_FORMAT,
+	VIEW_REASON_NO_MORE_PLANES,
+
+	/* try reason */
+	VIEW_REASON_INVALID_FB,
+	VIEW_REASON_CURSOR_ARE_BROKEN,
+	VIEW_REASON_CURSOR_UNSUITABLE_TRANSFORM,
+	VIEW_REASON_CURSOR_REQUIRES_CROP_OR_SCALE,      /* scale for HiDPI */
+	VIEW_REASON_OVERLAY_NOT_SUITABLE,
+	VIEW_REASON_OVERLAY_UNSUITABLE_TRANSFORM,
+	VIEW_REASON_OVERLAY_NO_FENCE_SUPPORT,
+	VIEW_REASON_OVERLAY_KERNEL_TEST_FAILED,
+	VIEW_REASON_PRIMARY_INVALID_MODE,
+	VIEW_REASON_PRIMARY_INVALID_SIZE,
+	VIEW_REASON_PRIMARY_NO_FENCE_SUPPORT,
+	VIEW_REASON_PRIMARY_UNSUITABLE_TRANSFORM,
+
+	VIEW_REASON_ON_RENDERER,	/**< failed to place it on plane,
+					but none of the above reasons happened */
+};
+
 static const char *const drm_output_propose_state_mode_as_string[] = {
 	[DRM_OUTPUT_PROPOSE_STATE_MIXED] = "mixed state",
 	[DRM_OUTPUT_PROPOSE_STATE_RENDERER_ONLY] = "render-only state",
 	[DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY]	= "plane-only state"
+};
+
+static const char *const weston_view_reason_for_comp_as_string[] = {
+	[VIEW_REASON_HW_PLANE] = NULL,
+
+	[VIEW_REASON_TOTALLY_OCCLUDED] = "totally occluded",
+	[VIEW_REASON_ON_MULTIPLE_OUTPUTS] = "on multiple outputs",
+	[VIEW_REASON_INVALID_BUFFER] =  "invalid buffer",
+	[VIEW_REASON_OCCLUDED_BY_RENDERER_VIEWS] =  "occluded by other renderer views",
+	[VIEW_REASON_PROTECTION_MODE_ENFORCED] = "protection mode enforced",
+	[VIEW_REASON_INVALID_MODE] =  "invalid mode",
+	[VIEW_REASON_INVALID_FORMAT] = "invalid format",
+	[VIEW_REASON_NO_MORE_PLANES] = "no more planes",
+	[VIEW_REASON_INVALID_FB] = "could not get fb",
+	[VIEW_REASON_CURSOR_ARE_BROKEN] = "cursors are broken",
+	[VIEW_REASON_CURSOR_UNSUITABLE_TRANSFORM] = "cursor unsuitable transform",
+	[VIEW_REASON_CURSOR_REQUIRES_CROP_OR_SCALE] =  "cursor requires crop/scale",
+	[VIEW_REASON_OVERLAY_NOT_SUITABLE] = "overlay not suitable",
+	[VIEW_REASON_OVERLAY_UNSUITABLE_TRANSFORM] = "overlay unsuitable transform",
+	[VIEW_REASON_OVERLAY_NO_FENCE_SUPPORT] = "overlay no fence support",
+	[VIEW_REASON_OVERLAY_KERNEL_TEST_FAILED] = "overlay kernel test failed",
+	[VIEW_REASON_PRIMARY_INVALID_MODE] = "can't use primary due to invalid mode",
+	[VIEW_REASON_PRIMARY_INVALID_SIZE] = "can't use primary due to invalid size",
+	[VIEW_REASON_PRIMARY_NO_FENCE_SUPPORT] = "primary no fence support",
+	[VIEW_REASON_PRIMARY_UNSUITABLE_TRANSFORM] = "primary unsuitable transform",
+
+	[VIEW_REASON_ON_RENDERER] = "renderer"
 };
 
 static const char *
@@ -60,6 +121,19 @@ drm_propose_state_mode_to_string(enum drm_output_propose_state_mode mode)
 		return " unknown compositing mode";
 
 	return drm_output_propose_state_mode_as_string[mode];
+}
+
+const char *
+weston_view_get_reason_for_compositing(struct weston_view *ev)
+{
+	enum weston_view_reason_for_compositing reason =
+		ev->reason_for_compositing;
+
+	if (reason < 0 ||
+	    reason >= ARRAY_LENGTH(weston_view_reason_for_comp_as_string))
+		return " unknown reason";
+
+	return weston_view_reason_for_comp_as_string[reason];
 }
 
 static void
