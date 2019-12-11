@@ -268,6 +268,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 	if (!fb) {
 		drm_debug(b, "\t\t\t\t[overlay] not placing view %p on overlay: "
 			     " couldn't get fb\n", ev);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_INVALID_FB);
 		return NULL;
 	}
 
@@ -283,6 +285,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 			     "unsuitable transform\n", ev);
 		drm_plane_state_put_back(state);
 		state = NULL;
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_OVERLAY_UNSUITABLE_TRANSFORM);
 		goto out;
 	}
 
@@ -295,6 +299,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 			     "no in-fence support\n", ev);
 		drm_plane_state_put_back(state);
 		state = NULL;
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_OVERLAY_NO_FENCE_SUPPORT);
 		goto out;
 	}
 
@@ -325,6 +331,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 	drm_debug(b, "\t\t\t[overlay] not placing view %p on overlay %lu "
 		     "in mixed mode: kernel test failed\n",
 		  ev, (unsigned long) plane->plane_id);
+	weston_view_set_reason_for_compositing(ev,
+				VIEW_REASON_OVERLAY_KERNEL_TEST_FAILED);
 
 	drm_plane_state_put_back(state);
 	state = NULL;
@@ -409,6 +417,8 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 	if (!drm_plane_state_coords_for_view(plane_state, ev, zpos)) {
 		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
 			     "unsuitable transform\n", p_name, ev, p_name);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_CURSOR_UNSUITABLE_TRANSFORM);
 		goto err;
 	}
 
@@ -420,6 +430,8 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 		drm_debug(b, "\t\t\t\t[%s] not assigning view %p to %s plane "
 			     "(positioning requires cropping or scaling)\n",
 			     p_name, ev, p_name);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_CURSOR_REQUIRES_CROP_OR_SCALE);
 		goto err;
 	}
 
@@ -498,6 +510,8 @@ drm_output_prepare_scanout_view(struct drm_output_state *output_state,
 		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
 			     " view does not match output entirely\n",
 			     p_name, ev, p_name);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_PRIMARY_INVALID_SIZE);
 		return NULL;
 	}
 
@@ -507,12 +521,16 @@ drm_output_prepare_scanout_view(struct drm_output_state *output_state,
 	    scanout_plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
 		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
 			     "no in-fence support\n", p_name, ev, p_name);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_PRIMARY_NO_FENCE_SUPPORT);
 		return NULL;
 	}
 
 	if (!fb) {
 		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
 			     " couldn't get fb\n", p_name, ev, p_name);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_INVALID_FB);
 		return NULL;
 	}
 
@@ -532,6 +550,8 @@ drm_output_prepare_scanout_view(struct drm_output_state *output_state,
 	if (!drm_plane_state_coords_for_view(state, ev, zpos)) {
 		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
 			     "unsuitable transform\n", p_name, ev, p_name);
+		weston_view_set_reason_for_compositing(ev,
+					VIEW_REASON_PRIMARY_UNSUITABLE_TRANSFORM);
 		goto err;
 	}
 
@@ -604,6 +624,8 @@ drm_output_try_view_on_plane(struct drm_plane *plane,
 	case WDRM_PLANE_TYPE_CURSOR:
 		if (b->cursors_are_broken) {
 			availability = NO_PLANES_ACCEPTED;
+			weston_view_set_reason_for_compositing(ev,
+						VIEW_REASON_CURSOR_ARE_BROKEN);
 			goto out;
 		}
 
@@ -623,6 +645,8 @@ drm_output_try_view_on_plane(struct drm_plane *plane,
 
 		if (view_matches_entire_output && !scanout_has_view_assigned) {
 			availability = NO_PLANES_ACCEPTED;
+			weston_view_set_reason_for_compositing(ev,
+						VIEW_REASON_OVERLAY_NOT_SUITABLE);
 			goto out;
 		}
 
@@ -634,6 +658,8 @@ drm_output_try_view_on_plane(struct drm_plane *plane,
 	case WDRM_PLANE_TYPE_PRIMARY:
 		if (mode != DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY) {
 			availability = NO_PLANES_ACCEPTED;
+			weston_view_set_reason_for_compositing(ev,
+						VIEW_REASON_PRIMARY_INVALID_MODE);
 			goto out;
 		}
 
@@ -787,6 +813,8 @@ drm_output_prepare_plane_view(struct drm_output_state *state,
 			drm_debug(b, "\t\t\t\t[plane] not adding plane %d to "
 				     "candidate list: invalid pixel format\n",
 				     plane->plane_id);
+			weston_view_set_reason_for_compositing(ev,
+						VIEW_REASON_INVALID_FORMAT);
 			continue;
 		}
 
@@ -942,12 +970,16 @@ drm_output_propose_state(struct weston_output *output_base,
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
 			             "(on multiple outputs)\n", ev);
 			force_renderer = true;
+			weston_view_set_reason_for_compositing(ev,
+							VIEW_REASON_ON_MULTIPLE_OUTPUTS);
 		}
 
 		if (!weston_view_has_valid_buffer(ev)) {
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
 			             "(no buffer available)\n", ev);
 			force_renderer = true;
+			weston_view_set_reason_for_compositing(ev,
+							VIEW_REASON_INVALID_BUFFER);
 		}
 
 		/* Ignore views we know to be totally occluded. */
@@ -968,6 +1000,8 @@ drm_output_propose_state(struct weston_output *output_base,
 			             "(occluded on our output)\n", ev);
 			pixman_region32_fini(&surface_overlap);
 			pixman_region32_fini(&clipped_view);
+			weston_view_set_reason_for_compositing(ev,
+							VIEW_REASON_TOTALLY_OCCLUDED);
 			continue;
 		}
 
@@ -980,6 +1014,8 @@ drm_output_propose_state(struct weston_output *output_base,
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
 			             "(occluded by renderer views)\n", ev);
 			force_renderer = true;
+			weston_view_set_reason_for_compositing(ev,
+							VIEW_REASON_OCCLUDED_BY_RENDERER_VIEWS);
 		}
 		pixman_region32_fini(&surface_overlap);
 
@@ -991,6 +1027,8 @@ drm_output_propose_state(struct weston_output *output_base,
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
 				     "(enforced protection mode on unsecured output)\n", ev);
 			force_renderer = true;
+			weston_view_set_reason_for_compositing(ev,
+							VIEW_REASON_PROTECTION_MODE_ENFORCED);
 		}
 
 		if (!force_renderer) {
@@ -1005,6 +1043,11 @@ drm_output_propose_state(struct weston_output *output_base,
 			current_lowest_zpos = ps->zpos;
 			drm_debug(b, "\t\t\t[plane] next zpos to use %"PRIu64"\n",
 				      current_lowest_zpos);
+
+			/* the following is necessary as we might have stale
+			 * reason from candidate list */
+			weston_view_set_reason_for_compositing(ev,
+						VIEW_REASON_HW_PLANE);
 
 			/* If we have been assigned to an overlay or scanout
 			 * plane, add this area to the occluded region, so
@@ -1062,6 +1105,14 @@ drm_output_propose_state(struct weston_output *output_base,
 
 		drm_debug(b, "\t\t\t\t[view] view %p will be placed "
 			     "on the renderer\n", ev);
+
+		/* only set it if wasn't already set previously: we reach here
+		 * if force_renderer wasn't set and we haven't been able to
+		 * place the view in a plane; (re)-setting here indiscriminately
+		 * would cause different values at different point in time */
+		if (ev->reason_for_compositing == VIEW_REASON_HW_PLANE)
+			weston_view_set_reason_for_compositing(ev,
+						VIEW_REASON_ON_RENDERER);
 	}
 
 	pixman_region32_fini(&renderer_region);
