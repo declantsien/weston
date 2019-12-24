@@ -3016,6 +3016,45 @@ transmitter_backend_output_configure(struct weston_output *output)
 	return 0;
 }
 
+static char *
+transmitter_create_output_name(char *addr, char *port, int name)
+{
+	char *str;
+
+	if (asprintf(&str, "transmitter-%s:%s-%d", addr, port,
+		     name) < 0)
+		return NULL;
+	return str;
+}
+
+static int
+transmitter_get_server_config(struct weston_config_section *section,
+			      struct weston_compositor *c)
+{
+	char *model = NULL;
+	char *addr = NULL;
+	char *port = NULL;
+	int width = 0;
+	int height = 0;
+	char *str = NULL;
+	int ret;
+	const struct weston_transmitter_output_api *api =
+				weston_transmitter_output_get_api(c);
+
+	weston_config_section_get_string(section, "output-name", &model, 0);
+	weston_config_section_get_string(section, "server-address", &addr, 0);
+	weston_config_section_get_string(section, "port", &port, 0);
+	weston_config_section_get_int(section, "width", &width, 0);
+	weston_config_section_get_int(section, "height", &height, 0);
+	ret = api->create_remote(model, addr, port, &width, &height, c);
+	if (ret < 0)
+		weston_log("Fatal: Transmitter create_remote failed.\n");
+
+	str = transmitter_create_output_name(addr, port, 1);
+	ret = api->create_head(c, str);
+	return ret;
+}
+
 static int
 load_transmitter_backend(struct weston_compositor *c,
 			 int *argc, char **argv, struct weston_config *wc)
@@ -3024,6 +3063,8 @@ load_transmitter_backend(struct weston_compositor *c,
 	struct weston_config_section *section;
 	int ret = 0;
 	const char *name = NULL;
+	const struct weston_transmitter_api *trans_api;
+	struct weston_transmitter *txr;
 
 	section = weston_config_get_section(wc, "core", NULL, NULL);
 
@@ -3034,23 +3075,6 @@ load_transmitter_backend(struct weston_compositor *c,
 	};
 
 	parse_options(options, ARRAY_LENGTH(options), argc, argv);
-
-	section=NULL;
-		while (weston_config_next_section(wc, &section, &name)) {
-			if (0 == strcmp(name, "transmitter-output")) {
-				weston_config_section_get_string(section, "output-name",
-								 &config.model, 0);
-				weston_config_section_get_string(section, "server-address",
-								 &config.addr, 0);
-				weston_config_section_get_string(section, "port",
-								 &config.port, 0);
-				weston_config_section_get_string(section, "width",
-								 &config.width, 0);
-				weston_config_section_get_string(section, "height",
-								 &config.height, 0);
-
-			}
-		}
 	config.base.struct_version = WESTON_TRANSMITTER_BACKEND_CONFIG_VERSION;
 	config.base.struct_size = sizeof(struct weston_transmitter_backend_config);
 	config.configure_device = configure_input_device;
@@ -3058,6 +3082,16 @@ load_transmitter_backend(struct weston_compositor *c,
 	wet_set_simple_head_configurator(c, transmitter_backend_output_configure);
 	ret = weston_compositor_load_backend(c, WESTON_BACKEND_TRANSMITTER,
 					     &config.base);
+
+	section = NULL;
+	while (weston_config_next_section(wc, &section, &name)) {
+		if (0 == strcmp(name, "transmitter-output"))
+			ret=transmitter_get_server_config(section, c);
+		}
+
+	trans_api = weston_get_transmitter_api(c);
+	txr = trans_api->transmitter_get(c);
+	trans_api->connect_to_remote(txr);
 	free(config.seat_id);
 
 	return ret;

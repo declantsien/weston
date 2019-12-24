@@ -93,7 +93,7 @@ struct transmitter_backend {
 	bool state_invalid;
 	struct udev_input input;
 	bool fb_modifiers;
-	struct weston_transmitter_remote *remote;
+	struct weston_transmitter *txr;
 	struct wl_list plane_list;
 };
 

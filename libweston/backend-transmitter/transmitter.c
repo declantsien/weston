@@ -219,6 +219,7 @@ transmitter_output_repaint(struct weston_output *output_base,
 	struct weston_compositor *compositor = output_base->compositor;
 	struct weston_view *view;
 	bool found_output = false;
+	uint32_t ivi_id;
 
 	if (wl_list_empty(&compositor->view_list))
 		goto out;
@@ -265,16 +266,16 @@ transmitter_output_repaint(struct weston_output *output_base,
 			if (!found_surface) {
 				txs = transmitter_api_impl.surface_push_to_remote(
 						view->surface, remote, NULL);
-				if(remote->count==0) {
+				if (remote->count == 0) {
 					remote->wthp_surf =
 						wthp_compositor_create_surface(remote->display->compositor);
-
+					ivi_id = rand()%1000;
 					remote->wthp_ivi_surface =
 						wthp_ivi_application_surface_create(
 						remote->display->application,
-						1000, remote->wthp_surf);
+						ivi_id, remote->wthp_surf);
 					wth_connection_flush(remote->display->connection);
-					weston_log("surface ID %d\n", 1000);
+					weston_log("surface ID %d\n", ivi_id);
 
 					if (!(remote->wthp_surf) || !(remote->wthp_ivi_surface))
 						weston_log("Failed to create txs->ivi_surf\n");
@@ -762,7 +763,7 @@ transmitter_output_destroy(struct weston_output *base)
 {
 	struct transmitter_output *output = to_transmitter_output(base);
 
-	if(output->remote->wthp_surf && output->remote->wthp_ivi_surface) {
+	if (output->remote->wthp_surf && output->remote->wthp_ivi_surface) {
 		weston_log("Destroying wthp_surface and wthp_ivi_surface\n");
 		wthp_surface_destroy(output->remote->wthp_surf);
 		wthp_ivi_surface_destroy(output->remote->wthp_ivi_surface);
@@ -799,12 +800,17 @@ transmitter_output_create(struct weston_compositor *compositor,
 			  const char *name)
 {
 	struct transmitter_backend *b = to_transmitter_backend(compositor);
-	struct weston_transmitter *txr = b->remote->transmitter;
+	struct weston_transmitter *txr = b->txr;
 	struct transmitter_output *output;
+	struct weston_transmitter_remote *remote, *r = NULL;
+
 	output = zalloc(sizeof *output);
 	if (output == NULL)
 		return NULL;
-
+	wl_list_for_each_reverse(remote, &txr->remote_list, link) {
+		if (strstr(name,remote->port))
+			 r = remote;
+	}
 	output->backend = b;
 	output->parent.draw_initial_frame = true;
 	weston_output_init(&output->base, compositor, name);
@@ -813,11 +819,11 @@ transmitter_output_create(struct weston_compositor *compositor,
 	output->base.disable = NULL;
 	output->base.attach_head = transmitter_output_attach_head;
 	output->base.detach_head = transmitter_output_detach_head;
-	output->remote = b->remote;
+	output->remote = r;
 	output->gbm_bo_flags = GBM_BO_USE_LINEAR | GBM_BO_USE_RENDERING;
 	output->gbm_format = b->gbm_format;
 	wl_list_init(&output->link);
-	wl_list_insert(&b->remote->output_list, &output->link);
+	wl_list_insert(&r->output_list, &output->link);
 	if (txr->waltham_renderer->display_create(output) < 0) {
 		weston_log("Failed to create waltham renderer display \n");
 		return NULL;
@@ -825,35 +831,13 @@ transmitter_output_create(struct weston_compositor *compositor,
 	return &output->base;
 }
 
-static char *
-make_model(struct weston_transmitter_remote *remote, int name)
-{
-	char *str;
-
-	if (asprintf(&str, "transmitter-%s:%s-%d", remote->addr, remote->port,
-		     name) < 0)
-		return NULL;
-	return str;
-}
-
-static int transmitter_head_create(struct transmitter_backend *b,
+static int transmitter_head_create(struct weston_compositor *compositor,
 				   const char *name)
 {
-	drmModeRes *resources;
-	resources = drmModeGetResources(b->drm.fd);
-	if (!resources) {
-		weston_log("drmModeGetResources failed\n");
-		return -1;
-	}
-	b->min_width = resources->min_width;	//0
-	b->max_width = resources->max_width;	//4096
-	b->min_height = resources->min_height;	//0
-	b->max_height = resources->max_height;	//2160
 	assert(name);
 	struct transmitter_head *head;
-	struct weston_transmitter_remote *remote = b->remote;
 	const char *make = strdup(WESTON_TRANSMITTER_OUTPUT_MAKE);
-	const char *model = make_model(remote, 1);
+	const char *model = name;
 	const char *serial_number = strdup("0");
 	head = zalloc(sizeof *head);
 	if (!head) {
@@ -865,8 +849,8 @@ static int transmitter_head_create(struct transmitter_backend *b,
 	weston_head_set_monitor_strings(&head->base, make, model,
 					serial_number);
 	head->base.connected = true;
-	weston_compositor_add_head(b->compositor, &head->base);
-	head->base.compositor = remote->transmitter->compositor;
+	weston_compositor_add_head(compositor, &head->base);
+	head->base.compositor = compositor;
 	return 0;
 }
 
@@ -1081,9 +1065,48 @@ open_specific_drm_device(struct transmitter_backend *b, const char *name)
 	return device;
 }
 
+static void
+conn_ready_notify(struct wl_listener *l, void *data)
+{
+	struct weston_transmitter_remote *remote =
+	  wl_container_of(l, remote, establish_listener);
+	transmitter_remote_create_seat(remote);
+}
+
+static int
+transmitter_create_remote(char *model, char *addr, char *port, int *width,
+			  int *height, struct weston_compositor *c)
+{
+	struct transmitter_backend *b = to_transmitter_backend(c);
+	struct weston_transmitter *txr = b->txr;
+	struct weston_transmitter_remote *remote;
+
+	remote = zalloc(sizeof (*remote));
+	if (!remote)
+		return -1;
+	remote->transmitter = txr;
+	wl_list_insert(&txr->remote_list, &remote->link);
+	remote->model = strdup(model);
+	remote->addr = strdup(addr);
+	remote->port = strdup(port);
+	remote->width = width;
+	remote->height = height;
+	remote->status = WESTON_TRANSMITTER_CONNECTION_INITIALIZING;
+	wl_signal_init(&remote->connection_status_signal);
+	wl_list_init(&remote->output_list);
+	wl_list_init(&remote->surface_list);
+	wl_list_init(&remote->seat_list);
+	wl_signal_init(&remote->conn_establish_signal);
+	remote->establish_listener.notify = conn_ready_notify;
+	wl_signal_add(&remote->conn_establish_signal, &remote->establish_listener);
+	return 0;
+}
+
 static const struct weston_transmitter_output_api api = {
 	transmitter_output_set_seat,
 	transmitter_output_set_size,
+	transmitter_head_create,
+	transmitter_create_remote,
 };
 
 /* Send configure event through ivi-shell.
@@ -1651,7 +1674,7 @@ transmitter_remote_destroy(struct weston_transmitter_remote *remote)
 
 	free(remote->addr);
 	wl_list_remove(&remote->link);
-	if(remote->source)
+	if (remote->source)
 		wl_event_source_remove(remote->source);
 
 	free(remote);
@@ -1689,18 +1712,9 @@ transmitter_compositor_destroyed(struct wl_listener *listener, void *data)
 static struct weston_transmitter *
 transmitter_get(struct weston_compositor *compositor)
 {
-	struct wl_listener *listener;
-	struct weston_transmitter *txr;
+	struct transmitter_backend *b = to_transmitter_backend(compositor);
 
-	listener = wl_signal_get(&compositor->destroy_signal,
-				 transmitter_compositor_destroyed);
-	if (!listener)
-		return NULL;
-
-	txr = wl_container_of(listener, txr, compositor_destroy_listener);
-	assert(compositor == txr->compositor);
-
-	return txr;
+	return b->txr;
 }
 
 static void
@@ -1752,17 +1766,8 @@ static const struct weston_transmitter_ivi_api transmitter_ivi_api_impl = {
 	transmitter_surface_set_resize_callback,
 };
 
-static void
-conn_ready_notify(struct wl_listener *l, void *data)
-{
-	struct weston_transmitter_remote *remote =
-	  wl_container_of(l, remote, establish_listener);
-	transmitter_remote_create_seat(remote);
-}
-
 int init_trans_api(struct weston_compositor *compositor,
 		   struct wl_event_loop *loop,
-		   struct weston_transmitter_remote *remote,
 		   struct transmitter_backend *b)
 {
 	struct weston_transmitter *txr;
@@ -1803,19 +1808,7 @@ int init_trans_api(struct weston_compositor *compositor,
 		weston_log("Failed to load waltham-renderer \n");
 		goto fail;
 	}
-	remote->transmitter = txr;
-	wl_list_insert(&txr->remote_list, &remote->link);
-	remote->status = WESTON_TRANSMITTER_CONNECTION_INITIALIZING;
-	wl_signal_init(&remote->connection_status_signal);
-	wl_list_init(&remote->output_list);
-	wl_list_init(&remote->surface_list);
-	wl_list_init(&remote->seat_list);
-	wl_signal_init(&remote->conn_establish_signal);
-	remote->establish_listener.notify = conn_ready_notify;
-	wl_signal_add(&remote->conn_establish_signal,
-		      &remote->establish_listener);
-	b->remote = remote;
-	transmitter_api_impl.connect_to_remote(txr);
+	b->txr = txr;
 	return 0;
 fail:
 	wl_list_remove(&txr->compositor_destroy_listener.link);
@@ -1866,7 +1859,8 @@ transmitter_backend_create(struct weston_compositor *compositor,
 	const char *seat_id = default_seat;
 	const char *session_seat;
 	int ret;
-	struct weston_transmitter_remote *remote;
+	drmModeRes *resources;
+
 	session_seat = getenv("XDG_SEAT");
 	if (session_seat)
 		seat_id = session_seat;
@@ -1879,21 +1873,10 @@ transmitter_backend_create(struct weston_compositor *compositor,
 	b = zalloc(sizeof *b);
 	if (b == NULL)
 		return NULL;
-	remote = zalloc(sizeof(*remote));
-	if (!(remote)) {
-		weston_log("\n MEMORY IS NOT ALLOCATEDE\n");
-		return NULL;
-	}
 
 	b->state_invalid = true;
 	b->drm.fd = -1;
 	b->compositor = compositor;
-
-	remote->model = config->model;
-	remote->addr = config->addr;
-	remote->port = config->port;
-	remote->width = config->width;
-	remote->height = config->height;
 
 	compositor->backend = &b->base;
 	if (parse_gbm_format(config->gbm_format, DRM_FORMAT_XRGB8888,
@@ -1988,13 +1971,21 @@ transmitter_backend_create(struct weston_compositor *compositor,
 		weston_log("Failed to register output API.\n");
 		goto err_udev_monitor;
 	}
-	ret = init_trans_api(compositor, loop, remote, b);
+	ret = init_trans_api(compositor, loop, b);
 	if (ret < 0) {
 		weston_log("transmitter registration fail");
 	}
-	const char *connector_name = make_model(remote, 1);
-	if (transmitter_head_create(b, connector_name) < 0)
-		goto err_compositor;
+
+	resources = drmModeGetResources(b->drm.fd);
+	if (!resources) {
+		weston_log("drmModeGetResources failed\n");
+		return NULL;
+	}
+	b->min_width = resources->min_width;	//0
+	b->max_width = resources->max_width;	//4096
+	b->min_height = resources->min_height;	//0
+	b->max_height = resources->max_height;	//2160
+
 	return b;
 
 err_udev_monitor:

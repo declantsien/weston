@@ -45,6 +45,7 @@ struct GstAppContext {
 	GstBus *bus;
 	GstElement *pipeline;
 	GstElement *appsrc;
+	GstElement *sink;
 	GstBuffer *gstbuffer;
 };
 
@@ -162,6 +163,10 @@ gst_pipe_init(struct transmitter_output *output, struct gst_settings *settings)
 		     NULL);
 	gst_caps_unref(caps);
 
+	gstctx->sink = gst_bin_get_by_name(GST_BIN(gstctx->pipeline), "sink");
+	gchar *g_host = (gchar *)output->remote->addr;
+	gint g_port = (gint)atoi(output->remote->port);
+	g_object_set(G_OBJECT(gstctx->sink), "host", g_host, "port", g_port, NULL);
 	gst_element_set_state((GstElement*)((void*)gstctx->pipeline),
 			      GST_STATE_PLAYING);
 	output->renderer->ctx = gstctx;
@@ -174,7 +179,7 @@ static int recorder_enable(struct transmitter_output *output)
 	struct weston_transmitter_remote* remote = output->remote;
 
 	settings = malloc(sizeof(*settings));
-	if(!settings)
+	if (!settings)
 		goto err;
 	settings->ip = remote->addr;
 	settings->port = atoi(remote->port);

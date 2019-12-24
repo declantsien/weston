@@ -53,6 +53,13 @@ struct weston_transmitter_output_api {
 	 */
 	int (*output_set_size)(struct weston_output *output,
 				int width, int height);
+	/** Create new head */
+	int (*create_head)(struct weston_compositor *compositor,
+			   const char *name);
+
+	/** create new weston_transmitter_remote */
+	int (*create_remote)(char *model, char *addr, char *port, int *width,
+			     int *height, struct weston_compositor *c);
 };
 
 static inline const struct weston_transmitter_output_api *
@@ -103,13 +110,6 @@ struct weston_transmitter_backend_config {
 
 	/** Specific DRM device to open like "card0" */
 	char *specific_device;
-
-	const char *name;
-	char *model;
-	char *addr;
-	char *port;
-	char *width;
-	char *height;
 };
 
 /** See weston_transmitter_api::remote_get_status */
@@ -340,8 +340,8 @@ struct weston_transmitter_remote {
 	char *model;
 	char *addr;
 	char *port;
-	char *width;
-	char *height;
+	int *width;
+	int *height;
 
 	enum weston_transmitter_connection_status status;
 	struct wl_signal connection_status_signal;
