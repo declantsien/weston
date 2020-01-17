@@ -2616,11 +2616,11 @@ pack_color(pixman_format_code_t format, float *c)
 	}
 }
 
-static int
-gl_renderer_surface_copy_content(struct weston_surface *surface,
-				 void *target, size_t size,
-				 int src_x, int src_y,
-				 int width, int height)
+static void
+draw_texture_content(GLuint textures[], int num_textures,
+		     struct gl_shader *shader, int y_inverted,
+		     struct gl_renderer *gr, GLenum target,
+		     int32_t width, int32_t height)
 {
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
@@ -2628,18 +2628,94 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		1.0f, 1.0f,
 		0.0f, 1.0f
 	};
-	static const GLfloat projmat_normal[16] = { /* transpose */
+	static const GLfloat projmat_normal[16] = {
 		 2.0f,  0.0f, 0.0f, 0.0f,
 		 0.0f,  2.0f, 0.0f, 0.0f,
 		 0.0f,  0.0f, 1.0f, 0.0f,
 		-1.0f, -1.0f, 0.0f, 1.0f
 	};
-	static const GLfloat projmat_yinvert[16] = { /* transpose */
+	static const GLfloat projmat_yinvert[16] = {
 		 2.0f,  0.0f, 0.0f, 0.0f,
 		 0.0f, -2.0f, 0.0f, 0.0f,
 		 0.0f,  0.0f, 1.0f, 0.0f,
 		-1.0f,  1.0f, 0.0f, 1.0f
 	};
+
+	const GLfloat *proj;
+	int i;
+	glViewport(0, 0, width, height);
+	glDisable(GL_BLEND);
+	use_shader(gr, shader);
+
+	if (y_inverted)
+		proj = projmat_normal;
+	else
+		proj = projmat_yinvert;
+
+	glUniformMatrix4fv(shader->proj_uniform, 1, GL_FALSE, proj);
+	glUniform1f(shader->alpha_uniform, 1.0f);
+
+	for (i = 0; i < num_textures; i++) {
+		glUniform1i(shader->tex_uniforms[i], i);
+		glActiveTexture(GL_TEXTURE0 + i);
+		glBindTexture(target, textures[i]);
+		glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	}
+
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
+	glEnableVertexAttribArray(0);
+
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, verts);
+	glEnableVertexAttribArray(1);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(0);
+}
+
+static GLuint
+generate_texture_dmafd(struct gl_renderer *gr,
+		       struct egl_image** image,
+		       int dma_buffer_fd, int width,
+		       int height, int stride)
+{
+	GLuint texture;
+	EGLint attribute[] = {
+		EGL_WIDTH, width,
+		EGL_HEIGHT, height,
+		EGL_LINUX_DRM_FOURCC_EXT, DRM_FORMAT_ARGB8888,
+		EGL_DMA_BUF_PLANE0_FD_EXT, dma_buffer_fd,
+		EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
+		EGL_DMA_BUF_PLANE0_PITCH_EXT, stride,
+		EGL_NONE
+	};
+
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+	*image = egl_image_create(gr, EGL_LINUX_DMA_BUF_EXT, NULL, attribute);
+	if (!*image) {
+		weston_log("%s : unable to create egl-image \n", __func__);
+		glDeleteTextures(1, &texture);
+		return 0;
+	}
+
+	gr->image_target_texture_2d(GL_TEXTURE_2D, (*image)->image);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	return texture;
+}
+
+static int
+gl_renderer_surface_copy_content(struct weston_surface *surface,
+				 void *target, size_t size,
+				 int src_x, int src_y,
+				 int width, int height)
+{
 	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
 	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
 	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
@@ -2649,8 +2725,6 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	GLuint fbo;
 	GLuint tex;
 	GLenum status;
-	const GLfloat *proj;
-	int i;
 
 	gl_renderer_surface_get_content_size(surface, &cw, &ch);
 
@@ -2686,38 +2760,8 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		return -1;
 	}
 
-	glViewport(0, 0, cw, ch);
-	glDisable(GL_BLEND);
-	use_shader(gr, gs->shader);
-	if (gs->y_inverted)
-		proj = projmat_normal;
-	else
-		proj = projmat_yinvert;
-
-	glUniformMatrix4fv(gs->shader->proj_uniform, 1, GL_FALSE, proj);
-	glUniform1f(gs->shader->alpha_uniform, 1.0f);
-
-	for (i = 0; i < gs->num_textures; i++) {
-		glUniform1i(gs->shader->tex_uniforms[i], i);
-
-		glActiveTexture(GL_TEXTURE0 + i);
-		glBindTexture(gs->target, gs->textures[i]);
-		glTexParameteri(gs->target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(gs->target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	}
-
-	/* position: */
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	glEnableVertexAttribArray(0);
-
-	/* texcoord: */
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	glEnableVertexAttribArray(1);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-	glDisableVertexAttribArray(1);
-	glDisableVertexAttribArray(0);
+	draw_texture_content(gs->textures, gs->num_textures, gs->shader,
+			     gs->y_inverted, gr, gs->target, cw, ch);
 
 	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
 	glReadPixels(src_x, src_y, width, height, gl_format,
@@ -2725,6 +2769,166 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteTextures(1, &tex);
+
+	return 0;
+}
+
+static int
+gl_renderer_surface_copy_content_dmafd(struct weston_surface *surface,
+				       int dma_fd, int width,
+				       int height, int stride,
+				       uint format)
+{
+	struct gl_renderer *gr = get_renderer(surface->compositor);
+	struct gl_surface_state *gs = get_surface_state(surface);
+	struct egl_image* image = NULL;
+	GLuint fbo;
+	GLuint texture;
+	GLenum status;
+
+	if (format != DRM_FORMAT_ARGB8888) {
+		weston_log("%s: drm format %d is not supported\n",
+			   __func__, format);
+		return -1;
+	}
+
+	switch (gs->buffer_type) {
+		case BUFFER_TYPE_NULL:
+			weston_log("%s: surface buffer_type not "
+				   "supported", __func__);
+			return -1;
+		case BUFFER_TYPE_SOLID:
+			break;
+		case BUFFER_TYPE_SHM:
+			gl_renderer_flush_damage(surface);
+		case BUFFER_TYPE_EGL:
+			break;
+	}
+
+        if (gr->has_dmabuf_import != 1) {
+                weston_log("%s: platform doesn't support egl image "
+                           "creation from dma fd\n", __func__);
+                return -1;
+        }
+
+	texture = generate_texture_dmafd(gr, &image, dma_fd, width,
+					 height, stride);
+	if (!texture) {
+		weston_log("%s: unable to generate texture\n",
+			   __func__);
+		return -1;
+	}
+
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			       GL_TEXTURE_2D, texture, 0);
+
+	status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE) {
+		weston_log("%s: fbo error: %#x\n", __func__,
+			status);
+		glDeleteFramebuffers(1, &fbo);
+		glDeleteTextures(1, &texture);
+		egl_image_unref(image);
+		return -1;
+	}
+
+	draw_texture_content(gs->textures, gs->num_textures,
+			     gs->shader, gs->y_inverted, gr,
+			     gs->target, width, height);
+
+	glFinish();
+
+	glDeleteFramebuffers(1, &fbo);
+	glDeleteTextures(1, &texture);
+	egl_image_unref(image);
+
+	return 0;
+}
+
+static int
+gl_renderer_output_copy_content_dmafd(struct weston_output *output,
+				      int src_fd, int src_width,
+				      int src_height, int src_stride,
+				      uint src_format, int tgt_fd,
+				      int tgt_width, int tgt_height,
+				      int tgt_stride, uint tgt_format)
+{
+	struct gl_renderer *gr = get_renderer(output->compositor);
+	struct gl_shader* shader;
+	struct egl_image* images[2] = {NULL, NULL};
+	GLuint fbo;
+	GLuint textures[2];
+	GLenum status;
+
+	if (gr->has_dmabuf_import != 1) {
+		weston_log("%s: platform doesn't support egl image "
+			   "creation from dma fd \n", __func__);
+		return -1;
+	}
+
+        if (tgt_format != DRM_FORMAT_ARGB8888) {
+                weston_log("%s: drm format %d is not supported\n",
+                           __func__, tgt_format);
+                return -1;
+        }
+
+	switch (src_format) {
+		case DRM_FORMAT_ARGB8888:
+			shader = &gr->texture_shader_rgba;
+			break;
+		case DRM_FORMAT_XRGB8888:
+		case DRM_FORMAT_RGB565:
+			shader = &gr->texture_shader_rgbx;
+			break;
+		default:
+			weston_log("%s: drm output gbm format %d not "
+				   "supported\n", __func__, src_format);
+			return -1;
+	}
+
+	textures[0] = generate_texture_dmafd(gr, &images[0], src_fd, src_width,
+					     src_height, src_stride);
+	if (!textures[0]) {
+		weston_log("%s: unable to generate texture \n", __func__);
+		return -1;
+	}
+
+	textures[1] = generate_texture_dmafd(gr, &images[1], tgt_fd, tgt_width,
+					     tgt_height, tgt_stride);
+	if (!textures[1]) {
+		weston_log("%s: unable to generate texture \n", __func__);
+		return -1;
+	}
+
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+			       GL_TEXTURE_2D, textures[1], 0);
+
+	status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE) {
+		weston_log("%s: fbo error: %#x\n", __func__, status);
+		glDeleteFramebuffers(1, &fbo);
+		for (int i = 0; i < 2; i++) {
+			glDeleteTextures(1, &textures[i]);
+			egl_image_unref(images[i]);
+		}
+		return -1;
+	}
+
+	draw_texture_content(&textures[0], 1, shader, 1, gr, GL_TEXTURE_2D,
+			     tgt_width, tgt_height);
+
+	glFinish();
+
+	glDeleteFramebuffers(1, &fbo);
+
+	for (int i = 0; i < 2; i++) {
+		glDeleteTextures(1, &textures[i]);
+		egl_image_unref(images[i]);
+	}
 
 	return 0;
 }
@@ -3485,6 +3689,9 @@ gl_renderer_display_create(struct weston_compositor *ec,
 	gr->base.surface_get_content_size =
 		gl_renderer_surface_get_content_size;
 	gr->base.surface_copy_content = gl_renderer_surface_copy_content;
+	gr->base.surface_copy_content_dmafd =
+		gl_renderer_surface_copy_content_dmafd;
+
 	gr->platform = platform;
 	gr->egl_display = NULL;
 
@@ -3833,4 +4040,5 @@ WL_EXPORT struct gl_renderer_interface gl_renderer_interface = {
 	.output_destroy = gl_renderer_output_destroy,
 	.output_set_border = gl_renderer_output_set_border,
 	.create_fence_fd = gl_renderer_create_fence_fd,
+	.output_copy_content_dmafd = gl_renderer_output_copy_content_dmafd,
 };

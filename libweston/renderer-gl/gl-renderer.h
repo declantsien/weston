@@ -202,4 +202,12 @@ struct gl_renderer_interface {
 	 * EGL_ANDROID_native_fence_sync extension.
 	 */
 	int (*create_fence_fd)(struct weston_output *output);
+
+	int (*output_copy_content_dmafd)(struct weston_output *output,
+					 int src_fd, int src_width,
+					 int src_height, int src_stride,
+					 uint src_format, int tgt_fd,
+					 int tgt_width, int tgt_height,
+					 int tgt_stride, uint tgt_format);
+
 };
