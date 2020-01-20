@@ -4264,6 +4264,41 @@ weston_surface_copy_content(struct weston_surface *surface,
 					 src_x, src_y, width, height);
 }
 
+WL_EXPORT int
+weston_surface_copy_content_dmafd(struct weston_surface *surface,
+				  int dma_fd, int width,
+				  int height, int stride,
+				  uint format)
+{
+	struct weston_renderer *rer = surface->compositor->renderer;
+
+	if (!rer->surface_copy_content_dmafd) {
+		weston_log("%s is not supported \n", __func__);
+		return -1;
+	}
+
+	return rer->surface_copy_content_dmafd(surface, dma_fd,
+				width, height, stride, format);
+}
+
+WL_EXPORT int
+weston_output_copy_content_dmafd(struct weston_output *output,
+				 int dma_fd, int width,
+				 int height, int stride,
+				 uint format)
+{
+	struct weston_compositor *compositor = output->compositor;
+
+	if(!compositor->backend->output_copy_content_dmafd) {
+		weston_log("%s is not supported \n", __func__);
+		return -1;
+	}
+
+	return compositor->backend->output_copy_content_dmafd(
+				output, dma_fd, width,
+				height, stride, format);
+}
+
 static void
 subsurface_set_position(struct wl_client *client,
 			struct wl_resource *resource, int32_t x, int32_t y)

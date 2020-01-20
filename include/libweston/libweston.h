@@ -915,6 +915,10 @@ struct weston_renderer {
 	void (*query_dmabuf_modifiers)(struct weston_compositor *ec,
 				int format, uint64_t **modifiers,
 				int *num_modifiers);
+
+        int (*surface_copy_content_dmafd)(struct weston_surface *surface,
+				int dma_fd, int width, int height,
+				int stride, uint format);
 };
 
 enum weston_capability {
@@ -1758,6 +1762,18 @@ weston_surface_copy_content(struct weston_surface *surface,
 			    void *target, size_t size,
 			    int src_x, int src_y,
 			    int width, int height);
+
+int
+weston_surface_copy_content_dmafd(struct weston_surface *surface,
+				  int dma_fd, int width,
+				  int height, int stride,
+				  uint format);
+
+int
+weston_output_copy_content_dmafd(struct weston_output *output,
+				 int dma_fd, int width,
+				 int height, int stride,
+				 uint format);
 
 struct weston_buffer *
 weston_buffer_from_resource(struct wl_resource *resource);
