@@ -107,6 +107,13 @@ struct weston_backend {
 	 */
 	bool (*can_scanout_dmabuf)(struct weston_compositor *compositor,
 				   struct linux_dmabuf_buffer *buffer);
+
+
+	int
+	(*output_copy_content_dmafd)(struct weston_output *output,
+				     int dma_fd, int width,
+				     int height, int stride,
+				     uint format);
 };
 
 /* weston_head */

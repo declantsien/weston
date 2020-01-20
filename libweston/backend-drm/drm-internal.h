@@ -791,6 +791,12 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage);
 void
 renderer_switch_binding(struct weston_keyboard *keyboard,
 			const struct timespec *time, uint32_t key, void *data);
+
+int
+drm_gbm_output_copy_content_dmafd(struct weston_output *output_base,
+                                  int dmafd, int width,
+                                  int height, int stride,
+                                  uint format);
 #else
 inline static int
 init_egl(struct drm_backend *b)
@@ -821,5 +827,15 @@ renderer_switch_binding(struct weston_keyboard *keyboard,
 			const struct timespec *time, uint32_t key, void *data)
 {
 	weston_log("Compiled without GBM/EGL support\n");
+}
+
+inline static int
+drm_gbm_output_copy_content_dmafd(struct weston_output *output_base,
+                                  int dmafd, int width,
+                                  int height, int stride,
+                                  uint format)
+{
+	weston_log("Compiled without GBM/EGL support\n");
+        return -1;
 }
 #endif

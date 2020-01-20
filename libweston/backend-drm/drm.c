@@ -2486,6 +2486,16 @@ drm_device_changed(struct weston_compositor *compositor,
 	wl_signal_emit(&compositor->session_signal, compositor);
 }
 
+static int
+drm_output_copy_content_dmafd(struct weston_output *output_base,
+			      int dma_fd, int width,
+			      int height, int stride,
+			      uint format)
+{
+	return drm_gbm_output_copy_content_dmafd(output_base, dma_fd,width,
+						 height, stride, format);
+}
+
 /**
  * Determines whether or not a device is capable of modesetting. If successful,
  * sets b->drm.fd and b->drm.filename to the opened device.
@@ -2886,6 +2896,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	b->base.create_output = drm_output_create;
 	b->base.device_changed = drm_device_changed;
 	b->base.can_scanout_dmabuf = drm_can_scanout_dmabuf;
+	b->base.output_copy_content_dmafd = drm_output_copy_content_dmafd;
 
 	weston_setup_vt_switch_bindings(compositor);
 

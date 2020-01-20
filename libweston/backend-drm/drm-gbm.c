@@ -364,3 +364,65 @@ renderer_switch_binding(struct weston_keyboard *keyboard,
 	switch_to_gl_renderer(b);
 }
 
+int
+drm_gbm_output_copy_content_dmafd(struct weston_output *output_base,
+				  int dma_fd, int width,
+				  int height, int stride,
+				  uint format)
+{
+	struct drm_backend *backend = to_drm_backend(output_base->compositor);
+	struct drm_output *output = to_drm_output(output_base);
+	struct gbm_bo *bo;
+	uint display_format;
+	int display_width, display_height, display_stride;
+	int display_buffer_fd = -1;
+	int num_planes;
+	int ret;
+
+	if (!output->gbm_surface) {
+		weston_log("%s : gbm surface is NULL\n", __func__);
+		return -1;
+	}
+
+	bo = gbm_surface_lock_front_buffer(output->gbm_surface);
+	if (!bo) {
+		weston_log("%s : failed to lock front buffer\n", __func__);
+		ret = -1;
+		goto error;
+	}
+
+	display_width = gbm_bo_get_width(bo);
+	display_height = gbm_bo_get_height(bo);
+	num_planes = gbm_bo_get_plane_count(bo);
+	display_stride = gbm_bo_get_stride(bo);
+
+	display_format = output->gbm_format;
+
+	if (num_planes != 1) {
+		weston_log("%s: multi-planer display buffers are not supported\n",
+			   __func__);
+		goto error;
+	}
+
+	ret = drmPrimeHandleToFD(backend->drm.fd, gbm_bo_get_handle(bo).u32,
+				 DRM_CLOEXEC, &display_buffer_fd);
+	if(ret) {
+		weston_log("%s : generating prime handle from gbm bo failed\n",
+			   __func__);
+		ret = -1;
+		goto error;
+	}
+
+	ret = gl_renderer->output_copy_content_dmafd(output_base, display_buffer_fd,
+						     display_width, display_height,
+						     display_stride, display_format,
+						     dma_fd, width, height, stride,
+						     format);
+error:
+	if (display_buffer_fd != -1)
+		close(display_buffer_fd);
+
+	gbm_surface_release_buffer(output->gbm_surface, bo);
+
+	return ret;
+}
