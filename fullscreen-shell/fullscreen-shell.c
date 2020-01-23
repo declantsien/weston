@@ -843,10 +843,27 @@ fullscreen_shell_present_surface_for_mode(struct wl_client *client,
 	}
 }
 
+static void fullscreen_shell_set_dpms(struct wl_client *client,
+					  struct wl_resource *resource,
+					  struct wl_resource *output_res,
+					  int32_t mode) {
+
+	struct fullscreen_shell *shell = wl_resource_get_user_data(resource);
+	if (output_res) {
+		struct weston_output *output = weston_head_from_resource(output_res)->output;
+		weston_output_dpms(shell->compositor, output, mode);
+	} else {
+		struct weston_output *output;
+		wl_list_for_each(output, &shell->output_list, link)
+			weston_output_dpms(shell->compositor, output, mode);
+	}
+}
+
 struct zwp_fullscreen_shell_v1_interface fullscreen_shell_implementation = {
 	fullscreen_shell_release,
 	fullscreen_shell_present_surface,
 	fullscreen_shell_present_surface_for_mode,
+	fullscreen_shell_set_dpms,
 };
 
 static void
@@ -885,7 +902,7 @@ bind_fullscreen_shell(struct wl_client *client, void *data, uint32_t version,
 
 	resource = wl_resource_create(client,
 				      &zwp_fullscreen_shell_v1_interface,
-				      1, id);
+				      MIN(version, 2), id);
 	wl_resource_set_implementation(resource,
 				       &fullscreen_shell_implementation,
 				       shell, NULL);
@@ -934,7 +951,7 @@ wet_shell_init(struct weston_compositor *compositor,
 		seat_created(NULL, seat);
 
 	wl_global_create(compositor->wl_display,
-			 &zwp_fullscreen_shell_v1_interface, 1, shell,
+			 &zwp_fullscreen_shell_v1_interface, 2, shell,
 			 bind_fullscreen_shell);
 
 	return 0;
