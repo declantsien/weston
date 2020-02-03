@@ -40,6 +40,7 @@
 #include "shared/timespec-util.h"
 #include "backend.h"
 #include "libweston-internal.h"
+#include "linux-dmabuf.h"
 
 #include "wcap/wcap-decode.h"
 
@@ -174,21 +175,48 @@ screenshooter_frame_notify(struct wl_listener *listener, void *data)
 	free(l);
 }
 
+static void
+screenshooter_frame_notify_dmafd(struct wl_listener *listener, void *data)
+{
+        struct linux_dmabuf_buffer *buffer;
+        struct weston_output *output = data;
+        struct weston_compositor *compositor = output->compositor;
+        struct screenshooter_frame_listener *l =
+                container_of(listener,
+                             struct screenshooter_frame_listener,
+                             listener);
+
+        output->disable_planes--;
+        wl_list_remove(&listener->link);
+        buffer = linux_dmabuf_buffer_get(l->buffer->resource);
+
+        compositor->backend->output_copy_content_dmafd(
+                                        output,
+                                        buffer->attributes.fd[0],
+                                        buffer->attributes.width,
+                                        buffer->attributes.height,
+                                        buffer->attributes.stride[0],
+                                        buffer->attributes.format);
+
+        l->done(l->data, WESTON_SCREENSHOOTER_SUCCESS);
+        free(l);
+}
+
 WL_EXPORT int
 weston_screenshooter_shoot(struct weston_output *output,
 			   struct weston_buffer *buffer,
 			   weston_screenshooter_done_func_t done, void *data)
 {
 	struct screenshooter_frame_listener *l;
+	struct linux_dmabuf_buffer *dmabuf_buffer;
 
-	if (!wl_shm_buffer_get(buffer->resource)) {
-		done(data, WESTON_SCREENSHOOTER_BAD_BUFFER);
-		return -1;
+	if ((buffer->shm_buffer = wl_shm_buffer_get(buffer->resource))) {
+		buffer->width = wl_shm_buffer_get_width(buffer->shm_buffer);
+		buffer->height = wl_shm_buffer_get_height(buffer->shm_buffer);
+	} else if ((dmabuf_buffer = linux_dmabuf_buffer_get(buffer->resource))) {
+		buffer->width = dmabuf_buffer->attributes.width;
+		buffer->height = dmabuf_buffer->attributes.height;
 	}
-
-	buffer->shm_buffer = wl_shm_buffer_get(buffer->resource);
-	buffer->width = wl_shm_buffer_get_width(buffer->shm_buffer);
-	buffer->height = wl_shm_buffer_get_height(buffer->shm_buffer);
 
 	if (buffer->width < output->current_mode->width ||
 	    buffer->height < output->current_mode->height) {
@@ -206,7 +234,12 @@ weston_screenshooter_shoot(struct weston_output *output,
 	l->output = output;
 	l->done = done;
 	l->data = data;
-	l->listener.notify = screenshooter_frame_notify;
+
+	if (buffer->shm_buffer)
+		l->listener.notify = screenshooter_frame_notify;
+	else if (dmabuf_buffer)
+		l->listener.notify = screenshooter_frame_notify_dmafd;
+
 	wl_signal_add(&output->frame_signal, &l->listener);
 	weston_output_disable_planes_incr(output);
 	weston_output_damage(output);
