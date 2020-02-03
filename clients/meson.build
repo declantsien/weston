@@ -335,8 +335,14 @@ if get_option('shell-desktop')
 		'screenshot.c',
 		weston_screenshooter_client_protocol_h,
 		weston_screenshooter_protocol_c,
+		linux_dmabuf_unstable_v1_client_protocol_h,
+		linux_dmabuf_unstable_v1_protocol_c,
 		include_directories: common_inc,
-		dependencies: dep_toytoolkit,
+		dependencies: [
+			dep_toytoolkit,
+			dep_libdrm_headers,
+			dependency('gbm')
+		],
 		install_dir: get_option('bindir'),
 		install: true
 	)
