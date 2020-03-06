@@ -192,8 +192,15 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 	struct weston_mode *mode = output->base.current_mode;
 	struct drm_plane *plane = output->scanout_plane;
 	unsigned int i;
+	unsigned int width = mode->width;
+	unsigned int height = mode->height;
 
 	assert(output->gbm_surface == NULL);
+
+	if (output->base.compositor->renderer_follows_scale) {
+		width /= output->base.current_scale;
+		height /= output->base.current_scale;
+	}
 
 	for (i = 0; i < plane->count_formats; i++) {
 		if (plane->formats[i].format == output->gbm_format)
@@ -210,8 +217,8 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 	if (plane->formats[i].count_modifiers > 0) {
 		output->gbm_surface =
 			gbm_surface_create_with_modifiers(b->gbm,
-							  mode->width,
-							  mode->height,
+							  width,
+							  height,
 							  output->gbm_format,
 							  plane->formats[i].modifiers,
 							  plane->formats[i].count_modifiers);
@@ -224,7 +231,7 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 #endif
 	{
 		output->gbm_surface =
-		    gbm_surface_create(b->gbm, mode->width, mode->height,
+		    gbm_surface_create(b->gbm, width, height,
 				       output->gbm_format,
 				       output->gbm_bo_flags);
 	}

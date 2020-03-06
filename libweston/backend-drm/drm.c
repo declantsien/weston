@@ -1183,6 +1183,11 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 		.use_shadow = b->use_pixman_shadow,
 	};
 
+	if (output->base.compositor->renderer_follows_scale) {
+		w /= output->base.current_scale;
+		h /= output->base.current_scale;
+	}
+
 	switch (format) {
 		case DRM_FORMAT_XRGB8888:
 			pixman_format = PIXMAN_x8r8g8b8;
@@ -1699,8 +1704,9 @@ drm_output_enable(struct weston_output *base)
 
 	assert(!output->virtual);
 
-	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
-		weston_log("DRM backend does not support renderer_follows_scale\n");
+	if (base->scale != 1 && base->compositor->renderer_follows_scale &&
+	    !b->atomic_modeset) {
+		weston_log("Atomic modesetting required for renderer_follows_scale\n");
 		return -1;
 	}
 
