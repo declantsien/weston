@@ -1151,6 +1151,8 @@ draw_output_borders(struct weston_output *output,
 	struct gl_shader *shader = &gr->texture_shader_rgba;
 	struct gl_border_image *top, *bottom, *left, *right;
 	struct weston_matrix matrix;
+	int output_width = output->current_mode->width;
+	int output_height = output->current_mode->height;
 	int full_width, full_height;
 
 	if (border_status == BORDER_STATUS_CLEAN)
@@ -1161,8 +1163,12 @@ draw_output_borders(struct weston_output *output,
 	left = &go->borders[GL_RENDERER_BORDER_LEFT];
 	right = &go->borders[GL_RENDERER_BORDER_RIGHT];
 
-	full_width = output->current_mode->width + left->width + right->width;
-	full_height = output->current_mode->height + top->height + bottom->height;
+	if (output->compositor->renderer_follows_scale) {
+		output_width /= output->current_scale;
+		output_height /= output->current_scale;
+	}
+	full_width = output_width + left->width + right->width;
+	full_height = output_height + top->height + bottom->height;
 
 	glDisable(GL_BLEND);
 	use_shader(gr, shader);
@@ -1185,11 +1191,11 @@ draw_output_borders(struct weston_output *output,
 	if (border_status & BORDER_LEFT_DIRTY)
 		draw_output_border_texture(go, GL_RENDERER_BORDER_LEFT,
 					   0, top->height,
-					   left->width, output->current_mode->height);
+					   left->width, output_height);
 	if (border_status & BORDER_RIGHT_DIRTY)
 		draw_output_border_texture(go, GL_RENDERER_BORDER_RIGHT,
 					   full_width - right->width, top->height,
-					   right->width, output->current_mode->height);
+					   right->width, output_height);
 	if (border_status & BORDER_BOTTOM_DIRTY)
 		draw_output_border_texture(go, GL_RENDERER_BORDER_BOTTOM,
 					   0, full_height - bottom->height,
@@ -1203,6 +1209,8 @@ output_get_border_damage(struct weston_output *output,
 {
 	struct gl_output_state *go = get_output_state(output);
 	struct gl_border_image *top, *bottom, *left, *right;
+	int output_width = output->current_mode->width;
+	int output_height = output->current_mode->height;
 	int full_width, full_height;
 
 	if (border_status == BORDER_STATUS_CLEAN)
@@ -1213,8 +1221,13 @@ output_get_border_damage(struct weston_output *output,
 	left = &go->borders[GL_RENDERER_BORDER_LEFT];
 	right = &go->borders[GL_RENDERER_BORDER_RIGHT];
 
-	full_width = output->current_mode->width + left->width + right->width;
-	full_height = output->current_mode->height + top->height + bottom->height;
+	if (output->compositor->renderer_follows_scale) {
+		output_width /= output->current_scale;
+		output_height /= output->current_scale;
+	}
+	full_width = output_width + left->width + right->width;
+	full_height = output_height + top->height + bottom->height;
+
 	if (border_status & BORDER_TOP_DIRTY)
 		pixman_region32_union_rect(damage, damage,
 					   0, 0,
@@ -1222,11 +1235,11 @@ output_get_border_damage(struct weston_output *output,
 	if (border_status & BORDER_LEFT_DIRTY)
 		pixman_region32_union_rect(damage, damage,
 					   0, top->height,
-					   left->width, output->current_mode->height);
+					   left->width, output_height);
 	if (border_status & BORDER_RIGHT_DIRTY)
 		pixman_region32_union_rect(damage, damage,
 					   full_width - right->width, top->height,
-					   right->width, output->current_mode->height);
+					   right->width, output_height);
 	if (border_status & BORDER_BOTTOM_DIRTY)
 		pixman_region32_union_rect(damage, damage,
 					   0, full_height - bottom->height,
@@ -1317,8 +1330,14 @@ pixman_region_to_egl_y_invert(struct weston_output *output,
 	pixman_region32_t transformed;
 	struct pixman_box32 *box;
 	int buffer_height;
+	int scale_factor;
 	EGLint *d;
 	int i;
+
+	if (output->compositor->renderer_follows_scale)
+		scale_factor = 1;
+	else
+		scale_factor = output->current_scale;
 
 	/* Translate from global to output co-ordinate space. */
 	pixman_region32_init(&transformed);
@@ -1326,7 +1345,7 @@ pixman_region_to_egl_y_invert(struct weston_output *output,
 	pixman_region32_translate(&transformed, -output->x, -output->y);
 	weston_transformed_region(output->width, output->height,
 				  output->transform,
-				  output->current_scale,
+				  scale_factor,
 				  &transformed, &transformed);
 
 	/* If we have borders drawn around the output, shift our output damage
@@ -1346,8 +1365,11 @@ pixman_region_to_egl_y_invert(struct weston_output *output,
 	*rects = malloc(*nrects * 4 * sizeof(EGLint));
 
 	buffer_height = go->borders[GL_RENDERER_BORDER_TOP].height +
-			output->current_mode->height +
 			go->borders[GL_RENDERER_BORDER_BOTTOM].height;
+	if (output->current_scale != 1 && output->compositor->renderer_follows_scale)
+		buffer_height += output->current_mode->height / output->current_scale;
+	else
+		buffer_height += output->current_mode->height;
 
 	d = *rects;
 	for (i = 0; i < *nrects; ++i) {
@@ -1383,6 +1405,8 @@ gl_renderer_repaint_output(struct weston_output *output,
 	pixman_region32_t total_damage;
 	enum gl_border_status border_status = BORDER_STATUS_CLEAN;
 	struct weston_view *view;
+	int output_width = output->current_mode->width;
+	int output_height = output->current_mode->height;
 
 	if (use_output(output) < 0)
 		return;
@@ -1404,11 +1428,15 @@ gl_renderer_repaint_output(struct weston_output *output,
 
 	go->begin_render_sync = create_render_sync(gr);
 
+	if (compositor->renderer_follows_scale) {
+		output_width /= output->current_scale;
+		output_height /= output->current_scale;
+	}
+
 	/* Calculate the viewport */
 	glViewport(go->borders[GL_RENDERER_BORDER_LEFT].width,
 		   go->borders[GL_RENDERER_BORDER_BOTTOM].height,
-		   output->current_mode->width,
-		   output->current_mode->height);
+		   output_width, output_height);
 
 	/* Calculate the global GL matrix */
 	go->output_matrix = output->matrix;
@@ -3312,11 +3340,6 @@ gl_renderer_output_window_create(struct weston_output *output,
 	EGLSurface egl_surface = EGL_NO_SURFACE;
 	int ret = 0;
 
-	if (output->scale != 1 && output->compositor->renderer_follows_scale) {
-		weston_log("GL renderer does not support renderer_follows_scale\n");
-		return -1;
-	}
-
 	egl_surface = gl_renderer_create_window_surface(gr,
 							options->window_for_legacy,
 							options->window_for_platform,
@@ -3347,11 +3370,6 @@ gl_renderer_output_pbuffer_create(struct weston_output *output,
 		EGL_HEIGHT, options->height,
 		EGL_NONE
 	};
-
-	if (output->scale != 1 && output->compositor->renderer_follows_scale) {
-		weston_log("GL renderer does not support renderer_follows_scale\n");
-		return -1;
-	}
 
 	pbuffer_config = gl_renderer_get_egl_config(gr, EGL_PBUFFER_BIT,
 						    options->drm_formats,
