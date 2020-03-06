@@ -110,6 +110,17 @@ pixman_renderer_read_pixels(struct weston_output *output,
 		pixels,
 		(PIXMAN_FORMAT_BPP(format) / 8) * width);
 
+	if (output->scale != 1 &&
+	    output->compositor->renderer_follows_scale) {
+		pixman_transform_t transform;
+		pixman_fixed_t scale =
+			pixman_double_to_fixed(1.0 / (double) output->scale);
+		pixman_transform_init_scale(&transform, scale, scale);
+		pixman_image_set_transform(po->hw_buffer, &transform);
+		pixman_image_set_filter(po->hw_buffer, PIXMAN_FILTER_NEAREST,
+					NULL, 0);
+	}
+
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 po->hw_buffer, /* src */
 				 NULL /* mask */,
@@ -117,9 +128,10 @@ pixman_renderer_read_pixels(struct weston_output *output,
 				 x, y, /* src_x, src_y */
 				 0, 0, /* mask_x, mask_y */
 				 0, 0, /* dest_x, dest_y */
-				 pixman_image_get_width (po->hw_buffer), /* width */
-				 pixman_image_get_height (po->hw_buffer) /* height */);
+				 output->current_mode->width, /* width */
+				 output->current_mode->height /* height */);
 
+	pixman_image_set_transform(po->hw_buffer, NULL);
 	pixman_image_unref(out_buf);
 
 	return 0;
@@ -129,12 +141,25 @@ static void
 region_global_to_output(struct weston_output *output, pixman_region32_t *region)
 {
 	if (output->zoom.active) {
+		struct weston_matrix matrix;
+		weston_matrix_init(&matrix);
+		if (output->compositor->renderer_follows_scale) {
+			weston_matrix_scale(&matrix, output->current_scale,
+					    output->current_scale, 1);
+		}
 		weston_matrix_transform_region(region, &output->matrix, region);
 	} else {
+		int scale_factor;
+
+		if (output->compositor->renderer_follows_scale)
+			scale_factor = 1;
+		else
+			scale_factor = output->current_scale;
+
 		pixman_region32_translate(region, -output->x, -output->y);
 		weston_transformed_region(output->width, output->height,
 					  output->transform,
-					  output->current_scale,
+					  scale_factor,
 					  region, region);
 	}
 }
@@ -165,10 +190,17 @@ pixman_renderer_compute_transform(pixman_transform_t *transform_out,
 {
 	struct weston_matrix matrix;
 
+	weston_matrix_init(&matrix);
+
+	if (output->compositor->renderer_follows_scale) {
+		weston_matrix_scale(&matrix, output->current_scale,
+				    output->current_scale, 1);
+	}
+
 	/* Set up the source transformation based on the surface
 	   position, the output position/transform/scale and the client
 	   specified buffer transform/scale */
-	matrix = output->inverse_matrix;
+	weston_matrix_multiply(&matrix, &output->inverse_matrix);
 
 	if (ev->transform.enabled) {
 		weston_matrix_multiply(&matrix, &ev->transform.inverse);
@@ -928,21 +960,20 @@ pixman_renderer_output_create(struct weston_output *output,
 			      const struct pixman_renderer_output_options *options)
 {
 	struct pixman_output_state *po;
-	int w, h;
 
 	po = zalloc(sizeof *po);
 	if (po == NULL)
 		return -1;
 
-	if (output->scale != 1 && output->compositor->renderer_follows_scale) {
-		weston_log("Pixman renderer does not support renderer_follows_scale\n");
-		return -1;
-	}
-
 	if (options->use_shadow) {
 		/* set shadow image transformation */
-		w = output->current_mode->width;
-		h = output->current_mode->height;
+		int w = output->current_mode->width;
+		int h = output->current_mode->height;
+
+		if (output->compositor->renderer_follows_scale) {
+			w /= output->current_scale;
+			h /= output->current_scale;
+		}
 
 		po->shadow_buffer = malloc(w * h * 4);
 
