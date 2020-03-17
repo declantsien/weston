@@ -251,6 +251,11 @@ headless_output_enable(struct weston_output *base)
 	struct wl_event_loop *loop;
 	int ret = 0;
 
+	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
+		weston_log("headless backend does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	loop = wl_display_get_event_loop(b->compositor->wl_display);
 	output->finish_frame_timer =
 		wl_event_loop_add_timer(loop, finish_frame_handler, output);

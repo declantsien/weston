@@ -1239,6 +1239,11 @@ wayland_output_enable(struct weston_output *base)
 	enum mode_status mode_status;
 	int ret = 0;
 
+	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
+		weston_log("Wayland backend does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	weston_log("Creating %dx%d wayland output at (%d, %d)\n",
 		   output->base.current_mode->width,
 		   output->base.current_mode->height,

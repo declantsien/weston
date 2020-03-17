@@ -532,6 +532,11 @@ fbdev_output_enable(struct weston_output *base)
 		.use_shadow = true,
 	};
 
+	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
+		weston_log("fbdev backend does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	head = fbdev_output_get_head(output);
 
 	/* Create the frame buffer. */

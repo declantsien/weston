@@ -565,6 +565,11 @@ rdp_output_enable(struct weston_output *base)
 		.use_shadow = true,
 	};
 
+	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
+		weston_log("RDP backend does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	output->shadow_surface = pixman_image_create_bits(PIXMAN_x8r8g8b8,
 							  output->base.current_mode->width,
 							  output->base.current_mode->height,

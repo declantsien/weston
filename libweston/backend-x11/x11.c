@@ -934,6 +934,11 @@ x11_output_enable(struct weston_output *base)
 		0
 	};
 
+	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
+		weston_log("X11 backend does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	if (!b->no_input)
 		values[0] |=
 			XCB_EVENT_MASK_KEY_PRESS |

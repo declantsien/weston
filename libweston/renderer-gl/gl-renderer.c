@@ -3179,6 +3179,11 @@ gl_renderer_output_window_create(struct weston_output *output,
 	EGLSurface egl_surface = EGL_NO_SURFACE;
 	int ret = 0;
 
+	if (output->scale != 1 && output->compositor->renderer_follows_scale) {
+		weston_log("GL renderer does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	egl_surface = gl_renderer_create_window_surface(gr,
 							options->window_for_legacy,
 							options->window_for_platform,
@@ -3209,6 +3214,11 @@ gl_renderer_output_pbuffer_create(struct weston_output *output,
 		EGL_HEIGHT, options->height,
 		EGL_NONE
 	};
+
+	if (output->scale != 1 && output->compositor->renderer_follows_scale) {
+		weston_log("GL renderer does not support renderer_follows_scale\n");
+		return -1;
+	}
 
 	pbuffer_config = gl_renderer_get_egl_config(gr, EGL_PBUFFER_BIT,
 						    options->drm_formats,

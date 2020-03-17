@@ -1699,6 +1699,11 @@ drm_output_enable(struct weston_output *base)
 
 	assert(!output->virtual);
 
+	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
+		weston_log("DRM backend does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	resources = drmModeGetResources(b->drm.fd);
 	if (!resources) {
 		weston_log("drmModeGetResources failed\n");

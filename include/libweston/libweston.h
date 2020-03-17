@@ -1123,6 +1123,8 @@ struct weston_compositor {
 	struct weston_log_scope *timeline;
 
 	struct content_protection *content_protection;
+
+	bool renderer_follows_scale;
 };
 
 struct weston_buffer {

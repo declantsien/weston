@@ -934,6 +934,11 @@ pixman_renderer_output_create(struct weston_output *output,
 	if (po == NULL)
 		return -1;
 
+	if (output->scale != 1 && output->compositor->renderer_follows_scale) {
+		weston_log("Pixman renderer does not support renderer_follows_scale\n");
+		return -1;
+	}
+
 	if (options->use_shadow) {
 		/* set shadow image transformation */
 		w = output->current_mode->width;

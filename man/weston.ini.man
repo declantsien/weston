@@ -147,6 +147,19 @@ target vertical blank, increasing output latency. The default value is 7
 milliseconds. The allowed range is from -10 to 1000 milliseconds. Using a
 negative value will force the compositor to always miss the target vblank.
 .TP 7
+.BI "renderer-follows-scale=" false
+When a scaling factor is set for an output, the output's logical size will
+be reduced by the scale factor, from the actual mode set. The compositor,
+including any composition buffers, and scale-aware clients, will internally
+work at the full native size. Setting this option causes the renderer to
+instead work at the scaled-down logical output size, reducing the overhead
+of composition. Clients will not be aware that an output has scaling active,
+so will not without special platform-specific knowledge be able to display
+at the display's native resolution. This is primarily intended for platforms
+who are able to display high-resolution content from sources such as media
+decoders, but whose GPU is not sufficiently powerful to render at the native
+display size at full frame rate.
+.TP 7
 .BI "gbm-format="format
 sets the GBM format used for the framebuffer for the GBM backend. Can be
 .B xrgb8888,

@@ -110,7 +110,26 @@ weston_mode_switch_send_events(struct weston_head *head,
 {
 	struct weston_output *output = head->output;
 	struct wl_resource *resource;
+	int scale;
 	int version;
+
+	/*
+	 * If render_follows_scale is set, then the renderer's composition
+	 * buffer will be reduced to the output's logical size. If
+	 * scale-aware clients are able to bypass the renderer then they can
+	 * display at full native-mode size; if not, then the renderer will
+	 * downscale them to the output's logical size before the display
+	 * scales them back up, which looks awful.
+	 *
+	 * Since general-purpose clients cannot guarantee that they will
+	 * bypass the renderer, we lie to clients and tell them that the
+	 * scaling factor is really 1, so the renderer will show them much
+	 * more reasonably.
+	 */
+	if (output->compositor->renderer_follows_scale)
+		scale = 1;
+	else
+		scale = output->current_scale;
 
 	wl_resource_for_each(resource, &head->resource_list) {
 		if (mode_changed) {
@@ -123,7 +142,7 @@ weston_mode_switch_send_events(struct weston_head *head,
 
 		version = wl_resource_get_version(resource);
 		if (version >= WL_OUTPUT_SCALE_SINCE_VERSION && scale_changed)
-			wl_output_send_scale(resource, output->current_scale);
+			wl_output_send_scale(resource, scale);
 
 		if (version >= WL_OUTPUT_DONE_SINCE_VERSION)
 			wl_output_send_done(resource);
@@ -4902,6 +4921,7 @@ bind_output(struct wl_client *client,
 	struct weston_output *output = head->output;
 	struct weston_mode *mode;
 	struct wl_resource *resource;
+	int scale;
 
 	resource = wl_resource_create(client, &wl_output_interface,
 				      version, id);
@@ -4914,6 +4934,24 @@ bind_output(struct wl_client *client,
 	wl_resource_set_implementation(resource, &output_interface, head,
 				       unbind_resource);
 
+	/*
+	 * If render_follows_scale is set, then the renderer's composition
+	 * buffer will be reduced to the output's logical size. If
+	 * scale-aware clients are able to bypass the renderer then they can
+	 * display at full native-mode size; if not, then the renderer will
+	 * downscale them to the output's logical size before the display
+	 * scales them back up, which looks awful.
+	 *
+	 * Since general-purpose clients cannot guarantee that they will
+	 * bypass the renderer, we lie to clients and tell them that the
+	 * scaling factor is really 1, so the renderer will show them much
+	 * more reasonably.
+	 */
+	if (output->compositor->renderer_follows_scale)
+		scale = 1;
+	else
+		scale = output->current_scale;
+
 	assert(output);
 	wl_output_send_geometry(resource,
 				output->x,
@@ -4924,8 +4962,7 @@ bind_output(struct wl_client *client,
 				head->make, head->model,
 				output->transform);
 	if (version >= WL_OUTPUT_SCALE_SINCE_VERSION)
-		wl_output_send_scale(resource,
-				     output->current_scale);
+		wl_output_send_scale(resource, scale);
 
 	wl_list_for_each (mode, &output->mode_list, link) {
 		wl_output_send_mode(resource,

@@ -1082,6 +1082,9 @@ weston_compositor_init_config(struct weston_compositor *ec,
 	weston_log("Output repaint window is %d ms maximum.\n",
 		   ec->repaint_msec);
 
+	weston_config_section_get_bool(s, "renderer-follows-scale",
+				       &ec->renderer_follows_scale, false);
+
 	/* weston.ini [libinput] */
 	s = weston_config_get_section(config, "libinput", NULL, NULL);
 	weston_config_section_get_bool(s, "touchscreen_calibrator", &cal, 0);
