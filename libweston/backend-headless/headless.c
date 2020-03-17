@@ -196,12 +196,17 @@ headless_output_enable_gl(struct headless_output *output)
 {
 	struct weston_compositor *compositor = output->base.compositor;
 	struct headless_backend *b = to_headless_backend(compositor);
-	const struct gl_renderer_pbuffer_options options = {
+	struct gl_renderer_pbuffer_options options = {
 		.width = output->base.current_mode->width,
 		.height = output->base.current_mode->height,
 		.drm_formats = headless_formats,
 		.drm_formats_count = ARRAY_LENGTH(headless_formats),
 	};
+
+	if (compositor->renderer_follows_scale) {
+		options.width /= output->base.current_scale;
+		options.height /= output->base.current_scale;
+	}
 
 	if (b->glri->output_pbuffer_create(&output->base, &options) < 0) {
 		weston_log("failed to create gl renderer output state\n");
@@ -217,17 +222,21 @@ headless_output_enable_pixman(struct headless_output *output)
 	const struct pixman_renderer_output_options options = {
 		.use_shadow = true,
 	};
+	int width, height;
 
-	output->image_buf = malloc(output->base.current_mode->width *
-				   output->base.current_mode->height * 4);
+	width = output->base.current_mode->width;
+	height = output->base.current_mode->height;
+	if (output->base.compositor->renderer_follows_scale) {
+		width /= output->base.current_scale;
+		height /= output->base.current_scale;
+	}
+
+	output->image_buf = malloc(width * height * 4);
 	if (!output->image_buf)
 		return -1;
 
-	output->image = pixman_image_create_bits(PIXMAN_x8r8g8b8,
-						 output->base.current_mode->width,
-						 output->base.current_mode->height,
-						 output->image_buf,
-						 output->base.current_mode->width * 4);
+	output->image = pixman_image_create_bits(PIXMAN_x8r8g8b8, width, height,
+						 output->image_buf, width * 4);
 
 	if (pixman_renderer_output_create(&output->base, &options) < 0)
 		goto err_renderer;
@@ -250,11 +259,6 @@ headless_output_enable(struct weston_output *base)
 	struct headless_backend *b = to_headless_backend(base->compositor);
 	struct wl_event_loop *loop;
 	int ret = 0;
-
-	if (base->scale != 1 && base->compositor->renderer_follows_scale) {
-		weston_log("headless backend does not support renderer_follows_scale\n");
-		return -1;
-	}
 
 	loop = wl_display_get_event_loop(b->compositor->wl_display);
 	output->finish_frame_timer =
