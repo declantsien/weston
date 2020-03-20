@@ -1512,39 +1512,6 @@ gl_renderer_repaint_output(struct weston_output *output,
 	update_buffer_release_fences(compositor, output);
 }
 
-static int
-gl_renderer_read_pixels(struct weston_output *output,
-			       pixman_format_code_t format, void *pixels,
-			       uint32_t x, uint32_t y,
-			       uint32_t width, uint32_t height)
-{
-	GLenum gl_format;
-	struct gl_output_state *go = get_output_state(output);
-
-	x += go->borders[GL_RENDERER_BORDER_LEFT].width;
-	y += go->borders[GL_RENDERER_BORDER_BOTTOM].height;
-
-	switch (format) {
-	case PIXMAN_a8r8g8b8:
-		gl_format = GL_BGRA_EXT;
-		break;
-	case PIXMAN_a8b8g8r8:
-		gl_format = GL_RGBA;
-		break;
-	default:
-		return -1;
-	}
-
-	if (use_output(output) < 0)
-		return -1;
-
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
-	glReadPixels(x, y, width, height, gl_format,
-		     GL_UNSIGNED_BYTE, pixels);
-
-	return 0;
-}
-
 static GLenum gl_format_from_internal(GLenum internal_format)
 {
 	switch (internal_format) {
@@ -2723,6 +2690,39 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteTextures(1, &tex);
+
+	return 0;
+}
+
+static int
+gl_renderer_read_pixels(struct weston_output *output,
+			       pixman_format_code_t format, void *pixels,
+			       uint32_t x, uint32_t y,
+			       uint32_t width, uint32_t height)
+{
+	GLenum gl_format;
+	struct gl_output_state *go = get_output_state(output);
+
+	x += go->borders[GL_RENDERER_BORDER_LEFT].width;
+	y += go->borders[GL_RENDERER_BORDER_BOTTOM].height;
+
+	switch (format) {
+	case PIXMAN_a8r8g8b8:
+		gl_format = GL_BGRA_EXT;
+		break;
+	case PIXMAN_a8b8g8r8:
+		gl_format = GL_RGBA;
+		break;
+	default:
+		return -1;
+	}
+
+	if (use_output(output) < 0)
+		return -1;
+
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glReadPixels(x, y, width, height, gl_format,
+		     GL_UNSIGNED_BYTE, pixels);
 
 	return 0;
 }
