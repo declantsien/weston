@@ -2582,6 +2582,48 @@ pack_color(pixman_format_code_t format, float *c)
 }
 
 static int
+gen_fbos(int width, int height, int n, GLuint *fbos, GLuint *texs)
+{
+	GLuint status;
+	int i;
+
+	glGenTextures(n, texs);
+	glGenFramebuffers(n, fbos);
+
+	for (i = 0; i < n; i++) {
+		glBindTexture(GL_TEXTURE_2D, texs[i]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height,
+			     0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	}
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	for (i = 0; i < n; i++) {
+		glBindFramebuffer(GL_FRAMEBUFFER, fbos[i]);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+				       GL_TEXTURE_2D, texs[i], 0);
+
+		status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE) {
+			weston_log("gl-renderer: could not create %d x %d "
+				   "ARGB FBO for screenshot: %#x\n",
+				   width, height, status);
+			goto err;
+		}
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	return 0;
+
+err:
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glDeleteFramebuffers(n, fbos);
+	glDeleteTextures(n, texs);
+	return -1;
+}
+
+static int
 gl_renderer_surface_copy_content(struct weston_surface *surface,
 				 void *target, size_t size,
 				 int src_x, int src_y,
@@ -2613,11 +2655,8 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	int cw, ch;
 	GLuint fbo;
 	GLuint tex;
-	GLenum status;
 	const GLfloat *proj;
 	int i;
-
-	gl_renderer_surface_get_content_size(surface, &cw, &ch);
 
 	switch (gs->buffer_type) {
 	case BUFFER_TYPE_NULL:
@@ -2632,24 +2671,9 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		break;
 	}
 
-	glGenTextures(1, &tex);
-	glBindTexture(GL_TEXTURE_2D, tex);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cw, ch,
-		     0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	glBindTexture(GL_TEXTURE_2D, 0);
-
-	glGenFramebuffers(1, &fbo);
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			       GL_TEXTURE_2D, tex, 0);
-
-	status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		weston_log("%s: fbo error: %#x\n", __func__, status);
-		glDeleteFramebuffers(1, &fbo);
-		glDeleteTextures(1, &tex);
+	gl_renderer_surface_get_content_size(surface, &cw, &ch);
+	if (gen_fbos(cw, ch, 1, &fbo, &tex) < 0)
 		return -1;
-	}
 
 	glViewport(0, 0, cw, ch);
 	glDisable(GL_BLEND);
