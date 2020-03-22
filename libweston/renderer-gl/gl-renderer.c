@@ -2623,18 +2623,27 @@ err:
 	return -1;
 }
 
-static int
-gl_renderer_surface_copy_content(struct weston_surface *surface,
-				 void *target, size_t size,
-				 int src_x, int src_y,
-				 int width, int height)
+/**
+ * glReadPixels only works from a GL framebuffer, and not from a GL texture
+ * object. This means that if we want to get back, e.g., client content
+ * which was submitted via GL or dmabuf, we cannot directly call
+ * glReadPixels on the GL texture object, but must use GL to blit from the
+ * texture to a temporary GL framebuffer object (FBO), then read back from
+ * the FBO.
+ */
+static void
+readpixels_from_tex(int src_x, int src_y, int width, int height,
+		    struct gl_shader *shader, bool y_invert, void *target)
 {
+	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
+	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
 		1.0f, 0.0f,
 		1.0f, 1.0f,
 		0.0f, 1.0f
 	};
+	const GLfloat *proj;
 	static const GLfloat projmat_normal[16] = { /* transpose */
 		 2.0f,  0.0f, 0.0f, 0.0f,
 		 0.0f,  2.0f, 0.0f, 0.0f,
@@ -2647,15 +2656,53 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		 0.0f,  0.0f, 1.0f, 0.0f,
 		-1.0f,  1.0f, 0.0f, 1.0f
 	};
+
+	glViewport(0, 0, width, height);
+	glDisable(GL_BLEND);
+
+	if (y_invert)
+		proj = projmat_normal;
+	else
+		proj = projmat_yinvert;
+
+	glUniformMatrix4fv(shader->proj_uniform, 1, GL_FALSE, proj);
+	glUniform1f(shader->alpha_uniform, 1.0f);
+
+	/* position: */
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
+	glEnableVertexAttribArray(0);
+
+	/* texcoord: */
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, verts);
+	glEnableVertexAttribArray(1);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(0);
+
+	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
+	glReadPixels(src_x, src_y, width, height, gl_format,
+		     GL_UNSIGNED_BYTE, target);
+}
+
+/**
+ * The copy_content hook reads back client surface content into CPU memory.
+ * Per the content on readpixels_from_tex(), we handle this by copying into
+ * a temporary FBO and then calling ReadPixels on the FBO.
+ */
+static int
+gl_renderer_surface_copy_content(struct weston_surface *surface,
+				 void *target, size_t size,
+				 int src_x, int src_y,
+				 int width, int height)
+{
 	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs = get_surface_state(surface);
-	int cw, ch;
 	GLuint fbo;
 	GLuint tex;
-	const GLfloat *proj;
+	int cw, ch;
 	int i;
 
 	switch (gs->buffer_type) {
@@ -2675,16 +2722,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	if (gen_fbos(cw, ch, 1, &fbo, &tex) < 0)
 		return -1;
 
-	glViewport(0, 0, cw, ch);
-	glDisable(GL_BLEND);
 	use_shader(gr, gs->shader);
-	if (gs->y_inverted)
-		proj = projmat_normal;
-	else
-		proj = projmat_yinvert;
-
-	glUniformMatrix4fv(gs->shader->proj_uniform, 1, GL_FALSE, proj);
-	glUniform1f(gs->shader->alpha_uniform, 1.0f);
 
 	for (i = 0; i < gs->num_textures; i++) {
 		glUniform1i(gs->shader->tex_uniforms[i], i);
@@ -2695,23 +2733,10 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		glTexParameteri(gs->target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	}
 
-	/* position: */
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	glEnableVertexAttribArray(0);
-
-	/* texcoord: */
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, verts);
-	glEnableVertexAttribArray(1);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-	glDisableVertexAttribArray(1);
-	glDisableVertexAttribArray(0);
-
-	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
-	glReadPixels(src_x, src_y, width, height, gl_format,
-		     GL_UNSIGNED_BYTE, target);
-
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	readpixels_from_tex(src_x, src_y, cw, ch, gs->shader, gs->y_inverted,
+			    target);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteTextures(1, &tex);
 
