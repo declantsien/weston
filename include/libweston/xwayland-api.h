@@ -44,6 +44,11 @@ typedef pid_t
 (*weston_xwayland_spawn_xserver_func_t)(
 	void *user_data, const char *display, int abstract_fd, int unix_fd);
 
+struct weston_xwayland_options {
+	/**  Add decorations to Xwayland windows */
+	bool window_decorations;
+};
+
 /** The libweston Xwayland API
  *
  * This API allows control of the Xwayland libweston module.
@@ -92,10 +97,13 @@ struct weston_xwayland_api {
 	 * \param client The wl_client object representing the connection of
 	 *               the Xwayland server process.
 	 * \param wm_fd The file descriptor for the wm.
+	 * \param options The Xwayland options pointer to pass to the
+	 *                Xwayland module
 	 */
 	void
 	(*xserver_loaded)(struct weston_xwayland *xwayland,
-			  struct wl_client *client, int wm_fd);
+			  struct wl_client *client, int wm_fd,
+			  const struct weston_xwayland_options *options);
 
 	/** Notify the Xwayland module that the Xwayland server has exited.
 	 *

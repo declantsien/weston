@@ -307,10 +307,12 @@ retry:
 
 static void
 weston_xwayland_xserver_loaded(struct weston_xwayland *xwayland,
-			       struct wl_client *client, int wm_fd)
+			       struct wl_client *client, int wm_fd,
+			       const struct weston_xwayland_options
+			       *options)
 {
 	struct weston_xserver *wxs = (struct weston_xserver *)xwayland;
-	wxs->wm = weston_wm_create(wxs, wm_fd);
+	wxs->wm = weston_wm_create(wxs, wm_fd, options);
 	wxs->client = client;
 }
 

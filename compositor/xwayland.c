@@ -50,11 +50,15 @@ static int
 handle_sigusr1(int signal_number, void *data)
 {
 	struct wet_xwayland *wxw = data;
+	const struct weston_xwayland_options options = {
+		.window_decorations = true,
+	};
 
 	/* We'd be safer if we actually had the struct
 	 * signalfd_siginfo from the signalfd data and could verify
 	 * this came from Xwayland.*/
-	wxw->api->xserver_loaded(wxw->xwayland, wxw->client, wxw->wm_fd);
+	wxw->api->xserver_loaded(wxw->xwayland, wxw->client, wxw->wm_fd,
+			&options);
 	wl_event_source_remove(wxw->sigusr1_source);
 
 	return 1;

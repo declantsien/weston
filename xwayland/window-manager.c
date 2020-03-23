@@ -1288,9 +1288,8 @@ weston_wm_window_draw_decoration(struct weston_wm_window *window)
 	cairo_xcb_surface_set_size(window->cairo_surface, width, height);
 	cr = cairo_create(window->cairo_surface);
 
-	if (window->fullscreen) {
+	if (window->fullscreen || !window->wm->theme->active_frame) {
 		how = "fullscreen";
-		/* nothing */
 	} else if (window->decorate) {
 		how = "decorate";
 		frame_set_title(window->frame, window->name);
@@ -2559,7 +2558,8 @@ weston_wm_create_wm_window(struct weston_wm *wm)
 }
 
 struct weston_wm *
-weston_wm_create(struct weston_xserver *wxs, int fd)
+weston_wm_create(struct weston_xserver *wxs, int fd,
+		const struct weston_xwayland_options *options)
 {
 	struct weston_wm *wm;
 	struct wl_event_loop *loop;
@@ -2611,7 +2611,10 @@ weston_wm_create(struct weston_xserver *wxs, int fd)
 	xcb_composite_redirect_subwindows(wm->conn, wm->screen->root,
 					  XCB_COMPOSITE_REDIRECT_MANUAL);
 
-	wm->theme = theme_create();
+	if (options->window_decorations)
+		wm->theme = theme_create();
+	else
+		wm->theme = null_theme_create();
 
 	supported[0] = wm->atom.net_wm_moveresize;
 	supported[1] = wm->atom.net_wm_state;

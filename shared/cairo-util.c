@@ -446,6 +446,25 @@ theme_create(void)
 	return NULL;
 }
 
+struct theme *
+null_theme_create (void)
+{
+	struct theme *t;
+
+	t = malloc(sizeof *t);
+	if (t == NULL)
+		return NULL;
+
+	t->margin = 0;
+	t->width = 0;
+	t->titlebar_height = 0;
+	t->frame_radius = 0;
+	t->active_frame = NULL;
+	t->inactive_frame = NULL;
+	t->shadow = NULL;
+	return t;
+}
+
 void
 theme_destroy(struct theme *t)
 {
