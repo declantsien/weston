@@ -2745,17 +2745,34 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	return 0;
 }
 
+/**
+ * The read_pixels hook reads back the output's last-rendered content for
+ * screenshots.
+ *
+ * This is awkward for renderer-follows-scale, as the output repaint has
+ * already composited the output content to the EGLSurface at the downsampled
+ * size, but we need to perform a scaling blit to output the content at the
+ * larger size. In this case, we do the most pessimal thing: read the content
+ * back with the CPU, re-upload it to the GPU, do a scale blit, and finally
+ * download the content back at the larger size.
+ *
+ * This would, of course, be much easier if we could bind our surface output
+ * to a texture.
+ */
 static int
 gl_renderer_read_pixels(struct weston_output *output,
-			       pixman_format_code_t format, void *pixels,
-			       uint32_t x, uint32_t y,
-			       uint32_t width, uint32_t height)
+			pixman_format_code_t format, void *pixels_out,
+			uint32_t x, uint32_t y,
+			uint32_t width, uint32_t height)
 {
 	GLenum gl_format;
+	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
-
-	x += go->borders[GL_RENDERER_BORDER_LEFT].width;
-	y += go->borders[GL_RENDERER_BORDER_BOTTOM].height;
+	struct gl_shader *blit_shader = &gr->texture_shader_rgbx;
+	void *pixels;
+	int renderer_width, renderer_height;
+	GLuint texs[2]; /* = { fbo_tex, content_tex } */
+	GLuint fbo;
 
 	switch (format) {
 	case PIXMAN_a8r8g8b8:
@@ -2771,10 +2788,75 @@ gl_renderer_read_pixels(struct weston_output *output,
 	if (use_output(output) < 0)
 		return -1;
 
+	/*
+	 * If renderer-follows-scale is not active, we can simply read the
+	 * pixels out of the EGLSurface as is; if not, we need to re-scale the
+	 * captured content back to the output's scale, to preserve the
+	 * illusion that the content is scaled.
+	 */
+	if (output->current_scale == 1 ||
+	    !output->compositor->renderer_follows_scale) {
+		glPixelStorei(GL_PACK_ALIGNMENT, 4);
+		glReadPixels(x + go->borders[GL_RENDERER_BORDER_LEFT].width,
+			     y + go->borders[GL_RENDERER_BORDER_BOTTOM].height,
+			     width, height, gl_format, GL_UNSIGNED_BYTE,
+			     pixels_out);
+		return 0;
+	}
+
+	pixels = malloc(output->current_mode->width *
+			output->current_mode->height * 4);
+	if (!pixels)
+		return -1;
+
+	if (gen_fbos(output->current_mode->width,
+		     output->current_mode->height,
+		     gl_format, 1,
+		     &fbo, texs) < 0) {
+		free(pixels);
+		return -1;
+	}
+
+	renderer_width = output->current_mode->width / output->current_scale;
+	renderer_height = output->current_mode->height / output->current_scale;
+
 	glPixelStorei(GL_PACK_ALIGNMENT, 4);
-	glReadPixels(x, y, width, height, gl_format,
+	glReadPixels(go->borders[GL_RENDERER_BORDER_LEFT].width,
+		     go->borders[GL_RENDERER_BORDER_BOTTOM].height,
+		     renderer_width,
+		     renderer_height,
+		     GL_BGRA_EXT,
 		     GL_UNSIGNED_BYTE, pixels);
 
+	/* Specify a new texture and re-upload the content. */
+	glActiveTexture(GL_TEXTURE0);
+	glGenTextures(1, &texs[1]);
+	glBindTexture(GL_TEXTURE_2D, texs[1]);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, 0);
+	glPixelStorei(GL_UNPACK_SKIP_PIXELS_EXT, 0);
+	glPixelStorei(GL_UNPACK_SKIP_ROWS_EXT, 0);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_BGRA_EXT,
+		     renderer_width,
+		     renderer_height,
+		     0, GL_BGRA_EXT,
+		     GL_UNSIGNED_BYTE,
+		     pixels);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	use_shader(gr, blit_shader);
+	glUniform1i(blit_shader->tex_uniforms[0], 0);
+	readpixels_from_tex(x, y, width, height, blit_shader, gl_format,
+			    true, pixels_out);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	glDeleteFramebuffers(1, &fbo);
+	glDeleteTextures(2, texs);
+	free(pixels);
 	return 0;
 }
 
