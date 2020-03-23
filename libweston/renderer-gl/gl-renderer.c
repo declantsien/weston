@@ -2582,7 +2582,8 @@ pack_color(pixman_format_code_t format, float *c)
 }
 
 static int
-gen_fbos(int width, int height, int n, GLuint *fbos, GLuint *texs)
+gen_fbos(int width, int height, GLenum gl_format, int n, GLuint *fbos,
+	 GLuint *texs)
 {
 	GLuint status;
 	int i;
@@ -2592,8 +2593,8 @@ gen_fbos(int width, int height, int n, GLuint *fbos, GLuint *texs)
 
 	for (i = 0; i < n; i++) {
 		glBindTexture(GL_TEXTURE_2D, texs[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height,
-			     0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glTexImage2D(GL_TEXTURE_2D, 0, gl_format, width, height,
+			     0, gl_format, GL_UNSIGNED_BYTE, NULL);
 	}
 
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -2633,9 +2634,9 @@ err:
  */
 static void
 readpixels_from_tex(int src_x, int src_y, int width, int height,
-		    struct gl_shader *shader, bool y_invert, void *target)
+		    struct gl_shader *shader, GLenum gl_format,
+		    bool y_invert, void *target)
 {
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
 		1.0f, 0.0f,
@@ -2655,6 +2656,8 @@ readpixels_from_tex(int src_x, int src_y, int width, int height,
 		 0.0f,  0.0f, 1.0f, 0.0f,
 		-1.0f,  1.0f, 0.0f, 1.0f
 	};
+
+	assert(gl_format == GL_RGBA || gl_format == GL_BGRA_EXT);
 
 	glViewport(0, 0, width, height);
 	glDisable(GL_BLEND);
@@ -2718,7 +2721,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	}
 
 	gl_renderer_surface_get_content_size(surface, &cw, &ch);
-	if (gen_fbos(cw, ch, 1, &fbo, &tex) < 0)
+	if (gen_fbos(cw, ch, GL_RGBA, 1, &fbo, &tex) < 0)
 		return -1;
 
 	use_shader(gr, gs->shader);
@@ -2733,8 +2736,8 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-	readpixels_from_tex(src_x, src_y, cw, ch, gs->shader, gs->y_inverted,
-			    target);
+	readpixels_from_tex(src_x, src_y, cw, ch, gs->shader, GL_RGBA,
+			    gs->y_inverted, target);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteTextures(1, &tex);
