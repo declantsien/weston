@@ -2635,7 +2635,6 @@ static void
 readpixels_from_tex(int src_x, int src_y, int width, int height,
 		    struct gl_shader *shader, bool y_invert, void *target)
 {
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
 	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
@@ -2681,7 +2680,7 @@ readpixels_from_tex(int src_x, int src_y, int width, int height,
 	glDisableVertexAttribArray(1);
 	glDisableVertexAttribArray(0);
 
-	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
 	glReadPixels(src_x, src_y, width, height, gl_format,
 		     GL_UNSIGNED_BYTE, target);
 }
@@ -2769,7 +2768,7 @@ gl_renderer_read_pixels(struct weston_output *output,
 	if (use_output(output) < 0)
 		return -1;
 
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
 	glReadPixels(x, y, width, height, gl_format,
 		     GL_UNSIGNED_BYTE, pixels);
 
