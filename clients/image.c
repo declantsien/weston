@@ -62,6 +62,11 @@ struct image {
 
 	bool initialized;
 	cairo_matrix_t matrix;
+
+	struct {
+		double vert, horiz;
+		double vert_discrete, horiz_discrete;
+	} axis;
 };
 
 static double
@@ -316,18 +321,77 @@ axis_handler(struct widget *widget, struct input *input, uint32_t time,
 {
 	struct image *image = data;
 
-	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL &&
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		image->axis.vert = wl_fixed_to_double(value);
+	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+		image->axis.horiz = wl_fixed_to_double(value);
+
+}
+
+static void
+axis_source_handler(struct widget *widget, struct input *input,
+		    uint32_t source, void *data)
+{
+	/* ignore */
+}
+
+static void
+axis_discrete_handler(struct widget *widget, struct input *input,
+		      uint32_t axis, int32_t discrete, void *data)
+{
+	struct image *image = data;
+
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		image->axis.vert_discrete = discrete;
+	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+		image->axis.horiz_discrete = discrete;
+}
+
+static void
+axis_stop_handler(struct widget *widget, struct input *input,
+		  uint32_t time, uint32_t axis,
+		  void *data)
+{
+	/* ignore */
+}
+
+static void
+pointer_frame_handler(struct widget *widget, struct input *input, void *data)
+{
+	struct image *image = data;
+	double vert = image->axis.vert;
+	double horiz = image->axis.horiz;
+
+	if (image->axis.vert_discrete) {
+		if (input_get_seat_version(input) < 7)
+			vert = image->axis.vert_discrete * 10;
+		else
+			vert = image->axis.vert_discrete / 12.0;
+	}
+
+	if (image->axis.horiz_discrete) {
+		if (input_get_seat_version(input) < 7)
+			horiz = image->axis.horiz_discrete * 10;
+		else
+			horiz = image->axis.horiz_discrete / 12.0;
+	}
+
+	if (image->axis.vert != 0.0 &&
 	    input_get_modifiers(input) == MOD_CONTROL_MASK) {
 		/* set zoom level to 10% per 10 axis units */
-		zoom(image, (1.0 - wl_fixed_to_double(value) / 100.0));
-
+		zoom(image, (1.0 - vert / 100.0));
 		window_schedule_redraw(image->window);
 	} else if (input_get_modifiers(input) == 0) {
-		if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
-			move_viewport(image, 0, wl_fixed_to_double(value));
-		else if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
-			move_viewport(image, wl_fixed_to_double(value), 0);
+		if (vert != 0.0)
+			move_viewport(image, 0, vert);
+		else if (horiz != 0.0)
+			move_viewport(image, horiz, 0);
 	}
+
+	image->axis.vert = 0.0;
+	image->axis.horiz = 0.0;
+	image->axis.vert_discrete = 0.0;
+	image->axis.horiz_discrete = 0.0;
 }
 
 static void
@@ -399,7 +463,13 @@ image_create(struct display *display, const char *filename,
 	widget_set_enter_handler(image->widget, enter_handler);
 	widget_set_motion_handler(image->widget, motion_handler);
 	widget_set_button_handler(image->widget, button_handler);
-	widget_set_axis_handler(image->widget, axis_handler);
+	widget_set_axis_handlers(image->widget,
+				 axis_handler,
+				 axis_source_handler,
+				 axis_stop_handler,
+				 axis_discrete_handler);
+	widget_set_pointer_frame_handler(image->widget,
+					 pointer_frame_handler);
 	window_set_key_handler(image->window, key_handler);
 	widget_schedule_resize(image->widget, 500, 400);
 

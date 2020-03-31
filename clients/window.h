@@ -633,6 +633,9 @@ input_get_touch(struct input *input, int32_t id, float *x, float *y);
 uint32_t
 input_get_modifiers(struct input *input);
 
+uint32_t
+input_get_seat_version(struct input *input);
+
 void
 touch_grab(struct input *input, int32_t touch_id);
 
