@@ -318,8 +318,8 @@ axis_handler(struct widget *widget, struct input *input, uint32_t time,
 
 	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL &&
 	    input_get_modifiers(input) == MOD_CONTROL_MASK) {
-		/* set zoom level to 2% per 10 axis units */
-		zoom(image, (1.0 - wl_fixed_to_double(value) / 500.0));
+		/* set zoom level to 10% per 10 axis units */
+		zoom(image, (1.0 - wl_fixed_to_double(value) / 100.0));
 
 		window_schedule_redraw(image->window);
 	} else if (input_get_modifiers(input) == 0) {
