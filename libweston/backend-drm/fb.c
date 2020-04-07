@@ -44,8 +44,23 @@
 #include "linux-dmabuf.h"
 
 static void
+drm_fb_remember(struct drm_backend *b, struct drm_fb *fb)
+{
+	wl_list_remove(&fb->backend_link);
+	wl_list_insert(&b->fb_list, &fb->backend_link);
+}
+
+static void
+drm_fb_forget(struct drm_fb *fb)
+{
+	wl_list_remove(&fb->backend_link);
+	wl_list_init(&fb->backend_link);
+}
+
+static void
 drm_fb_destroy(struct drm_fb *fb)
 {
+	drm_fb_forget(fb);
 	if (fb->fb_id != 0)
 		drmModeRmFB(fb->fd, fb->fb_id);
 	weston_buffer_reference(&fb->buffer_ref, NULL);
@@ -160,11 +175,13 @@ drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 	fb->width = width;
 	fb->height = height;
 	fb->fd = b->drm.fd;
+	wl_list_init(&fb->backend_link);
 
 	if (drm_fb_addfb(b, fb) != 0) {
 		weston_log("failed to create kms fb: %s\n", strerror(errno));
 		goto err_bo;
 	}
+	drm_fb_remember(b, fb);
 
 	memset(&map_arg, 0, sizeof map_arg);
 	map_arg.handle = fb->handles[0];
@@ -315,6 +332,7 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 	fb->modifier = dmabuf->attributes.modifier[0];
 	fb->size = 0;
 	fb->fd = backend->drm.fd;
+	wl_list_init(&fb->backend_link);
 
 	static_assert(ARRAY_LENGTH(fb->strides) ==
 		      ARRAY_LENGTH(dmabuf->attributes.stride),
@@ -374,6 +392,7 @@ drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 
 	if (drm_fb_addfb(backend, fb) != 0)
 		goto err_free;
+	drm_fb_remember(backend, fb);
 
 	return fb;
 
@@ -409,6 +428,7 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 	fb->height = gbm_bo_get_height(bo);
 	fb->format = pixel_format_get_info(gbm_bo_get_format(bo));
 	fb->size = 0;
+	wl_list_init(&fb->backend_link);
 
 #ifdef HAVE_GBM_MODIFIERS
 	fb->modifier = gbm_bo_get_modifier(bo);
@@ -450,6 +470,7 @@ drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 				   strerror(errno));
 		goto err_free;
 	}
+	drm_fb_remember(backend, fb);
 
 	gbm_bo_set_user_data(bo, fb, drm_fb_destroy_gbm);
 
@@ -580,3 +601,31 @@ drm_fb_get_from_view(struct drm_output_state *state, struct weston_view *ev)
 	return fb;
 }
 #endif
+
+static int
+drm_fb_rmfb(struct drm_backend *b, struct drm_fb *fb)
+{
+	return drmModeRmFB(fb->fd, fb->fb_id);
+}
+
+void
+drm_fb_suspend(struct drm_backend *b)
+{
+	struct drm_fb *fb;
+
+	/* Remove fbs so they cant be discovered by new vt master */
+	wl_list_for_each(fb, &b->fb_list, backend_link) {
+		drm_fb_rmfb(b, fb);
+	}
+}
+
+void
+drm_fb_resume(struct drm_backend *b)
+{
+	struct drm_fb *fb;
+
+	/* Add back any active fbs that were removed when going inactive */
+	wl_list_for_each(fb, &b->fb_list, backend_link) {
+		drm_fb_addfb(b, fb);
+	}
+}

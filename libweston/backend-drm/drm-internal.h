@@ -301,6 +301,9 @@ struct drm_backend {
 	bool fb_modifiers;
 
 	struct weston_log_scope *debug;
+
+	/* Tracking list of fb's to remember across vt switch */
+	struct wl_list fb_list;
 };
 
 struct drm_mode {
@@ -341,6 +344,9 @@ struct drm_fb {
 
 	/* Used by dumb fbs */
 	void *map;
+
+	/* Used by backend to maintain list of fbs */
+	struct wl_list backend_link;
 };
 
 struct drm_edid {
@@ -689,6 +695,11 @@ drm_fb_create_dumb(struct drm_backend *b, int width, int height,
 struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 		   bool is_opaque, enum drm_fb_type type);
+
+void
+drm_fb_suspend(struct drm_backend *b);
+void
+drm_fb_resume(struct drm_backend *b);
 
 #ifdef BUILD_DRM_GBM
 extern struct drm_fb *

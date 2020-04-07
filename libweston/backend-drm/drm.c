@@ -2422,6 +2422,7 @@ session_notify(struct wl_listener *listener, void *data)
 
 	if (compositor->session_active) {
 		weston_log("activating session\n");
+		drm_fb_resume(b);
 		weston_compositor_wake(compositor);
 		weston_compositor_damage_all(compositor);
 		b->state_invalid = true;
@@ -2431,6 +2432,8 @@ session_notify(struct wl_listener *listener, void *data)
 		udev_input_disable(&b->input);
 
 		weston_compositor_offscreen(compositor);
+
+		drm_fb_suspend(b);
 
 		/* If we have a repaint scheduled (either from a
 		 * pending pageflip or the idle handler), make sure we
@@ -2892,6 +2895,7 @@ drm_backend_create(struct weston_compositor *compositor,
 
 	wl_list_init(&b->plane_list);
 	create_sprites(b);
+	wl_list_init(&b->fb_list);
 
 	if (udev_input_init(&b->input,
 			    compositor, b->udev, seat_id,
