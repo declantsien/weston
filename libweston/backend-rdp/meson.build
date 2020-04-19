@@ -31,6 +31,13 @@ deps_rdp = [
 	dep_frdp,
 	dep_wpr,
 ]
+
+dep_openssl = dependency('openssl', version: '>= 1.1.1', required: false)
+if dep_openssl.found()
+	config_h.set('HAVE_OPENSSL', '1')
+	deps_rdp += dep_openssl
+endif
+
 plugin_rdp = shared_library(
 	'rdp-backend',
 	'rdp.c',
