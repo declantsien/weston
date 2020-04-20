@@ -3170,6 +3170,45 @@ gl_renderer_output_create(struct weston_output *output,
 	return 0;
 }
 
+static void *
+gl_renderer_output_surface_create(struct weston_output *output,
+								  const struct gl_renderer_output_options *options)
+{
+	struct weston_compositor *ec = output->compositor;
+	struct gl_renderer *gr = get_renderer(ec);
+	EGLSurface egl_surface = EGL_NO_SURFACE;
+
+	egl_surface = gl_renderer_create_window_surface(gr,
+							options->window_for_legacy,
+							options->window_for_platform,
+							options->drm_formats,
+							options->drm_formats_count);
+	if (egl_surface == EGL_NO_SURFACE)
+		return NULL;
+
+	return (void *)egl_surface;
+}
+
+static void *
+gl_renderer_output_surface_switch(struct weston_output *output,
+								  void *surface)
+{
+	struct gl_output_state *go = output->renderer_state;
+	EGLSurface old = go->egl_surface;
+
+	go->egl_surface = surface;
+	return old;
+}
+
+static void
+gl_renderer_output_surface_destroy(struct weston_output *output,
+										  void *surface)
+{
+	struct weston_compositor *ec = output->compositor;
+	struct gl_renderer *gr = get_renderer(ec);
+	weston_platform_destroy_egl_surface(gr->egl_display, surface);
+}
+
 static int
 gl_renderer_output_window_create(struct weston_output *output,
 				 const struct gl_renderer_output_options *options)
@@ -3708,4 +3747,7 @@ WL_EXPORT struct gl_renderer_interface gl_renderer_interface = {
 	.output_destroy = gl_renderer_output_destroy,
 	.output_set_border = gl_renderer_output_set_border,
 	.create_fence_fd = gl_renderer_create_fence_fd,
+	.output_surface_create = gl_renderer_output_surface_create,
+	.output_surface_switch = gl_renderer_output_surface_switch,
+	.output_surface_destroy = gl_renderer_output_surface_destroy,
 };

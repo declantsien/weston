@@ -218,4 +218,29 @@ struct gl_renderer_interface {
 	 * EGL_ANDROID_native_fence_sync extension.
 	 */
 	int (*create_fence_fd)(struct weston_output *output);
+
+	/** Create a window surface.
+	 *
+	 * Return a surface pointer on success, NULL on failure
+	 */
+	void *(*output_surface_create)(struct weston_output *output,
+					const struct gl_renderer_output_options *options);
+
+	/** Switch window surfaces.
+	 *
+	 * \param output The output to switch surfaces on
+	 * \param surface The new surface to use on output
+	 *
+	 * Return the old surface that was being used for output
+	 */
+	void *(*output_surface_switch)(struct weston_output *output,
+								   void *surface);
+
+	/** Destroy a window surface
+	 *
+	 * \param output The output for which the surface was created
+	 * \param surface The surface to destroy
+	 */
+	void (*output_surface_destroy)(struct weston_output *output,
+								   void *surface);
 };
