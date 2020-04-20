@@ -177,6 +177,104 @@ err:
 	return -1;
 }
 
+struct gbm_surface *
+drm_output_create_gbm_surface(struct drm_output *output, struct drm_backend *b)
+{
+	struct weston_mode *mode = output->base.current_mode;
+	struct drm_plane *plane = output->scanout_plane;
+	unsigned int i;
+	struct gbm_surface *ret;
+
+	for (i = 0; i < plane->count_formats; i++) {
+		if (plane->formats[i].format == output->gbm_format)
+			break;
+	}
+
+	if (i == plane->count_formats) {
+		weston_log("format 0x%x not supported by output %s\n",
+			   output->gbm_format, output->base.name);
+		return NULL;
+	}
+
+#ifdef HAVE_GBM_MODIFIERS
+	if (plane->formats[i].count_modifiers > 0) {
+		ret = gbm_surface_create_with_modifiers(b->gbm,
+							  mode->width,
+							  mode->height,
+							  output->gbm_format,
+							  plane->formats[i].modifiers,
+							  plane->formats[i].count_modifiers);
+	}
+
+	/* If allocating with modifiers fails, try again without. This can
+	 * happen when the KMS display device supports modifiers but the
+	 * GBM driver does not, e.g. the old i915 Mesa driver. */
+	if (!ret)
+#endif
+	{
+		ret = gbm_surface_create(b->gbm, mode->width, mode->height,
+				       output->gbm_format,
+				       output->gbm_bo_flags);
+	}
+
+	return ret;
+}
+
+void
+drm_output_destroy_gbm_surface(struct drm_output *output, struct gbm_surface *surface)
+{
+	gbm_surface_destroy(surface);
+}
+
+void *
+drm_output_create_window_surface(struct drm_output *output, struct gbm_surface *surface)
+{
+	uint32_t format[2] = {
+		output->gbm_format,
+		fallback_format_for(output->gbm_format),
+	};
+	struct gl_renderer_output_options options = {
+		.drm_formats = format,
+		.drm_formats_count = 1,
+	};
+	void *ret;
+
+	if (surface == NULL)
+		return NULL;
+
+	if (options.drm_formats[1])
+		options.drm_formats_count = 2;
+	options.window_for_legacy = (EGLNativeWindowType) surface;
+	options.window_for_platform = surface;
+
+	if ((ret = gl_renderer->output_surface_create(&output->base, &options)) == NULL) {
+		weston_log("failed to create gl window surface\n");
+		return NULL;
+	}
+
+	return ret;
+}
+
+void
+drm_output_destroy_window_surface(struct drm_output *output, void *surface)
+{
+	gl_renderer->output_surface_destroy(&output->base, surface);
+}
+
+void *
+drm_output_switch_window_surface(struct drm_output *output, void *surface)
+{
+	return gl_renderer->output_surface_switch(&output->base, surface);
+}
+
+struct gbm_surface *
+drm_output_switch_gbm_surface(struct drm_output *output, struct gbm_surface *surface)
+{
+	struct gbm_surface *old = output->gbm_surface;
+	output->gbm_surface = surface;
+	return old;
+}
+
 /* Init output state that depends on gl or gbm */
 int
 drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
@@ -189,46 +287,9 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 		.drm_formats = format,
 		.drm_formats_count = 1,
 	};
-	struct weston_mode *mode = output->base.current_mode;
-	struct drm_plane *plane = output->scanout_plane;
-	unsigned int i;
-
 	assert(output->gbm_surface == NULL);
 
-	for (i = 0; i < plane->count_formats; i++) {
-		if (plane->formats[i].format == output->gbm_format)
-			break;
-	}
-
-	if (i == plane->count_formats) {
-		weston_log("format 0x%x not supported by output %s\n",
-			   output->gbm_format, output->base.name);
-		return -1;
-	}
-
-#ifdef HAVE_GBM_MODIFIERS
-	if (plane->formats[i].count_modifiers > 0) {
-		output->gbm_surface =
-			gbm_surface_create_with_modifiers(b->gbm,
-							  mode->width,
-							  mode->height,
-							  output->gbm_format,
-							  plane->formats[i].modifiers,
-							  plane->formats[i].count_modifiers);
-	}
-
-	/* If allocating with modifiers fails, try again without. This can
-	 * happen when the KMS display device supports modifiers but the
-	 * GBM driver does not, e.g. the old i915 Mesa driver. */
-	if (!output->gbm_surface)
-#endif
-	{
-		output->gbm_surface =
-		    gbm_surface_create(b->gbm, mode->width, mode->height,
-				       output->gbm_format,
-				       output->gbm_bo_flags);
-	}
-
+	output->gbm_surface = drm_output_create_gbm_surface(output, b);
 	if (!output->gbm_surface) {
 		weston_log("failed to create gbm surface\n");
 		return -1;

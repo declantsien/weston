@@ -799,6 +799,20 @@ drm_backend_init_virtual_output_api(struct weston_compositor *compositor)
 int
 init_egl(struct drm_backend *b);
 
+struct gbm_surface *
+drm_output_create_gbm_surface(struct drm_output *output, struct drm_backend *b);
+void
+drm_output_destroy_gbm_surface(struct drm_output *output, struct gbm_surface *surface);
+
+void *
+drm_output_create_window_surface(struct drm_output *output, struct gbm_surface *surface);
+void
+drm_output_destroy_window_surface(struct drm_output *output, void *surface);
+void *
+drm_output_switch_window_surface(struct drm_output *output, void *surface);
+struct gbm_surface *
+drm_output_switch_gbm_surface(struct drm_output *output, struct gbm_surface *surface);
+
 int
 drm_output_init_egl(struct drm_output *output, struct drm_backend *b);
 
@@ -817,6 +831,40 @@ init_egl(struct drm_backend *b)
 {
 	weston_log("Compiled without GBM/EGL support\n");
 	return -1;
+}
+
+inline static struct gbm_surface *
+drm_output_create_gbm_surface(struct drm_output *output, struct drm_backend *b)
+{
+	return NULL;
+}
+
+inline static void
+drm_output_destroy_gbm_surface(struct drm_output *output, struct gbm_surface *surface)
+{
+}
+
+inline static void *
+drm_output_create_window_surface(struct drm_output *output, struct gbm_surface *surface)
+{
+	return NULL;
+}
+
+inline static void
+drm_output_destroy_window_surface(struct drm_output *output, void *surface)
+{
+}
+
+inline static void *
+drm_output_switch_window_surface(struct drm_output *output, void *surface)
+{
+	return NULL;
+}
+
+inline static struct gbm_surface *
+drm_output_switch_gbm_surface(struct drm_output *output, struct gbm_surface *surface)
+{
+	return NULL;
 }
 
 inline static int
