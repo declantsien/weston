@@ -2385,6 +2385,22 @@ udev_event_is_conn_prop_change(struct drm_backend *b,
 }
 
 static int
+udev_device_is_drm_card(struct udev_device *dev)
+{
+	const char *udev_sysname = udev_device_get_sysname(dev);
+	size_t i;
+
+	if (strncmp(udev_sysname, "card", sizeof("card") - 1))
+		return 0;
+
+	for (i = sizeof("card"); udev_sysname[i] != '\0'; i++)
+		if (!isdigit(udev_sysname[i]))
+			return 0;
+
+	return 1;
+}
+
+static int
 udev_drm_event(int fd, uint32_t mask, void *data)
 {
 	struct drm_backend *b = data;
@@ -2574,6 +2590,48 @@ out_res:
 out_fd:
 	weston_launcher_close(b->compositor->launcher, fd);
 	return false;
+}
+
+static uint8_t
+drm_cards_count(struct udev *udev)
+{
+	struct udev_enumerate *enumerate;
+	struct udev_list_entry *device_list, *dev_entry;
+	struct udev_device *dev;
+	const char *dev_path;
+	unsigned int gpu_count = 0;
+	int ret;
+
+	enumerate = udev_enumerate_new(udev);
+	if (!enumerate)
+		goto unref_enumerate;
+
+	ret = udev_enumerate_add_match_subsystem(enumerate, "drm");
+	if (ret < 0)
+		goto unref_enumerate;
+
+	ret = udev_enumerate_scan_devices(enumerate);
+	if (ret)
+		goto unref_enumerate;
+
+	device_list = udev_enumerate_get_list_entry(enumerate);
+	if (!device_list)
+		goto unref_enumerate;
+
+	udev_list_entry_foreach(dev_entry, device_list) {
+		dev_path = udev_list_entry_get_name(dev_entry);
+		dev = udev_device_new_from_syspath(udev, dev_path);
+
+		if (udev_device_is_drm_card(dev))
+			gpu_count++;
+
+		udev_device_unref(dev);
+	}
+
+unref_enumerate:
+	udev_enumerate_unref(enumerate);
+
+	return gpu_count;
 }
 
 /*
@@ -2834,6 +2892,7 @@ drm_backend_create(struct weston_compositor *compositor,
 	struct wl_event_loop *loop;
 	const char *seat_id = default_seat;
 	const char *session_seat;
+	unsigned int i, gpu_count;
 	int ret;
 
 	session_seat = getenv("XDG_SEAT");
@@ -2883,6 +2942,19 @@ drm_backend_create(struct weston_compositor *compositor,
 		weston_log("failed to initialize udev context\n");
 		goto err_launcher;
 	}
+
+	gpu_count = drm_cards_count(b->udev);
+	if (gpu_count < 1)
+		drm_debug(b, "[drm-backend] No DRM card present\n");
+
+
+	for (i = 0; gpu_count < 1 && i < 20; i++) { // timeout 0.2s or 20 * 10ms
+		usleep(10000); // 10ms
+		gpu_count = drm_cards_count(b->udev);
+	}
+
+	if (gpu_count > 0)
+		drm_debug(b, "[drm-backend] Found %u DRM card(s)\n", gpu_count);
 
 	b->session_listener.notify = session_notify;
 	wl_signal_add(&compositor->session_signal, &b->session_listener);
