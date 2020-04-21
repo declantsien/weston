@@ -273,10 +273,15 @@ launcher_logind_activate_vt(struct weston_launcher *launcher, int vt)
 static void
 launcher_logind_set_active(struct launcher_logind *wl, bool active)
 {
-	if (wl->compositor->session_active == active)
+	enum weston_session_state state = wl->compositor->session_state;
+	if ((state == WESTON_SESSION_STATE_ACTIVE && active) ||
+	    (state == WESTON_SESSION_STATE_SUSPENDED && !active))
 		return;
 
-	wl->compositor->session_active = active;
+	if (active)
+		wl->compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
+	else
+		wl->compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
 
 	wl_signal_emit(&wl->compositor->session_signal,
 		       wl->compositor);

@@ -103,15 +103,15 @@ vt_handler(int signal_number, void *data)
 	struct launcher_direct *launcher = data;
 	struct weston_compositor *compositor = launcher->compositor;
 
-	if (compositor->session_active) {
-		compositor->session_active = false;
+	if (compositor->session_state == WESTON_SESSION_STATE_ACTIVE) {
+		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
 		wl_signal_emit(&compositor->session_signal, compositor);
 		drmDropMaster(launcher->drm_fd);
 		ioctl(launcher->tty, VT_RELDISP, 1);
 	} else {
 		ioctl(launcher->tty, VT_RELDISP, VT_ACKACQ);
 		drmSetMaster(launcher->drm_fd);
-		compositor->session_active = true;
+		compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
 		wl_signal_emit(&compositor->session_signal, compositor);
 	}
 

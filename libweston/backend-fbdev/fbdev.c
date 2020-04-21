@@ -771,7 +771,7 @@ session_notify(struct wl_listener *listener, void *data)
 	struct fbdev_backend *backend = to_fbdev_backend(compositor);
 	struct weston_output *output;
 
-	if (compositor->session_active) {
+	if (compositor->session_state == WESTON_SESSION_STATE_ACTIVE) {
 		weston_log("entering VT\n");
 		compositor->state = backend->prev_state;
 

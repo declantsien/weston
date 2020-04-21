@@ -1002,6 +1002,14 @@ struct weston_desktop_xwayland;
 struct weston_desktop_xwayland_interface;
 struct weston_debug_compositor;
 
+enum weston_session_state {
+	WESTON_SESSION_STATE_RESUMING,
+	WESTON_SESSION_STATE_ACTIVE,
+	WESTON_SESSION_STATE_SUSPENDING,
+	WESTON_SESSION_STATE_SUSPEND_READY,
+	WESTON_SESSION_STATE_SUSPENDED,
+};
+
 /** Main object, container-like structure which aggregates all other objects.
  *
  * \ingroup compositor
@@ -1038,7 +1046,7 @@ struct weston_compositor {
 	struct wl_signal output_heads_changed_signal; /* arg: weston_output */
 
 	struct wl_signal session_signal;
-	bool session_active;
+	enum weston_session_state session_state;
 
 	struct weston_layer fade_layer;
 	struct weston_layer cursor_layer;

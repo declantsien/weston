@@ -201,6 +201,7 @@ static int
 launcher_weston_launch_data(int fd, uint32_t mask, void *data)
 {
 	struct launcher_weston_launch *launcher = data;
+	struct weston_compositor *compositor = launcher->compositor;
 	int len, ret, reply;
 
 	if (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) {
@@ -218,14 +219,12 @@ launcher_weston_launch_data(int fd, uint32_t mask, void *data)
 
 	switch (ret) {
 	case WESTON_LAUNCHER_ACTIVATE:
-		launcher->compositor->session_active = true;
-		wl_signal_emit(&launcher->compositor->session_signal,
-			       launcher->compositor);
+		compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
+		wl_signal_emit(&compositor->session_signal, compositor);
 		break;
 	case WESTON_LAUNCHER_DEACTIVATE:
-		launcher->compositor->session_active = false;
-		wl_signal_emit(&launcher->compositor->session_signal,
-			       launcher->compositor);
+		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
+		wl_signal_emit(&compositor->session_signal, compositor);
 
 		reply = WESTON_LAUNCHER_DEACTIVATE_DONE;
 		launcher_weston_launch_send(launcher->fd, &reply, sizeof reply);

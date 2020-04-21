@@ -2420,7 +2420,7 @@ session_notify(struct wl_listener *listener, void *data)
 	struct drm_plane *plane;
 	struct drm_output *output;
 
-	if (compositor->session_active) {
+	if (compositor->session_state == WESTON_SESSION_STATE_ACTIVE) {
 		weston_log("activating session\n");
 		drm_fb_resume(b);
 		weston_compositor_wake(compositor);
@@ -2481,12 +2481,17 @@ drm_device_changed(struct weston_compositor *compositor,
 		dev_t device, bool added)
 {
 	struct drm_backend *b = to_drm_backend(compositor);
+	enum weston_session_state state = compositor->session_state;
 
 	if (b->drm.fd < 0 || b->drm.devnum != device ||
-	    compositor->session_active == added)
+	    (state == WESTON_SESSION_STATE_ACTIVE && added) ||
+	    (state == WESTON_SESSION_STATE_SUSPENDED && !added))
 		return;
 
-	compositor->session_active = added;
+	if (added)
+		compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
+	else
+		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
 	wl_signal_emit(&compositor->session_signal, compositor);
 }
 

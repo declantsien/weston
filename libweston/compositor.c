@@ -2113,7 +2113,7 @@ weston_compositor_repick(struct weston_compositor *compositor)
 {
 	struct weston_seat *seat;
 
-	if (!compositor->session_active)
+	if (compositor->session_state == WESTON_SESSION_STATE_SUSPENDED)
 		return;
 
 	wl_list_for_each(seat, &compositor->seat_list, link)
@@ -7324,7 +7324,7 @@ weston_compositor_create(struct wl_display *display,
 	wl_signal_init(&ec->heads_changed_signal);
 	wl_signal_init(&ec->output_heads_changed_signal);
 	wl_signal_init(&ec->session_signal);
-	ec->session_active = true;
+	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
 
 	ec->output_id_pool = 0;
 	ec->repaint_msec = DEFAULT_REPAINT_WINDOW;
