@@ -93,6 +93,7 @@ struct launcher_weston_launch {
 	struct wl_event_source *source;
 
 	int kb_mode, tty, drm_fd;
+	struct wl_listener session_listener;
 };
 
 static ssize_t
@@ -201,8 +202,7 @@ static int
 launcher_weston_launch_data(int fd, uint32_t mask, void *data)
 {
 	struct launcher_weston_launch *launcher = data;
-	struct weston_compositor *compositor = launcher->compositor;
-	int len, ret, reply;
+	int len, ret;
 
 	if (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) {
 		weston_log("launcher socket closed, exiting\n");
@@ -219,16 +219,10 @@ launcher_weston_launch_data(int fd, uint32_t mask, void *data)
 
 	switch (ret) {
 	case WESTON_LAUNCHER_ACTIVATE:
-		compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
-		wl_signal_emit(&compositor->session_signal, compositor);
+		weston_compositor_trigger_session(launcher->compositor, true);
 		break;
 	case WESTON_LAUNCHER_DEACTIVATE:
-		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
-		wl_signal_emit(&compositor->session_signal, compositor);
-
-		reply = WESTON_LAUNCHER_DEACTIVATE_DONE;
-		launcher_weston_launch_send(launcher->fd, &reply, sizeof reply);
-
+		weston_compositor_trigger_session(launcher->compositor, false);
 		break;
 	default:
 		weston_log("unexpected event from weston-launch\n");
@@ -236,6 +230,20 @@ launcher_weston_launch_data(int fd, uint32_t mask, void *data)
 	}
 
 	return 1;
+}
+
+static void
+session_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_compositor *compositor = data;
+	struct launcher_weston_launch *launcher =
+				wl_container_of(listener, launcher, session_listener);
+	int reply = WESTON_LAUNCHER_DEACTIVATE_DONE;
+
+	if (compositor->session_state != WESTON_SESSION_STATE_SUSPENDED)
+		return;
+
+	launcher_weston_launch_send(launcher->fd, &reply, sizeof reply);
 }
 
 static int
@@ -281,6 +289,8 @@ launcher_weston_launch_connect(struct weston_launcher **out, struct weston_compo
 	* (struct launcher_weston_launch **) out = launcher;
 	launcher->compositor = compositor;
 	launcher->drm_fd = -1;
+	launcher->session_listener.notify = session_notify;
+	wl_signal_add(&compositor->session_signal, &launcher->session_listener);
 	launcher->fd = launcher_weston_environment_get_fd("WESTON_LAUNCHER_SOCK");
 	if (launcher->fd != -1) {
 		launcher->tty = launcher_weston_environment_get_fd("WESTON_TTY_FD");

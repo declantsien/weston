@@ -7276,6 +7276,82 @@ debug_scene_graph_cb(struct weston_log_subscription *sub, void *data)
 	weston_log_subscription_complete(sub);
 }
 
+static void
+switch_to_active(void *data)
+{
+	struct weston_compositor *ec = data;
+	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
+	wl_signal_emit(&ec->session_signal, ec);
+}
+
+static void
+switch_to_suspend_ready(void *data)
+{
+	struct weston_compositor *ec = data;
+	ec->session_state = WESTON_SESSION_STATE_SUSPENDED;
+	wl_signal_emit(&ec->session_signal, ec);
+}
+
+static void
+switch_to_suspended(void *data)
+{
+	struct weston_compositor *ec = data;
+	ec->session_state = WESTON_SESSION_STATE_SUSPENDED;
+	wl_signal_emit(&ec->session_signal, ec);
+}
+
+/** Default session_state handler
+ *
+ * By default, we just switch to WESTON_SESSION_STATE_SUSPENDED
+ * and STATE_RESUMED. Shells can register a replacement
+ * handler to do any prep that they need.
+ */
+static void
+session_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_compositor *ec = data;
+	struct wl_event_loop *loop = wl_display_get_event_loop(ec->wl_display);
+
+	if (ec->session_state == WESTON_SESSION_STATE_SUSPENDING)
+		wl_event_loop_add_idle(loop, switch_to_suspend_ready, ec);
+	else if (ec->session_state == WESTON_SESSION_STATE_SUSPEND_READY)
+		wl_event_loop_add_idle(loop, switch_to_suspended, ec);
+	else if (ec->session_state == WESTON_SESSION_STATE_RESUMING)
+		wl_event_loop_add_idle(loop, switch_to_active, ec);
+}
+
+/* Trigger session state change
+ *
+ * Used by low level session handling (e.g vt switch) to
+ * progress the session state.
+ */
+WL_EXPORT void
+weston_compositor_trigger_session(struct weston_compositor *ec, bool active)
+{
+	if (active) {
+		switch (ec->session_state) {
+			case WESTON_SESSION_STATE_SUSPENDED:
+			case WESTON_SESSION_STATE_SUSPENDING:
+			case WESTON_SESSION_STATE_SUSPEND_READY:
+				ec->session_state =
+					WESTON_SESSION_STATE_RESUMING;
+				wl_signal_emit(&ec->session_signal, ec);
+			default:
+				break;
+		}
+	} else {
+		switch (ec->session_state) {
+			case WESTON_SESSION_STATE_ACTIVE:
+			case WESTON_SESSION_STATE_RESUMING:
+				ec->session_state =
+					WESTON_SESSION_STATE_SUSPENDING;
+				wl_signal_emit(&ec->session_signal, ec);
+			default:
+				break;
+		}
+	}
+}
+
 /** Create the compositor.
  *
  * This functions creates and initializes a compositor instance.
@@ -7324,6 +7400,8 @@ weston_compositor_create(struct wl_display *display,
 	wl_signal_init(&ec->heads_changed_signal);
 	wl_signal_init(&ec->output_heads_changed_signal);
 	wl_signal_init(&ec->session_signal);
+	ec->session_listener.notify = session_notify;
+	wl_signal_add(&ec->session_signal, &ec->session_listener);
 	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
 
 	ec->output_id_pool = 0;

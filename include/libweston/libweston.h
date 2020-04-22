@@ -1047,6 +1047,7 @@ struct weston_compositor {
 
 	struct wl_signal session_signal;
 	enum weston_session_state session_state;
+	struct wl_listener session_listener;
 
 	struct weston_layer fade_layer;
 	struct weston_layer cursor_layer;
@@ -2066,6 +2067,9 @@ weston_compositor_enable_content_protection(struct weston_compositor *compositor
 void
 weston_timeline_refresh_subscription_objects(struct weston_compositor *wc,
 					     void *object);
+
+void
+weston_compositor_trigger_session(struct weston_compositor *ec, bool active);
 
 #ifdef  __cplusplus
 }

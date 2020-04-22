@@ -95,6 +95,7 @@ struct launcher_direct {
 	struct weston_compositor *compositor;
 	int kb_mode, tty, drm_fd;
 	struct wl_event_source *vt_source;
+	struct wl_listener session_listener;
 };
 
 static int
@@ -103,19 +104,28 @@ vt_handler(int signal_number, void *data)
 	struct launcher_direct *launcher = data;
 	struct weston_compositor *compositor = launcher->compositor;
 
-	if (compositor->session_state == WESTON_SESSION_STATE_ACTIVE) {
-		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
-		wl_signal_emit(&compositor->session_signal, compositor);
-		drmDropMaster(launcher->drm_fd);
-		ioctl(launcher->tty, VT_RELDISP, 1);
+	if (compositor->session_state != WESTON_SESSION_STATE_SUSPENDED) {
+		weston_compositor_trigger_session(compositor, false);
 	} else {
 		ioctl(launcher->tty, VT_RELDISP, VT_ACKACQ);
 		drmSetMaster(launcher->drm_fd);
-		compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
-		wl_signal_emit(&compositor->session_signal, compositor);
+		weston_compositor_trigger_session(compositor, true);
 	}
 
 	return 1;
+}
+
+static void
+session_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_compositor *compositor = data;
+	struct launcher_direct *launcher =
+				wl_container_of(listener, launcher, session_listener);
+
+	if (compositor->session_state == WESTON_SESSION_STATE_SUSPENDED) {
+		drmDropMaster(launcher->drm_fd);
+		ioctl(launcher->tty, VT_RELDISP, 1);
+	}
 }
 
 static int
@@ -300,6 +310,8 @@ launcher_direct_connect(struct weston_launcher **out, struct weston_compositor *
 
 	launcher->base.iface = &launcher_direct_iface;
 	launcher->compositor = compositor;
+	launcher->session_listener.notify = session_notify;
+	wl_signal_add(&compositor->session_signal, &launcher->session_listener);
 
 	if (setup_tty(launcher, tty) == -1) {
 		free(launcher);

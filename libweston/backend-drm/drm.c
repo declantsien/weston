@@ -2427,7 +2427,7 @@ session_notify(struct wl_listener *listener, void *data)
 		weston_compositor_damage_all(compositor);
 		b->state_invalid = true;
 		udev_input_enable(&b->input);
-	} else {
+	} else if (compositor->session_state == WESTON_SESSION_STATE_SUSPENDED) {
 		weston_log("deactivating session\n");
 		udev_input_disable(&b->input);
 
@@ -2483,16 +2483,10 @@ drm_device_changed(struct weston_compositor *compositor,
 	struct drm_backend *b = to_drm_backend(compositor);
 	enum weston_session_state state = compositor->session_state;
 
-	if (b->drm.fd < 0 || b->drm.devnum != device ||
-	    (state == WESTON_SESSION_STATE_ACTIVE && added) ||
-	    (state == WESTON_SESSION_STATE_SUSPENDED && !added))
+	if (b->drm.fd < 0 || b->drm.devnum != device)
 		return;
 
-	if (added)
-		compositor->session_state = WESTON_SESSION_STATE_ACTIVE;
-	else
-		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
-	wl_signal_emit(&compositor->session_signal, compositor);
+	weston_compositor_trigger_session(compositor, added);
 }
 
 /**
