@@ -3007,6 +3007,8 @@ weston_output_finish_frame(struct weston_output *output,
 
 out:
 	output->repaint_status = REPAINT_SCHEDULED;
+	wl_signal_emit(&output->repaint_finished_signal, output);
+	wl_signal_emit(&output->repaint_scheduled_signal, output);
 	output_repaint_timer_arm(compositor);
 }
 
@@ -3168,6 +3170,7 @@ weston_output_schedule_repaint(struct weston_output *output)
 	assert(!output->idle_repaint_source);
 	output->idle_repaint_source = wl_event_loop_add_idle(loop, idle_repaint,
 							     output);
+	wl_signal_emit(&output->repaint_scheduled_signal, output);
 	TL_POINT(compositor, "core_repaint_enter_loop", TLP_OUTPUT(output), TLP_END);
 }
 
@@ -6350,6 +6353,8 @@ weston_output_enable(struct weston_output *output)
 
 	wl_signal_init(&output->frame_signal);
 	wl_signal_init(&output->destroy_signal);
+	wl_signal_init(&output->repaint_scheduled_signal);
+	wl_signal_init(&output->repaint_finished_signal);
 
 	weston_output_transform_scale_init(output, output->transform, output->scale);
 	weston_output_init_zoom(output);

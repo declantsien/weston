@@ -281,6 +281,8 @@ struct weston_output {
 	struct weston_output_zoom zoom;
 	int dirty;
 	struct wl_signal frame_signal;
+	struct wl_signal repaint_scheduled_signal; /**< sent when output scheduled for repaint */
+	struct wl_signal repaint_finished_signal; /**< sent when output flip complete */
 	struct wl_signal destroy_signal;	/**< sent when disabled */
 	int move_x, move_y;
 	struct timespec frame_time; /* presentation timestamp */
