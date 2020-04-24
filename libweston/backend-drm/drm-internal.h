@@ -822,6 +822,9 @@ drm_output_fini_egl(struct drm_output *output);
 struct drm_fb *
 drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage);
 
+struct drm_fb *
+drm_output_get_fb(struct drm_output *output, struct gbm_surface *surface);
+
 void
 renderer_switch_binding(struct weston_keyboard *keyboard,
 			const struct timespec *time, uint32_t key, void *data);
@@ -880,6 +883,12 @@ drm_output_fini_egl(struct drm_output *output)
 
 inline static struct drm_fb *
 drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
+{
+	return NULL;
+}
+
+inline static struct drm_fb *
+drm_output_get_fb(struct drm_output *output, struct gbm_surface *surface)
 {
 	return NULL;
 }

@@ -337,14 +337,20 @@ struct drm_fb *
 drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 {
 	struct drm_output *output = state->output;
-	struct drm_backend *b = to_drm_backend(output->base.compositor);
-	struct gbm_bo *bo;
-	struct drm_fb *ret;
 
 	output->base.compositor->renderer->repaint_output(&output->base,
 							  damage);
 
-	bo = gbm_surface_lock_front_buffer(output->gbm_surface);
+	return drm_output_get_fb(output, output->gbm_surface);
+}
+
+struct drm_fb *
+drm_output_get_fb(struct drm_output *output, struct gbm_surface *surface) {
+	struct drm_backend *b = to_drm_backend(output->base.compositor);
+	struct gbm_bo *bo;
+	struct drm_fb *ret;
+
+	bo = gbm_surface_lock_front_buffer(surface);
 	if (!bo) {
 		weston_log("failed to lock front buffer: %s\n",
 			   strerror(errno));
@@ -358,8 +364,8 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 		gbm_surface_release_buffer(output->gbm_surface, bo);
 		return NULL;
 	}
-	ret->gbm_surface = output->gbm_surface;
 
+	ret->gbm_surface = surface;
 	return ret;
 }
 
