@@ -2413,6 +2413,186 @@ drm_destroy(struct weston_compositor *ec)
 }
 
 static void
+switch_to_suspended(void *data)
+{
+	struct weston_compositor *ec = data;
+	ec->session_state = WESTON_SESSION_STATE_SUSPENDED;
+	wl_signal_emit(&ec->session_signal, ec);
+}
+
+static void
+suspend_repaint_schedule_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_output *output_base = data;
+	struct drm_output *output = to_drm_output(output_base);
+
+	output->suspend_state = STATE_SCHEDULED;
+}
+
+static void
+suspend_repaint_finished_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_output *output_base = data;
+	struct drm_output *output = to_drm_output(output_base);
+	struct drm_backend *b = output->backend;
+	struct weston_compositor *compositor = b->compositor;
+
+	if (output->suspend_state != STATE_SCHEDULED) {
+		/* we didnt go through suspend_repaint_schedule_notify
+		 * probably because a paint was in flight with the previous
+		 * surface, which stopped the paint from being scheduled.
+		 * schedule a repaint of this output.
+		 */
+		weston_output_damage(output_base);
+		return;
+	}
+
+	output->suspend_state = STATE_FINISHED;
+	if (b->suspend_outstanding)
+		b->suspend_outstanding--;
+
+	wl_list_remove(&output->schedule_repaint_listener.link);
+	wl_list_remove(&output->finished_repaint_listener.link);
+	if (b->suspend_outstanding == 0) {
+		/* all scheduled outputs have repainted. We can now
+		 * move to WESTON_SESSION_STATE_SUSPENDED
+		 */
+		switch_to_suspended(compositor);
+	}
+}
+
+static void destroy_surfaces(void *data)
+{
+	struct drm_output *output = (struct drm_output *)data;
+
+	if (output->suspend_window_surface)
+	{
+		drm_output_destroy_window_surface(output,
+			output->suspend_window_surface);
+		output->suspend_window_surface = NULL;
+	}
+	if (output->suspend_gbm_surface)
+	{
+		drm_output_destroy_gbm_surface(output,
+			output->suspend_gbm_surface);
+		output->suspend_gbm_surface = NULL;
+	}
+}
+
+static void
+cleanup_suspend_buffers(struct weston_compositor *compositor)
+{
+	struct drm_backend *b = to_drm_backend(compositor);
+	struct drm_output *output;
+	struct drm_fb *fb;
+
+
+	wl_list_for_each(output, &compositor->output_list, base.link) {
+		/* only cleanup if this output went through handle_suspending */
+		if (!output->suspend_gbm_surface)
+			continue;
+
+		fb = drm_fb_from_gbm_surface(b, output->gbm_surface);
+		if (fb) {
+			drm_fb_on_destroy(fb, destroy_surfaces, output);
+			drm_fb_forget(fb);
+		}
+		if (output->suspend_window_surface) {
+			output->suspend_window_surface =
+				drm_output_switch_window_surface(
+				output, output->suspend_window_surface);
+		}
+		if (output->suspend_gbm_surface) {
+			output->suspend_gbm_surface =
+				drm_output_switch_gbm_surface(output,
+						output->suspend_gbm_surface);
+		}
+		/* reset any in flight painting */
+		weston_output_schedule_repaint_reset(&output->base);
+	}
+}
+
+static int
+handle_suspend_ready(struct weston_compositor *compositor)
+{
+	struct drm_backend *b = to_drm_backend(compositor);
+	void *win_surface = NULL;
+	struct gbm_surface *gbm_surface;
+	struct drm_output *output;
+
+	/* allocate a temp surface for each output */
+	wl_list_for_each(output, &compositor->output_list, base.link) {
+		gbm_surface = drm_output_create_gbm_surface(output, b);
+		if (!gbm_surface)
+			goto err;
+
+		win_surface = drm_output_create_window_surface(
+			output, gbm_surface);
+		if (!win_surface)
+			goto err;
+
+		output->suspend_gbm_surface = drm_output_switch_gbm_surface(
+							output, gbm_surface);
+		output->suspend_window_surface =
+			drm_output_switch_window_surface(output, win_surface);
+	}
+
+	/* Track repaint for each output */
+	b->suspend_outstanding = 0;
+	wl_list_for_each(output, &compositor->output_list, base.link) {
+		b->suspend_outstanding++;
+		output->suspend_state = STATE_SCHEDULING;
+		output->schedule_repaint_listener.notify =
+			suspend_repaint_schedule_notify;
+		output->finished_repaint_listener.notify =
+			suspend_repaint_finished_notify;
+		wl_signal_add(&output->base.repaint_scheduled_signal,
+			&output->schedule_repaint_listener);
+		wl_signal_add(&output->base.repaint_finished_signal,
+			&output->finished_repaint_listener);
+	}
+
+	/* Force a repaint.
+	 * Once all outputs have finished a repaint, we can move
+	 * to WESTON_SESSION_STATE_SUSPENDED
+	 */
+	weston_compositor_damage_all(compositor);
+
+	return 0;
+
+err:
+	cleanup_suspend_buffers(compositor);
+	return -1;
+}
+
+static void
+handle_suspended(struct weston_compositor *compositor)
+{
+	struct drm_backend *b = to_drm_backend(compositor);
+	struct drm_output *output;
+	struct drm_fb *fb;
+
+	/* If we went through WESTON_SESSION_STATE_SUSPEND_READY we remove all
+	 * fbs, then add the safe fb back.
+	 * If we didnt due to device being removed behind without
+	 * mediation (logind), we just remove all fbs
+	 */
+	wl_list_for_each(output, &compositor->output_list, base.link) {
+		if (!output->suspend_gbm_surface)
+			continue;
+		/* we went through handle_suspend_ready.
+		 * add back the safe fb
+		 */
+		fb = drm_fb_from_gbm_surface(b, output->gbm_surface);
+		if (!fb)
+			continue;
+		fb->suspend_safe = true;
+	}
+
+	drm_fb_suspend(b);
+}
+
+static void
 session_notify(struct wl_listener *listener, void *data)
 {
 	struct weston_compositor *compositor = data;
@@ -2420,20 +2600,32 @@ session_notify(struct wl_listener *listener, void *data)
 	struct drm_plane *plane;
 	struct drm_output *output;
 
-	if (compositor->session_state == WESTON_SESSION_STATE_ACTIVE) {
+	if (compositor->session_state == WESTON_SESSION_STATE_RESUMING) {
 		weston_log("activating session\n");
+		cleanup_suspend_buffers(compositor);
 		drm_fb_resume(b);
 		weston_compositor_wake(compositor);
 		weston_compositor_damage_all(compositor);
 		b->state_invalid = true;
 		udev_input_enable(&b->input);
+	} else if (compositor->session_state == WESTON_SESSION_STATE_SUSPEND_READY) {
+		/* create new fbs and render */
+		if (handle_suspend_ready(compositor) < 0) {
+			/* fallback to no fbs */
+			wl_event_loop_add_idle(
+				wl_display_get_event_loop(compositor->wl_display),
+				switch_to_suspended, compositor);
+			return;
+		}
+
 	} else if (compositor->session_state == WESTON_SESSION_STATE_SUSPENDED) {
 		weston_log("deactivating session\n");
+		handle_suspended(compositor);
+
 		udev_input_disable(&b->input);
 
 		weston_compositor_offscreen(compositor);
 
-		drm_fb_suspend(b);
 
 		/* If we have a repaint scheduled (either from a
 		 * pending pageflip or the idle handler), make sure we
@@ -2481,12 +2673,20 @@ drm_device_changed(struct weston_compositor *compositor,
 		dev_t device, bool added)
 {
 	struct drm_backend *b = to_drm_backend(compositor);
-	enum weston_session_state state = compositor->session_state;
 
 	if (b->drm.fd < 0 || b->drm.devnum != device)
 		return;
 
-	weston_compositor_trigger_session(compositor, added);
+	if (added)
+		weston_compositor_trigger_session(compositor, true);
+	else {
+		/* force WESTON_SESSION_STATE_SUSPENDED immediately.
+		 * we no longer have access to the device from this
+		 * point to be able to fade and render safety fb
+		 */
+		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
+		wl_signal_emit(&compositor->session_signal, compositor);
+	}
 }
 
 /**

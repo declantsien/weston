@@ -304,6 +304,8 @@ struct drm_backend {
 
 	/* Tracking list of fb's to remember across vt switch */
 	struct wl_list fb_list;
+	/* Tracking for oustanding suspend repaints */
+	uint32_t suspend_outstanding;
 };
 
 struct drm_mode {
@@ -347,6 +349,13 @@ struct drm_fb {
 
 	/* Used by backend to maintain list of fbs */
 	struct wl_list backend_link;
+
+	/* called after destruction */
+	void *on_destroy_priv;
+	void (*on_destroy)(void *data);
+
+	/* don't remove during suspend */
+	bool suspend_safe;
 };
 
 struct drm_edid {
@@ -489,6 +498,12 @@ struct drm_head {
 	uint32_t inherited_crtc_id;	/**< Original CRTC assignment */
 };
 
+enum drm_output_suspend_state {
+	STATE_SCHEDULING = 0,
+	STATE_SCHEDULED,
+	STATE_FINISHED,
+};
+
 struct drm_output {
 	struct weston_output base;
 	struct drm_backend *backend;
@@ -515,6 +530,9 @@ struct drm_output {
 	uint32_t gbm_format;
 	uint32_t gbm_bo_flags;
 
+	struct gbm_surface *suspend_gbm_surface;
+	void *suspend_window_surface;
+
 	/* Plane being displayed directly on the CRTC */
 	struct drm_plane *scanout_plane;
 
@@ -537,6 +555,9 @@ struct drm_output {
 	bool virtual;
 
 	submit_frame_cb virtual_submit_frame;
+	struct wl_listener schedule_repaint_listener;
+	struct wl_listener finished_repaint_listener;
+	enum drm_output_suspend_state suspend_state;
 };
 
 static inline struct drm_head *
@@ -688,6 +709,8 @@ struct drm_fb *
 drm_fb_ref(struct drm_fb *fb);
 void
 drm_fb_unref(struct drm_fb *fb);
+void drm_fb_on_destroy(struct drm_fb *fb, void (*on_destroy)(void *data),
+		       void *data);
 
 struct drm_fb *
 drm_fb_create_dumb(struct drm_backend *b, int width, int height,
@@ -696,10 +719,16 @@ struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_backend *backend,
 		   bool is_opaque, enum drm_fb_type type);
 
+int
+drm_fb_addfb(struct drm_backend *b, struct drm_fb *fb);
+void
+drm_fb_forget(struct drm_fb *fb);
 void
 drm_fb_suspend(struct drm_backend *b);
 void
 drm_fb_resume(struct drm_backend *b);
+struct drm_fb *
+drm_fb_from_gbm_surface(struct drm_backend *b, struct gbm_surface *surface);
 
 #ifdef BUILD_DRM_GBM
 extern struct drm_fb *

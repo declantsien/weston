@@ -50,7 +50,7 @@ drm_fb_remember(struct drm_backend *b, struct drm_fb *fb)
 	wl_list_insert(&b->fb_list, &fb->backend_link);
 }
 
-static void
+void
 drm_fb_forget(struct drm_fb *fb)
 {
 	wl_list_remove(&fb->backend_link);
@@ -85,7 +85,7 @@ drm_fb_destroy_dumb(struct drm_fb *fb)
 	drm_fb_destroy(fb);
 }
 
-static int
+int
 drm_fb_addfb(struct drm_backend *b, struct drm_fb *fb)
 {
 	int ret = -EINVAL;
@@ -493,15 +493,28 @@ drm_fb_set_buffer(struct drm_fb *fb, struct weston_buffer *buffer,
 }
 #endif
 
+void drm_fb_on_destroy(struct drm_fb *fb, void (*on_destroy)(void *data),
+		       void *data)
+{
+	fb->on_destroy_priv = data;
+	fb->on_destroy = on_destroy;
+}
+
 void
 drm_fb_unref(struct drm_fb *fb)
 {
+	void (*on_destroy)(void *) = NULL;
+	void *on_destroy_priv = NULL;
+
 	if (!fb)
 		return;
 
 	assert(fb->refcnt > 0);
 	if (--fb->refcnt > 0)
 		return;
+
+	on_destroy = fb->on_destroy;
+	on_destroy_priv = fb->on_destroy_priv;
 
 	switch (fb->type) {
 	case BUFFER_PIXMAN_DUMB:
@@ -523,6 +536,10 @@ drm_fb_unref(struct drm_fb *fb)
 		assert(NULL);
 		break;
 	}
+
+	if (on_destroy)
+		on_destroy(on_destroy_priv);
+
 }
 
 #ifdef BUILD_DRM_GBM
@@ -615,6 +632,8 @@ drm_fb_suspend(struct drm_backend *b)
 
 	/* Remove fbs so they cant be discovered by new vt master */
 	wl_list_for_each(fb, &b->fb_list, backend_link) {
+		if (fb->suspend_safe)
+			continue;
 		drm_fb_rmfb(b, fb);
 	}
 }
@@ -626,6 +645,21 @@ drm_fb_resume(struct drm_backend *b)
 
 	/* Add back any active fbs that were removed when going inactive */
 	wl_list_for_each(fb, &b->fb_list, backend_link) {
+		if (fb->suspend_safe)
+			continue;
 		drm_fb_addfb(b, fb);
 	}
+}
+
+struct drm_fb *
+drm_fb_from_gbm_surface(struct drm_backend *b, struct gbm_surface *surface)
+{
+	struct drm_fb *fb;
+
+	wl_list_for_each(fb, &b->fb_list, backend_link) {
+		if (fb->gbm_surface == surface)
+			return fb;
+	}
+
+	return NULL;
 }

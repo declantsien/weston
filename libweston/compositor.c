@@ -2801,7 +2801,7 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 	return r;
 }
 
-static void
+WL_EXPORT void
 weston_output_schedule_repaint_reset(struct weston_output *output)
 {
 	output->repaint_status = REPAINT_NOT_SCHEDULED;
@@ -7290,14 +7290,6 @@ switch_to_active(void *data)
 }
 
 static void
-switch_to_suspend_ready(void *data)
-{
-	struct weston_compositor *ec = data;
-	ec->session_state = WESTON_SESSION_STATE_SUSPENDED;
-	wl_signal_emit(&ec->session_signal, ec);
-}
-
-static void
 switch_to_suspended(void *data)
 {
 	struct weston_compositor *ec = data;
@@ -7318,8 +7310,6 @@ session_notify(struct wl_listener *listener, void *data)
 	struct wl_event_loop *loop = wl_display_get_event_loop(ec->wl_display);
 
 	if (ec->session_state == WESTON_SESSION_STATE_SUSPENDING)
-		wl_event_loop_add_idle(loop, switch_to_suspend_ready, ec);
-	else if (ec->session_state == WESTON_SESSION_STATE_SUSPEND_READY)
 		wl_event_loop_add_idle(loop, switch_to_suspended, ec);
 	else if (ec->session_state == WESTON_SESSION_STATE_RESUMING)
 		wl_event_loop_add_idle(loop, switch_to_active, ec);
