@@ -3964,13 +3964,32 @@ unfocus_all_seats(struct desktop_shell *shell)
 	}
 }
 
+static void lock_maybe_sleep(struct desktop_shell *shell)
+{
+	/* if session is suspending, don't sleep yet as the
+	 * compositor will still need to do a final render.
+	 * The backend will offscreen when suspended
+	 */
+	if (shell->compositor->session_state == WESTON_SESSION_STATE_SUSPENDING) {
+		/* we are locked, we can now signal that we
+		 * are ready for suspend
+		 */
+		shell->compositor->session_state =
+			WESTON_SESSION_STATE_SUSPEND_READY;
+		wl_signal_emit(&shell->compositor->session_signal,
+			       shell->compositor);
+	} else {
+		weston_compositor_sleep(shell->compositor);
+	}
+}
+
 static void
 lock(struct desktop_shell *shell)
 {
 	struct workspace *ws = get_current_workspace(shell);
 
 	if (shell->locked) {
-		weston_compositor_sleep(shell->compositor);
+		lock_maybe_sleep(shell);
 		return;
 	}
 
@@ -3989,7 +4008,7 @@ lock(struct desktop_shell *shell)
 	weston_layer_set_position(&shell->lock_layer,
 				  WESTON_LAYER_POSITION_LOCK);
 
-	weston_compositor_sleep(shell->compositor);
+	lock_maybe_sleep(shell);
 
 	/* Remove the keyboard focus on all seats. This will be
 	 * restored to the workspace's saved state via
@@ -4002,9 +4021,22 @@ lock(struct desktop_shell *shell)
 }
 
 static void
+switch_to_active(void *data)
+{
+	struct weston_compositor *ec = data;
+	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
+	wl_signal_emit(&ec->session_signal, ec);
+}
+
+static void
 unlock(struct desktop_shell *shell)
 {
 	struct wl_resource *shell_resource;
+	struct weston_compositor *ec = shell->compositor;
+	struct wl_event_loop *loop = wl_display_get_event_loop(ec->wl_display);
+
+	if (shell->compositor->session_state == WESTON_SESSION_STATE_RESUMING)
+		wl_event_loop_add_idle(loop, switch_to_active, ec);
 
 	if (!shell->locked || shell->lock_surface) {
 		shell_fade(shell, FADE_IN);
@@ -4031,6 +4063,9 @@ shell_fade_done_for_output(struct weston_view_animation *animation, void *data)
 	struct shell_output *shell_output = data;
 	struct desktop_shell *shell = shell_output->shell;
 
+	if (shell->pending_fades)
+		shell->pending_fades--;
+
 	shell_output->fade.animation = NULL;
 	switch (shell_output->fade.type) {
 	case FADE_IN:
@@ -4038,7 +4073,8 @@ shell_fade_done_for_output(struct weston_view_animation *animation, void *data)
 		shell_output->fade.view = NULL;
 		break;
 	case FADE_OUT:
-		lock(shell);
+		if (!shell->pending_fades)
+			lock(shell);
 		break;
 	default:
 		break;
@@ -4116,6 +4152,7 @@ shell_fade(struct desktop_shell *shell, enum fade_type type)
 		} else if (shell_output->fade.animation) {
 			weston_fade_update(shell_output->fade.animation, tint);
 		} else {
+			shell->pending_fades++;
 			shell_output->fade.animation =
 				weston_fade_run(shell_output->fade.view,
 						1.0 - tint, tint, 300.0,
@@ -4210,11 +4247,8 @@ shell_fade_init(struct desktop_shell *shell)
 }
 
 static void
-idle_handler(struct wl_listener *listener, void *data)
+handle_idle(struct desktop_shell *shell)
 {
-	struct desktop_shell *shell =
-		container_of(listener, struct desktop_shell, idle_listener);
-
 	struct weston_seat *seat;
 
 	wl_list_for_each(seat, &shell->compositor->seat_list, link)
@@ -4225,12 +4259,37 @@ idle_handler(struct wl_listener *listener, void *data)
 }
 
 static void
+idle_handler(struct wl_listener *listener, void *data)
+{
+	struct desktop_shell *shell =
+		container_of(listener, struct desktop_shell, idle_listener);
+	handle_idle(shell);
+}
+
+static void
+handle_wake(struct desktop_shell *shell)
+{
+	unlock(shell);
+}
+
+static void
 wake_handler(struct wl_listener *listener, void *data)
 {
 	struct desktop_shell *shell =
 		container_of(listener, struct desktop_shell, wake_listener);
+	handle_wake(shell);
+}
 
-	unlock(shell);
+static void
+session_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_compositor *compositor = data;
+	struct desktop_shell *shell = container_of(listener,
+			struct desktop_shell, session_listener);
+
+	if (compositor->session_state == WESTON_SESSION_STATE_SUSPENDING)
+		handle_idle(shell);
+	/* wake triggered by wake_signal */
 }
 
 static void
@@ -4999,6 +5058,8 @@ shell_destroy(struct wl_listener *listener, void *data)
 		wl_client_destroy(shell->child.client);
 	}
 
+	weston_compositor_remove_session_listener(
+		shell->compositor, &shell->session_listener);
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->idle_listener.link);
 	wl_list_remove(&shell->wake_listener.link);
@@ -5161,6 +5222,8 @@ wet_shell_init(struct weston_compositor *ec,
 	wl_signal_add(&ec->wake_signal, &shell->wake_listener);
 	shell->transform_listener.notify = transform_handler;
 	wl_signal_add(&ec->transform_signal, &shell->transform_listener);
+	shell->session_listener.notify = session_notify;
+	weston_compositor_set_session_listener(ec, &shell->session_listener);
 
 	weston_layer_init(&shell->fullscreen_layer, ec);
 	weston_layer_init(&shell->panel_layer, ec);

@@ -2075,6 +2075,13 @@ weston_timeline_refresh_subscription_objects(struct weston_compositor *wc,
 void
 weston_compositor_trigger_session(struct weston_compositor *ec, bool active);
 
+void weston_compositor_set_session_listener(
+						struct weston_compositor *compositor,
+						struct wl_listener *listener);
+void weston_compositor_remove_session_listener(
+						struct weston_compositor *compositor,
+						struct wl_listener *listener);
+
 #ifdef  __cplusplus
 }
 #endif

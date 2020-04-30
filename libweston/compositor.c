@@ -7347,6 +7347,26 @@ weston_compositor_trigger_session(struct weston_compositor *ec, bool active)
 	}
 }
 
+WL_EXPORT void
+weston_compositor_set_session_listener(
+					struct weston_compositor *compositor,
+					struct wl_listener *listener)
+{
+	wl_list_remove(&compositor->session_listener.link);
+	wl_list_init(&compositor->session_listener.link);
+	wl_signal_add(&compositor->session_signal, listener);
+}
+
+WL_EXPORT void
+weston_compositor_remove_session_listener(
+					struct weston_compositor *compositor,
+					struct wl_listener *listener)
+{
+	wl_list_remove(&listener->link);
+	wl_list_init(&listener->link);
+	wl_signal_add(&compositor->session_signal, &compositor->session_listener);
+}
+
 /** Create the compositor.
  *
  * This functions creates and initializes a compositor instance.
