@@ -60,13 +60,15 @@ struct launcher_logind {
 	char *seat;
 	char *sid;
 	unsigned int vtnr;
-	int vt;
+	int suspend_vt;
 	int kb_mode;
 
 	DBusConnection *dbus;
 	struct wl_event_source *dbus_ctx;
 	char *spath;
 	DBusPendingCall *pending_active;
+
+	struct wl_listener session_listener;
 };
 
 static int
@@ -240,9 +242,8 @@ launcher_logind_close(struct weston_launcher *launcher, int fd)
 }
 
 static int
-launcher_logind_activate_vt(struct weston_launcher *launcher, int vt)
+activate_vt(struct launcher_logind *wl, int vt)
 {
-	struct launcher_logind *wl = wl_container_of(launcher, wl, base);
 	DBusMessage *m;
 	bool b;
 	int r;
@@ -268,6 +269,37 @@ launcher_logind_activate_vt(struct weston_launcher *launcher, int vt)
  err_unref:
 	dbus_message_unref(m);
 	return r;
+}
+
+static void
+session_notify(struct wl_listener *listener, void *data)
+{
+	struct launcher_logind *wl = wl_container_of(listener, wl, session_listener);
+
+	switch (wl->compositor->session_state) {
+	case WESTON_SESSION_STATE_SUSPENDED:
+		if (wl->suspend_vt >= 0)
+			activate_vt(wl, wl->suspend_vt);
+		break;
+	case WESTON_SESSION_STATE_RESUMING:
+		wl->suspend_vt = -1;
+		wl_list_remove(&wl->session_listener.link);
+		break;
+	default:
+		break;
+	}
+}
+
+static int
+launcher_logind_activate_vt(struct weston_launcher *launcher, int vt)
+{
+	struct launcher_logind *wl = wl_container_of(launcher, wl, base);
+
+	wl->suspend_vt = vt;
+	wl_signal_add(&wl->compositor->session_signal, &wl->session_listener);
+	weston_compositor_trigger_session(wl->compositor, false);
+
+	return 0;
 }
 
 static void
@@ -483,7 +515,8 @@ device_paused(struct launcher_logind *wl, DBusMessage *m)
 	if (!strcmp(type, "pause"))
 		launcher_logind_pause_device_complete(wl, major, minor);
 
-	if (wl->sync_drm && wl->compositor->backend->device_changed)
+	if (wl->sync_drm && wl->compositor->backend->device_changed &&
+	    wl->suspend_vt == -1)
 		wl->compositor->backend->device_changed(wl->compositor,
 							makedev(major,minor),
 							false);
@@ -734,6 +767,8 @@ launcher_logind_connect(struct weston_launcher **out, struct weston_compositor *
 	wl->base.iface = &launcher_logind_iface;
 	wl->compositor = compositor;
 	wl->sync_drm = sync_drm;
+	wl->session_listener.notify = session_notify;
+	wl->suspend_vt = -1;
 
 	wl->seat = strdup(seat_id);
 	if (!wl->seat) {
@@ -743,7 +778,7 @@ launcher_logind_connect(struct weston_launcher **out, struct weston_compositor *
 
 	r = sd_pid_get_session(getpid(), &wl->sid);
 	if (r < 0) {
-		weston_log("logind: not running in a systemd session\n");
+		weston_log("logind: not running in a systemd sion\n");
 		goto err_seat;
 	}
 
