@@ -4747,7 +4747,7 @@ weston_compositor_wake(struct weston_compositor *compositor)
 	/* The state needs to be changed before emitting the wake
 	 * signal because that may try to schedule a repaint which
 	 * will not work if the compositor is still sleeping */
-	compositor->state = WESTON_COMPOSITOR_ACTIVE;
+	weston_compositor_set_state(compositor, WESTON_COMPOSITOR_ACTIVE);
 
 	switch (old_state) {
 	case WESTON_COMPOSITOR_SLEEPING:
@@ -4781,7 +4781,8 @@ weston_compositor_offscreen(struct weston_compositor *compositor)
 		return;
 	case WESTON_COMPOSITOR_SLEEPING:
 	default:
-		compositor->state = WESTON_COMPOSITOR_OFFSCREEN;
+		weston_compositor_set_state(compositor,
+					    WESTON_COMPOSITOR_OFFSCREEN);
 		wl_event_source_timer_update(compositor->idle_source, 0);
 	}
 }
@@ -4805,7 +4806,7 @@ weston_compositor_sleep(struct weston_compositor *compositor)
 		return;
 
 	wl_event_source_timer_update(compositor->idle_source, 0);
-	compositor->state = WESTON_COMPOSITOR_SLEEPING;
+	weston_compositor_set_state(compositor, WESTON_COMPOSITOR_SLEEPING);
 	weston_compositor_dpms(compositor, WESTON_DPMS_OFF);
 }
 
@@ -4829,7 +4830,7 @@ idle_handler(void *data)
 	if (compositor->idle_inhibit)
 		return 1;
 
-	compositor->state = WESTON_COMPOSITOR_IDLE;
+	weston_compositor_set_state(compositor, WESTON_COMPOSITOR_IDLE);
 	wl_signal_emit(&compositor->idle_signal, compositor);
 
 	return 1;
@@ -7500,6 +7501,10 @@ weston_compositor_create(struct wl_display *display,
 						weston_timeline_create_subscription,
 						weston_timeline_destroy_subscription,
 						ec);
+	ec->debug_session =
+		weston_compositor_add_log_scope(ec, "session",
+						"Compositor session events\n",
+						NULL, NULL, NULL);
 	return ec;
 
 fail:
@@ -7847,7 +7852,7 @@ WL_EXPORT void
 weston_compositor_destroy(struct weston_compositor *compositor)
 {
 	/* prevent further rendering while shutting down */
-	compositor->state = WESTON_COMPOSITOR_OFFSCREEN;
+	weston_compositor_set_state(compositor, WESTON_COMPOSITOR_OFFSCREEN);
 
 	wl_signal_emit(&compositor->destroy_signal, compositor);
 
@@ -7869,6 +7874,9 @@ weston_compositor_destroy(struct weston_compositor *compositor)
 
 	weston_log_scope_destroy(compositor->timeline);
 	compositor->timeline = NULL;
+
+	weston_log_scope_destroy(compositor->debug_session);
+	compositor->debug_session = NULL;
 
 	free(compositor);
 }
@@ -8030,4 +8038,31 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	if (output->disable_planes == 0)
 		weston_schedule_surface_protection_update(output->compositor);
 
+}
+
+static const char *
+weston_compositor_state_text(enum weston_compositor_state state)
+{
+	switch (state) {
+	case WESTON_COMPOSITOR_ACTIVE:
+		return "WESTON_COMPOSITOR_ACTIVE";
+	case WESTON_COMPOSITOR_IDLE:
+		return "WESTON_COMPOSITOR_IDLE";
+	case WESTON_COMPOSITOR_OFFSCREEN:
+		return "WESTON_COMPOSITOR_OFFSCREEN";
+	case WESTON_COMPOSITOR_SLEEPING:
+		return "WESTON_COMPOSITOR_SLEEPING";
+	default:
+		return "<UNKNOWN>";
+	}
+}
+
+WL_EXPORT void
+weston_compositor_set_state(struct weston_compositor *compositor,
+			    enum weston_compositor_state state)
+{
+	weston_log_scope_printf(compositor->debug_session, "[session] state: %s->%s\n",
+				weston_compositor_state_text(compositor->state),
+				weston_compositor_state_text(state));
+	compositor->state = state;
 }

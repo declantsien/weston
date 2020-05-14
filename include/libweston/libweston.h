@@ -799,7 +799,7 @@ struct weston_seat {
 	char *seat_name;
 };
 
-enum {
+enum weston_compositor_state {
 	WESTON_COMPOSITOR_ACTIVE,	/* normal rendering and events */
 	WESTON_COMPOSITOR_IDLE,		/* shell->unlock called on activity */
 	WESTON_COMPOSITOR_OFFSCREEN,	/* no rendering, no frame events */
@@ -1133,6 +1133,7 @@ struct weston_compositor {
 	struct weston_log_context *weston_log_ctx;
 	struct weston_log_scope *debug_scene;
 	struct weston_log_scope *timeline;
+	struct weston_log_scope *debug_session;
 
 	struct content_protection *content_protection;
 };
@@ -1629,6 +1630,9 @@ struct weston_view *
 weston_compositor_pick_view(struct weston_compositor *compositor,
 			    wl_fixed_t x, wl_fixed_t y,
 			    wl_fixed_t *sx, wl_fixed_t *sy);
+void
+weston_compositor_set_state(struct weston_compositor *compositor,
+			    enum weston_compositor_state state);
 
 
 struct weston_binding;

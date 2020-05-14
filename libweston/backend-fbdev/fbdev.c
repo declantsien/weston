@@ -773,7 +773,7 @@ session_notify(struct wl_listener *listener, void *data)
 
 	if (compositor->session_state == WESTON_SESSION_STATE_ACTIVE) {
 		weston_log("entering VT\n");
-		compositor->state = backend->prev_state;
+		weston_compositor_set_state(compositor, backend->prev_state);
 
 		wl_list_for_each(output, &compositor->output_list, link) {
 			fbdev_output_reenable(backend, output);
