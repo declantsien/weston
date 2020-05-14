@@ -3974,10 +3974,8 @@ static void lock_maybe_sleep(struct desktop_shell *shell)
 		/* we are locked, we can now signal that we
 		 * are ready for suspend
 		 */
-		shell->compositor->session_state =
-			WESTON_SESSION_STATE_SUSPEND_READY;
-		wl_signal_emit(&shell->compositor->session_signal,
-			       shell->compositor);
+		weston_compositor_set_session_state(shell->compositor,
+					WESTON_SESSION_STATE_SUSPEND_READY);
 	} else {
 		weston_compositor_sleep(shell->compositor);
 	}
@@ -4024,8 +4022,7 @@ static void
 switch_to_active(void *data)
 {
 	struct weston_compositor *ec = data;
-	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
-	wl_signal_emit(&ec->session_signal, ec);
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_ACTIVE);
 }
 
 static void

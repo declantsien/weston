@@ -7286,16 +7286,14 @@ static void
 switch_to_active(void *data)
 {
 	struct weston_compositor *ec = data;
-	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
-	wl_signal_emit(&ec->session_signal, ec);
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_ACTIVE);
 }
 
 static void
 switch_to_suspended(void *data)
 {
 	struct weston_compositor *ec = data;
-	ec->session_state = WESTON_SESSION_STATE_SUSPENDED;
-	wl_signal_emit(&ec->session_signal, ec);
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_SUSPENDED);
 }
 
 /** Default session_state handler
@@ -7330,9 +7328,8 @@ weston_compositor_trigger_session(struct weston_compositor *ec, bool active)
 			case WESTON_SESSION_STATE_SUSPENDED:
 			case WESTON_SESSION_STATE_SUSPENDING:
 			case WESTON_SESSION_STATE_SUSPEND_READY:
-				ec->session_state =
-					WESTON_SESSION_STATE_RESUMING;
-				wl_signal_emit(&ec->session_signal, ec);
+				weston_compositor_set_session_state(ec,
+						WESTON_SESSION_STATE_RESUMING);
 			default:
 				break;
 		}
@@ -7340,9 +7337,8 @@ weston_compositor_trigger_session(struct weston_compositor *ec, bool active)
 		switch (ec->session_state) {
 			case WESTON_SESSION_STATE_ACTIVE:
 			case WESTON_SESSION_STATE_RESUMING:
-				ec->session_state =
-					WESTON_SESSION_STATE_SUSPENDING;
-				wl_signal_emit(&ec->session_signal, ec);
+				weston_compositor_set_session_state(ec,
+						WESTON_SESSION_STATE_SUSPENDING);
 			default:
 				break;
 		}
@@ -7419,7 +7415,7 @@ weston_compositor_create(struct wl_display *display,
 	wl_signal_init(&ec->session_signal);
 	ec->session_listener.notify = session_notify;
 	wl_signal_add(&ec->session_signal, &ec->session_listener);
-	ec->session_state = WESTON_SESSION_STATE_ACTIVE;
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_ACTIVE);
 
 	ec->output_id_pool = 0;
 	ec->repaint_msec = DEFAULT_REPAINT_WINDOW;
@@ -8065,4 +8061,37 @@ weston_compositor_set_state(struct weston_compositor *compositor,
 				weston_compositor_state_text(compositor->state),
 				weston_compositor_state_text(state));
 	compositor->state = state;
+}
+
+static const char *
+weston_session_state_text(enum weston_session_state state)
+{
+	switch (state) {
+	case WESTON_SESSION_STATE_RESUMING:
+		return "WESTON_SESSION_STATE_RESUMING";
+	case WESTON_SESSION_STATE_ACTIVE:
+		return "WESTON_SESSION_STATE_ACTIVE";
+	case WESTON_SESSION_STATE_SUSPENDING:
+		return "WESTON_SESSION_STATE_SUSPENDING";
+	case WESTON_SESSION_STATE_SUSPEND_READY:
+		return "WESTON_SESSION_STATE_SUSPEND_READY";
+	case WESTON_SESSION_STATE_SUSPENDED:
+		return "WESTON_SESSION_STATE_SUSPENDED";
+	case WESTON_SESSION_STATE_VT_SWITCH:
+		return "WESTON_SESSION_STATE_VT_SWITCH";
+	default:
+		return "<UNKNOWN>";
+	}
+}
+
+WL_EXPORT void
+weston_compositor_set_session_state(struct weston_compositor *compositor,
+				    enum weston_session_state state)
+{
+	weston_log_scope_printf(compositor->debug_session,
+			"[session] session_state: %s->%s\n",
+			weston_session_state_text(compositor->session_state),
+			weston_session_state_text(state));
+	compositor->session_state = state;
+	wl_signal_emit(&compositor->session_signal, compositor);
 }

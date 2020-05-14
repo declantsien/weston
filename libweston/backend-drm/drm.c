@@ -2416,16 +2416,14 @@ static void
 switch_to_suspended(void *data)
 {
 	struct weston_compositor *ec = data;
-	ec->session_state = WESTON_SESSION_STATE_SUSPENDED;
-	wl_signal_emit(&ec->session_signal, ec);
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_SUSPENDED);
 }
 
 static void
 switch_to_vt_switch(void *data)
 {
 	struct weston_compositor *ec = data;
-	ec->session_state = WESTON_SESSION_STATE_VT_SWITCH;
-	wl_signal_emit(&ec->session_signal, ec);
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_VT_SWITCH);
 }
 
 static void
@@ -2695,8 +2693,8 @@ drm_device_changed(struct weston_compositor *compositor,
 		 * we no longer have access to the device from this
 		 * point to be able to fade and render safety fb
 		 */
-		compositor->session_state = WESTON_SESSION_STATE_SUSPENDED;
-		wl_signal_emit(&compositor->session_signal, compositor);
+		weston_compositor_set_session_state(compositor,
+						WESTON_SESSION_STATE_SUSPENDED);
 	}
 }
 

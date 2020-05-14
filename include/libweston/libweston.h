@@ -1633,6 +1633,9 @@ weston_compositor_pick_view(struct weston_compositor *compositor,
 void
 weston_compositor_set_state(struct weston_compositor *compositor,
 			    enum weston_compositor_state state);
+void
+weston_compositor_set_session_state(struct weston_compositor *compositor,
+				    enum weston_session_state state);
 
 
 struct weston_binding;
