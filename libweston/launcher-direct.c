@@ -104,7 +104,7 @@ vt_handler(int signal_number, void *data)
 	struct launcher_direct *launcher = data;
 	struct weston_compositor *compositor = launcher->compositor;
 
-	if (compositor->session_state != WESTON_SESSION_STATE_SUSPENDED) {
+	if (compositor->session_state != WESTON_SESSION_STATE_VT_SWITCH) {
 		weston_compositor_trigger_session(compositor, false);
 	} else {
 		ioctl(launcher->tty, VT_RELDISP, VT_ACKACQ);
@@ -122,7 +122,7 @@ session_notify(struct wl_listener *listener, void *data)
 	struct launcher_direct *launcher =
 				wl_container_of(listener, launcher, session_listener);
 
-	if (compositor->session_state == WESTON_SESSION_STATE_SUSPENDED) {
+	if (compositor->session_state == WESTON_SESSION_STATE_VT_SWITCH) {
 		drmDropMaster(launcher->drm_fd);
 		ioctl(launcher->tty, VT_RELDISP, 1);
 	}

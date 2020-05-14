@@ -240,7 +240,7 @@ session_notify(struct wl_listener *listener, void *data)
 				wl_container_of(listener, launcher, session_listener);
 	int reply = WESTON_LAUNCHER_DEACTIVATE_DONE;
 
-	if (compositor->session_state != WESTON_SESSION_STATE_SUSPENDED)
+	if (compositor->session_state != WESTON_SESSION_STATE_VT_SWITCH)
 		return;
 
 	launcher_weston_launch_send(launcher->fd, &reply, sizeof reply);

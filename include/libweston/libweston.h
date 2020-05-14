@@ -1010,6 +1010,7 @@ enum weston_session_state {
 	WESTON_SESSION_STATE_SUSPENDING,
 	WESTON_SESSION_STATE_SUSPEND_READY,
 	WESTON_SESSION_STATE_SUSPENDED,
+	WESTON_SESSION_STATE_VT_SWITCH,
 };
 
 /** Main object, container-like structure which aggregates all other objects.

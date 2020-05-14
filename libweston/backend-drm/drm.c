@@ -2421,6 +2421,14 @@ switch_to_suspended(void *data)
 }
 
 static void
+switch_to_vt_switch(void *data)
+{
+	struct weston_compositor *ec = data;
+	ec->session_state = WESTON_SESSION_STATE_VT_SWITCH;
+	wl_signal_emit(&ec->session_signal, ec);
+}
+
+static void
 suspend_repaint_schedule_notify(struct wl_listener *listener, void *data)
 {
 	struct weston_output *output_base = data;
@@ -2654,6 +2662,9 @@ session_notify(struct wl_listener *listener, void *data)
 					output->crtc_id, 0, 0,
 					0, 0, 0, 0, 0, 0, 0, 0);
 		}
+		wl_event_loop_add_idle(
+			wl_display_get_event_loop(compositor->wl_display),
+			switch_to_vt_switch, compositor);
 	}
 }
 

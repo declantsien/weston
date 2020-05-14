@@ -277,7 +277,7 @@ session_notify(struct wl_listener *listener, void *data)
 	struct launcher_logind *wl = wl_container_of(listener, wl, session_listener);
 
 	switch (wl->compositor->session_state) {
-	case WESTON_SESSION_STATE_SUSPENDED:
+	case WESTON_SESSION_STATE_VT_SWITCH:
 		if (wl->suspend_vt >= 0)
 			activate_vt(wl, wl->suspend_vt);
 		break;

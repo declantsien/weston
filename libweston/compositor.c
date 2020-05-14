@@ -7325,6 +7325,7 @@ weston_compositor_trigger_session(struct weston_compositor *ec, bool active)
 {
 	if (active) {
 		switch (ec->session_state) {
+			case WESTON_SESSION_STATE_VT_SWITCH:
 			case WESTON_SESSION_STATE_SUSPENDED:
 			case WESTON_SESSION_STATE_SUSPENDING:
 			case WESTON_SESSION_STATE_SUSPEND_READY:
