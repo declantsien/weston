@@ -2513,8 +2513,14 @@ cleanup_suspend_buffers(struct weston_compositor *compositor)
 				drm_output_switch_gbm_surface(output,
 						output->suspend_gbm_surface);
 		}
+		/* skip animation of first repaint. The difference
+		 * between the last stamp will be unreasonable.
+		 */
+		output->base.skip_animation = true;
+
 		/* reset any in flight painting */
 		weston_output_schedule_repaint_reset(&output->base);
+
 	}
 }
 

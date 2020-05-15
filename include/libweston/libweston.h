@@ -329,6 +329,7 @@ struct weston_output {
 
 	bool enabled; /**< is in the output_list, not pending list */
 	int scale;
+	bool skip_animation;
 
 	int (*enable)(struct weston_output *output);
 	int (*disable)(struct weston_output *output);

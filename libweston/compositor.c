@@ -2791,9 +2791,13 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 		wl_resource_destroy(cb->resource);
 	}
 
-	wl_list_for_each_safe(animation, next, &output->animation_list, link) {
-		animation->frame_counter++;
-		animation->frame(animation, output, &output->frame_time);
+	if (output->skip_animation) {
+		output->skip_animation = false;
+	} else {
+		wl_list_for_each_safe(animation, next, &output->animation_list, link) {
+			animation->frame_counter++;
+			animation->frame(animation, output, &output->frame_time);
+		}
 	}
 
 	TL_POINT(ec, "core_repaint_posted", TLP_OUTPUT(output), TLP_END);
