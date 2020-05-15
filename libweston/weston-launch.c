@@ -41,6 +41,7 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <sys/signalfd.h>
+#include <sys/timerfd.h>
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -115,6 +116,9 @@ struct weston_launch {
 	pid_t child;
 	int verbose;
 	char *new_user;
+
+	int timerfd;
+	int master_retries;
 };
 
 union cmsg_data { unsigned char b[4]; int fd; };
@@ -511,6 +515,24 @@ quit(struct weston_launch *wl, int status)
 	exit(status);
 }
 
+static void
+handle_timer(struct weston_launch *wl)
+{
+
+	if (drmSetMaster(wl->drm_fd) < 0) {
+		wl->master_retries--;
+		if (!wl->master_retries) {
+			close(wl->timerfd);
+			wl->timerfd = -1;
+			return;
+		}
+		return;
+	}
+	send_reply(wl, WESTON_LAUNCHER_ACTIVATE);
+	close(wl->timerfd);
+	wl->timerfd = -1;
+}
+
 static int
 handle_signal(struct weston_launch *wl)
 {
@@ -559,7 +581,23 @@ handle_signal(struct weston_launch *wl)
 		break;
 	case SIGUSR2:
 		ioctl(wl->tty, VT_RELDISP, VT_ACKACQ);
-		drmSetMaster(wl->drm_fd);
+		if (drmSetMaster(wl->drm_fd) < 0) {
+			struct itimerspec spec;
+			/* something still holding master, poll for it */
+			wl->master_retries = 10;
+			wl->timerfd = timerfd_create(CLOCK_MONOTONIC, 0);
+			if (wl->timerfd == -1)
+				return -1;
+			spec.it_value.tv_sec = 0;
+			spec.it_value.tv_nsec = 100000000;
+			spec.it_interval = spec.it_value;
+			if (timerfd_settime(wl->timerfd, 0, &spec, NULL) == -1) {
+				close(wl->timerfd);
+				wl->timerfd = -1;
+				return -1;
+			}
+			break;
+		}
 		send_reply(wl, WESTON_LAUNCHER_ACTIVATE);
 		break;
 	default:
@@ -881,6 +919,8 @@ main(int argc, char *argv[])
 	if (setup_signals(&wl) < 0)
 		exit(EXIT_FAILURE);
 
+	wl.timerfd = -1;
+
 	wl.child = fork();
 	if (wl.child == -1) {
 		fprintf(stderr, "weston: fork failed %s\n", strerror(errno));
@@ -893,15 +933,22 @@ main(int argc, char *argv[])
 	close(wl.sock[1]);
 
 	while (1) {
-		struct pollfd fds[2];
+		struct pollfd fds[3];
 		int n;
 
 		fds[0].fd = wl.sock[0];
 		fds[0].events = POLLIN;
 		fds[1].fd = wl.signalfd;
 		fds[1].events = POLLIN;
+		if (wl.timerfd >= 0) {
+			fds[2].fd = wl.timerfd;
+			fds[2].events = POLLIN;
+			n = 3;
+		} else {
+			n = 2;
+		}
 
-		n = poll(fds, 2, -1);
+		n = poll(fds, n, -1);
 		if (n < 0) {
 			fprintf(stderr, "poll failed: %s\n", strerror(errno));
 			return -1;
@@ -910,6 +957,8 @@ main(int argc, char *argv[])
 			handle_socket_msg(&wl);
 		if (fds[1].revents)
 			handle_signal(&wl);
+		if (wl.timerfd >= 0 && fds[2].revents)
+			handle_timer(&wl);
 	}
 
 	return 0;
