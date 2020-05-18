@@ -333,8 +333,6 @@ drm_output_render_pixman(struct drm_output_state *state,
 	struct drm_output *output = state->output;
 	struct weston_compositor *ec = output->base.compositor;
 
-	output->current_image ^= 1;
-
 	pixman_renderer_output_set_buffer(&output->base,
 					  output->image[output->current_image]);
 	pixman_renderer_output_set_hw_extra_damage(&output->base,
@@ -343,6 +341,8 @@ drm_output_render_pixman(struct drm_output_state *state,
 	ec->renderer->repaint_output(&output->base, damage);
 
 	pixman_region32_copy(&output->previous_damage, damage);
+
+	output->current_image ^= 1;
 
 	return drm_fb_ref(output->dumb[output->current_image]);
 }
