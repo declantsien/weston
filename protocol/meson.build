@@ -4,13 +4,15 @@ prog_scanner = find_program(dep_scanner.get_pkgconfig_variable('wayland_scanner'
 dep_wp = dependency('wayland-protocols', version: '>= 1.18')
 dir_wp_base = dep_wp.get_pkgconfig_variable('pkgdatadir')
 
-install_data(
-	[
-		'weston-debug.xml',
-		'weston-direct-display.xml',
-	],
-	install_dir: join_paths(dir_data, dir_protocol_libweston)
-)
+if get_option('compositor')
+	install_data(
+		[
+			'weston-debug.xml',
+			'weston-direct-display.xml',
+		],
+		install_dir: join_paths(dir_data, dir_protocol_libweston)
+	)
+endif
 
 generated_protocols = [
 	[ 'input-method', 'v1' ],

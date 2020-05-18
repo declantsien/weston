@@ -1,3 +1,7 @@
+if not get_option('compositor')
+	subdir_done()
+endif
+
 install_data(
 	[
 		'background.png',

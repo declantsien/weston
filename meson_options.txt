@@ -199,6 +199,13 @@ option(
 )
 
 option(
+	'tests',
+	type: 'boolean',
+	value: true,
+	description: 'Enable/Disable tests'
+)
+
+option(
 	'test-junit-xml',
 	type: 'boolean',
 	value: true,
@@ -215,4 +222,10 @@ option(
 	type: 'boolean',
 	value: false,
 	description: 'Generate documentation'
+)
+option(
+	'compositor',
+	type: 'boolean',
+	value: true,
+	description: 'Main Weston Compositor'
 )

@@ -1,3 +1,7 @@
+if not get_option('tests')
+	subdir_done()
+endif
+
 plugin_test_shell_desktop = shared_library(
 	'weston-test-desktop-shell',
 	'weston-test-desktop-shell.c',

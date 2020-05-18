@@ -1,3 +1,7 @@
+if not get_option('compositor')
+	subdir_done()
+endif
+
 srcs_weston = [
 	git_version_h,
 	'main.c',

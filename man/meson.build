@@ -1,3 +1,7 @@
+if not get_option('compositor')
+	subdir_done()
+endif
+
 man_conf = configuration_data()
 man_conf.set('weston_native_backend', opt_backend_native)
 man_conf.set('weston_modules_dir', dir_module_weston)

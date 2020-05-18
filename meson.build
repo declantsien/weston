@@ -70,7 +70,7 @@ foreach a : global_args_maybe
 		global_args += a
 	endif
 endforeach
-add_global_arguments(global_args, language: 'c')
+add_project_arguments(global_args, language: 'c')
 
 if cc.has_header_symbol('sys/sysmacros.h', 'major')
 	config_h.set('MAJOR_IN_SYSMACROS', 1)
