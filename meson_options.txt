@@ -235,3 +235,9 @@ option(
 	value: true,
 	description: 'Install libweston headers'
 )
+option(
+	'install-pkgconfig',
+	type: 'boolean',
+	value: true,
+	description: 'Install libweston pkgconfig'
+)

@@ -24,13 +24,14 @@ dep_lib_desktop = declare_dependency(
 	link_with: lib_desktop,
 	dependencies: dep_libweston_public
 )
-
-pkgconfig.generate(
-	lib_desktop,
-	filebase: 'libweston-desktop-@0@'.format(libweston_major),
-	name: 'libweston-desktop',
-	version: version_weston,
-	description: 'Desktop shells abstraction library for libweston compositors',
-	requires_private: [ lib_weston, dep_wayland_server ],
-	subdirs: dir_include_libweston
-)
+if get_option('install-pkgconfig')
+	pkgconfig.generate(
+		lib_desktop,
+		filebase: 'libweston-desktop-@0@'.format(libweston_major),
+		name: 'libweston-desktop',
+		version: version_weston,
+		description: 'Desktop shells abstraction library for libweston compositors',
+		requires_private: [ lib_weston, dep_wayland_server ],
+		subdirs: dir_include_libweston
+	)
+endif

@@ -117,28 +117,29 @@ dep_libweston_private_h = declare_dependency(
 	include_directories: [ include_directories('.'), public_inc ],
 	dependencies: dep_libweston_private_h_deps
 )
+if get_option('install-pkgconfig')
+	pkgconfig.generate(
+		lib_weston,
+		filebase: 'libweston-@0@'.format(libweston_major),
+		name: 'libweston API',
+		version: version_weston,
+		description: 'Header files for libweston compositors development',
+		requires_private: deps_for_libweston_users,
+		subdirs: dir_include_libweston
+	)
 
-pkgconfig.generate(
-	lib_weston,
-	filebase: 'libweston-@0@'.format(libweston_major),
-	name: 'libweston API',
-	version: version_weston,
-	description: 'Header files for libweston compositors development',
-	requires_private: deps_for_libweston_users,
-	subdirs: dir_include_libweston
-)
-
-pkgconfig.generate(
-	filebase: 'libweston-@0@-protocols'.format(libweston_major),
-	name: 'libWeston Protocols',
-	version: version_weston,
-	description: 'libWeston protocol files',
-	variables: [
-		'datarootdir=' + join_paths('${prefix}', get_option('datadir')),
-		'pkgdatadir=' + join_paths('${pc_sysrootdir}${datarootdir}', dir_protocol_libweston)
-	],
-	install_dir: dir_data_pc
-)
+	pkgconfig.generate(
+		filebase: 'libweston-@0@-protocols'.format(libweston_major),
+		name: 'libWeston Protocols',
+		version: version_weston,
+		description: 'libWeston protocol files',
+		variables: [
+			'datarootdir=' + join_paths('${prefix}', get_option('datadir')),
+			'pkgdatadir=' + join_paths('${pc_sysrootdir}${datarootdir}', dir_protocol_libweston)
+		],
+		install_dir: dir_data_pc
+	)
+endif
 
 srcs_session_helper = [
 	'launcher-direct.c',
