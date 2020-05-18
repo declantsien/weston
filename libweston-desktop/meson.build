@@ -17,6 +17,7 @@ lib_desktop = shared_library(
 	srcs_libdesktop,
 	include_directories: common_inc,
 	install: true,
+	install_dir: dir_lib,
 	version: '0.0.@0@'.format(libweston_revision),
 	dependencies: dep_libweston_public
 )

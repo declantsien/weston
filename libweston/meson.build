@@ -80,6 +80,7 @@ lib_weston = shared_library(
 	srcs_libweston,
 	include_directories: common_inc,
 	install: true,
+	install_dir: dir_lib,
 	version: '0.0.@0@'.format(libweston_revision),
 	link_whole: lib_libshared,
 	dependencies: deps_libweston

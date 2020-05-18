@@ -32,10 +32,17 @@ dir_bin = join_paths(dir_prefix, get_option('bindir'))
 dir_data = join_paths(dir_prefix, get_option('datadir'))
 dir_include_libweston = 'libweston-@0@'.format(libweston_major)
 dir_include_libweston_install = join_paths(dir_include_libweston, 'libweston')
-dir_lib = join_paths(dir_prefix, get_option('libdir'))
-dir_libexec = join_paths(dir_prefix, get_option('libexecdir'))
-dir_module_weston = join_paths(dir_lib, 'weston')
-dir_module_libweston = join_paths(dir_lib, 'libweston-@0@'.format(libweston_major))
+if get_option('custom-libdir') != ''
+	dir_lib = join_paths(dir_prefix, get_option('libdir'), get_option('custom-libdir'))
+	dir_libexec = join_paths(dir_prefix, get_option('libexecdir'), get_option('custom-libdir'))
+	dir_module_weston = dir_lib
+	dir_module_libweston = dir_lib
+else
+	dir_lib = join_paths(dir_prefix, get_option('libdir'))
+	dir_libexec = join_paths(dir_prefix, get_option('libexecdir'))
+	dir_module_weston = join_paths(dir_lib, 'weston')
+	dir_module_libweston = join_paths(dir_lib, 'libweston-@0@'.format(libweston_major))
+endif
 dir_data_pc = join_paths(dir_data, 'pkgconfig')
 dir_lib_pc = join_paths(dir_lib, 'pkgconfig')
 dir_man = join_paths(dir_prefix, get_option('mandir'))
