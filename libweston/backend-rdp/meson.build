@@ -57,4 +57,7 @@ plugin_rdp = shared_library(
 	install_dir: dir_module_libweston
 )
 env_modmap += 'rdp-backend.so=@0@;'.format(plugin_rdp.full_path())
-install_headers(backend_rdp_h, subdir: dir_include_libweston_install)
+
+if get_option('install-headers')
+	install_headers(backend_rdp_h, subdir: dir_include_libweston_install)
+endif

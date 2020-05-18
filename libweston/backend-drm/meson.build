@@ -90,4 +90,6 @@ plugin_drm = shared_library(
 )
 env_modmap += 'drm-backend.so=@0@;'.format(plugin_drm.full_path())
 
-install_headers(backend_drm_h, subdir: dir_include_libweston_install)
+if get_option('install-headers')
+	install_headers(backend_drm_h, subdir: dir_include_libweston_install)
+endif

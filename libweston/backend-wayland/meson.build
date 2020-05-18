@@ -41,4 +41,7 @@ plugin_wlwl = shared_library(
 	install_dir: dir_module_libweston
 )
 env_modmap += 'wayland-backend.so=@0@;'.format(plugin_wlwl.full_path())
-install_headers(backend_wayland_h, subdir: dir_include_libweston_install)
+
+if get_option('install-headers')
+	install_headers(backend_wayland_h, subdir: dir_include_libweston_install)
+endif

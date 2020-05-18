@@ -1,13 +1,15 @@
-install_headers(
-	'config-parser.h',
-	'libweston.h',
-	'matrix.h',
-	'plugin-registry.h',
-	'windowed-output-api.h',
-	'weston-log.h',
-	'zalloc.h',
-	subdir: dir_include_libweston_install
-)
+if get_option('install-headers')
+	install_headers(
+		'config-parser.h',
+		'libweston.h',
+		'matrix.h',
+		'plugin-registry.h',
+		'windowed-output-api.h',
+		'weston-log.h',
+		'zalloc.h',
+		subdir: dir_include_libweston_install
+	)
+endif
 
 backend_drm_h =      files('backend-drm.h')
 backend_fbdev_h =    files('backend-fbdev.h')
@@ -28,4 +30,7 @@ version_h = configure_file(
 	output: 'version.h',
 	configuration: libweston_version_h
 )
-install_headers(version_h, subdir: dir_include_libweston_install)
+
+if get_option('install-headers')
+	install_headers(version_h, subdir: dir_include_libweston_install)
+endif

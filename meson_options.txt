@@ -229,3 +229,9 @@ option(
 	value: true,
 	description: 'Main Weston Compositor'
 )
+option(
+	'install-headers',
+	type: 'boolean',
+	value: true,
+	description: 'Install libweston headers'
+)

@@ -18,4 +18,8 @@ plugin_headless = shared_library(
 	install_dir: dir_module_libweston,
 )
 env_modmap += 'headless-backend.so=@0@;'.format(plugin_headless.full_path())
-install_headers(backend_headless_h, subdir: dir_include_libweston_install)
+
+
+if get_option('install-headers')
+	install_headers(backend_headless_h, subdir: dir_include_libweston_install)
+endif

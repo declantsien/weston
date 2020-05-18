@@ -41,4 +41,6 @@ plugin_xwayland = shared_library(
 )
 env_modmap += 'xwayland.so=@0@;'.format(plugin_xwayland.full_path())
 
-install_headers(xwayland_api_h, subdir: dir_include_libweston_install)
+if get_option('install-headers')
+	install_headers(xwayland_api_h, subdir: dir_include_libweston_install)
+endif

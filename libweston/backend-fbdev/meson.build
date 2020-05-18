@@ -27,4 +27,6 @@ plugin_fbdev = shared_library(
 )
 env_modmap += 'fbdev-backend.so=@0@;'.format(plugin_fbdev.full_path())
 
-install_headers(backend_fbdev_h, subdir: dir_include_libweston_install)
+if get_option('install-headers')
+	install_headers(backend_fbdev_h, subdir: dir_include_libweston_install)
+endif

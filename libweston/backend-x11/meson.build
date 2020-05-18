@@ -55,4 +55,6 @@ plugin_x11 = shared_library(
 )
 env_modmap += 'x11-backend.so=@0@;'.format(plugin_x11.full_path())
 
-install_headers(backend_x11_h, subdir: dir_include_libweston_install)
+if get_option('install-headers')
+	install_headers(backend_x11_h, subdir: dir_include_libweston_install)
+endif
