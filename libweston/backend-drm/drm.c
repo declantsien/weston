@@ -352,6 +352,11 @@ drm_output_render_pixman(struct drm_output_state *state,
 	fb = drm_fb_ref(output->dumb[output->current_image]);
 	output->current_image ^= 1;
 
+	/* we can end up trying to flip to a second
+	 * suspend image. Stick with the existing one. */
+	if (output->current_image >= (int)ARRAY_LENGTH(output->image))
+		output->current_image = ARRAY_LENGTH(output->image) - 1;
+
 	return fb;
 }
 
@@ -1191,7 +1196,7 @@ drm_output_alloc_image_pixman(struct drm_output *output, unsigned int i)
 	if (output->dumb[i])
 		return 0;
 
-	if (i > ARRAY_LENGTH(output->dumb))
+	if (i >= ARRAY_LENGTH(output->dumb))
 		return -EINVAL;
 
 	switch (format) {
@@ -2460,6 +2465,8 @@ suspend_repaint_finished_notify(struct wl_listener *listener, void *data)
 		 * surface, which stopped the paint from being scheduled.
 		 * schedule a repaint of this output.
 		 */
+		if (b->use_pixman)
+			output->current_image = ARRAY_LENGTH(output->dumb) - 1;
 		weston_output_damage(output_base);
 		return;
 	}
@@ -2494,6 +2501,11 @@ static void destroy_surfaces(void *data)
 			output->suspend_gbm_surface);
 		output->suspend_gbm_surface = NULL;
 	}
+	if (output->dumb[ARRAY_LENGTH(output->dumb) - 1]) {
+		pixman_image_unref(output->image[ARRAY_LENGTH(output->image) - 1]);
+		output->image[ARRAY_LENGTH(output->image) - 1] = NULL;
+		output->dumb[ARRAY_LENGTH(output->dumb) - 1] = NULL;
+	}
 }
 
 static void
@@ -2506,13 +2518,20 @@ cleanup_suspend_buffers(struct weston_compositor *compositor)
 
 	wl_list_for_each(output, &compositor->output_list, base.link) {
 		/* only cleanup if this output went through handle_suspending */
-		if (!output->suspend_gbm_surface)
+		if (!b->use_pixman && !output->suspend_gbm_surface)
 			continue;
 
-		fb = drm_fb_from_gbm_surface(b, output->gbm_surface);
+		if (b->use_pixman) {
+			output->current_image = 0;
+			fb = output->dumb[ARRAY_LENGTH(output->dumb) - 1];
+		} else {
+			fb = drm_fb_from_gbm_surface(b, output->gbm_surface);
+		}
 		if (fb) {
 			drm_fb_on_destroy(fb, destroy_surfaces, output);
 			drm_fb_forget(fb);
+			if (b->use_pixman)
+				drm_fb_unref(fb);
 		}
 		if (output->suspend_window_surface) {
 			output->suspend_window_surface =
@@ -2545,6 +2564,11 @@ handle_suspend_ready(struct weston_compositor *compositor)
 
 	/* allocate a temp surface for each output */
 	wl_list_for_each(output, &compositor->output_list, base.link) {
+		if (b->use_pixman) {
+			output->current_image = ARRAY_LENGTH(output->dumb) - 1;
+			continue;
+		}
+
 		gbm_surface = drm_output_create_gbm_surface(output, b);
 		if (!gbm_surface)
 			goto err;
@@ -2601,12 +2625,13 @@ handle_suspended(struct weston_compositor *compositor)
 	 * mediation (logind), we just remove all fbs
 	 */
 	wl_list_for_each(output, &compositor->output_list, base.link) {
-		if (!output->suspend_gbm_surface)
-			continue;
-		/* we went through handle_suspend_ready.
-		 * add back the safe fb
-		 */
-		fb = drm_fb_from_gbm_surface(b, output->gbm_surface);
+		if (b->use_pixman) {
+			fb = output->dumb[ARRAY_LENGTH(output->dumb) - 1];
+		} else {
+			if (!output->suspend_gbm_surface)
+				continue;
+			fb = drm_fb_from_gbm_surface(b, output->gbm_surface);
+		}
 		if (!fb)
 			continue;
 		fb->suspend_safe = true;

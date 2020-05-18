@@ -542,8 +542,8 @@ struct drm_output {
 	 * yet acknowledged completion of state_cur. */
 	struct drm_output_state *state_last;
 
-	struct drm_fb *dumb[2];
-	pixman_image_t *image[2];
+	struct drm_fb *dumb[3];
+	pixman_image_t *image[3];
 	int current_image;
 	pixman_region32_t previous_damage;
 
