@@ -326,12 +326,19 @@ drm_output_update_complete(struct drm_output *output, uint32_t flags,
 		weston_output_schedule_repaint(&output->base);
 }
 
+static int
+drm_output_alloc_image_pixman(struct drm_output *output, unsigned int i);
+
 static struct drm_fb *
 drm_output_render_pixman(struct drm_output_state *state,
 			 pixman_region32_t *damage)
 {
 	struct drm_output *output = state->output;
 	struct weston_compositor *ec = output->base.compositor;
+	struct drm_fb *fb;
+
+	if (drm_output_alloc_image_pixman(output, output->current_image) < 0)
+		return NULL;
 
 	pixman_renderer_output_set_buffer(&output->base,
 					  output->image[output->current_image]);
@@ -342,9 +349,10 @@ drm_output_render_pixman(struct drm_output_state *state,
 
 	pixman_region32_copy(&output->previous_damage, damage);
 
+	fb = drm_fb_ref(output->dumb[output->current_image]);
 	output->current_image ^= 1;
 
-	return drm_fb_ref(output->dumb[output->current_image]);
+	return fb;
 }
 
 void
@@ -1172,16 +1180,19 @@ make_connector_name(const drmModeConnector *con)
 }
 
 static int
-drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
+drm_output_alloc_image_pixman(struct drm_output *output, unsigned int i)
 {
+	struct drm_backend *b = output->backend;
 	int w = output->base.current_mode->width;
 	int h = output->base.current_mode->height;
 	uint32_t format = output->gbm_format;
 	uint32_t pixman_format;
-	unsigned int i;
-	const struct pixman_renderer_output_options options = {
-		.use_shadow = b->use_pixman_shadow,
-	};
+
+	if (output->dumb[i])
+		return 0;
+
+	if (i > ARRAY_LENGTH(output->dumb))
+		return -EINVAL;
 
 	switch (format) {
 		case DRM_FORMAT_XRGB8888:
@@ -1195,22 +1206,33 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 			return -1;
 	}
 
-	/* FIXME error checking */
-	for (i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
-		output->dumb[i] = drm_fb_create_dumb(b, w, h, format);
-		if (!output->dumb[i])
-			goto err;
+	output->dumb[i] = drm_fb_create_dumb(b, w, h, format);
+	if (!output->dumb[i])
+		return -1;
 
-		output->image[i] =
-			pixman_image_create_bits(pixman_format, w, h,
-						 output->dumb[i]->map,
-						 output->dumb[i]->strides[0]);
-		if (!output->image[i])
-			goto err;
+	output->image[i] =
+	    pixman_image_create_bits(pixman_format, w, h,
+				     output->dumb[i]->map,
+				     output->dumb[i]->strides[0]);
+	if (!output->image[i]) {
+		drm_fb_unref(output->dumb[i]);
+		output->dumb[i] = NULL;
+		return -1;
 	}
 
+	return 0;
+}
+
+static int
+drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
+{
+	const struct pixman_renderer_output_options options = {
+		.use_shadow = b->use_pixman_shadow,
+	};
+
+
 	if (pixman_renderer_output_create(&output->base, &options) < 0)
- 		goto err;
+		return -1;
 
 	weston_log("DRM: output %s %s shadow framebuffer.\n", output->base.name,
 		   b->use_pixman_shadow ? "uses" : "does not use");
@@ -1219,19 +1241,6 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 				  output->base.x, output->base.y, output->base.width, output->base.height);
 
 	return 0;
-
-err:
-	for (i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
-		if (output->dumb[i])
-			drm_fb_unref(output->dumb[i]);
-		if (output->image[i])
-			pixman_image_unref(output->image[i]);
-
-		output->dumb[i] = NULL;
-		output->image[i] = NULL;
-	}
-
-	return -1;
 }
 
 static void
@@ -1255,6 +1264,8 @@ drm_output_fini_pixman(struct drm_output *output)
 	pixman_region32_fini(&output->previous_damage);
 
 	for (i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
+		if (!output->dumb[i])
+			continue;
 		pixman_image_unref(output->image[i]);
 		drm_fb_unref(output->dumb[i]);
 		output->dumb[i] = NULL;
