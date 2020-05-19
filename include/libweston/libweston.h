@@ -1009,6 +1009,50 @@ struct weston_desktop_xwayland;
 struct weston_desktop_xwayland_interface;
 struct weston_debug_compositor;
 
+/** Session states describe the various steps taken to suspend
+ * the compositor session. Currently these are used when switching
+ * vt while using the drm backend.
+ * Any component can register a listener with the compositor's
+ * session_signal and react to session state changes. The signal
+ * is raised after the state is changed.
+ *
+ * Transitioning session state is done via weston_compositor_set_session_state.
+ *
+ * WESTON_SESSION_STATE_SUSPENDING - triggered by launchers to
+ * tell the compositor to start suspending. The shells can react to this
+ * state to make sure nothing sensitive is left on the screen. The compositor
+ * has a default listener that will throw up a black privacy screen
+ * if the shell does not override it.
+ *
+ * WESTON_SESSION_STATE_SUSPEND_READY - triggered by the shell to tell
+ * the compositor that it is now ready for suspend to happen. This implies
+ * that the shell (or compositor default listener) has removed any
+ * potentially sensitive data from display.
+ * The backend will create a temporary fb and do a final render to it.
+ *
+ * WESTON_SESSION_STATE_SUSPENDED - triggered by the drm backend after
+ * all outputs have finished their final render to the temp fb.
+ * The backend reacts to this state by removing all other fbs so that
+ * they can't be leaked while we are not drm master, and then deactivates
+ * the session as usual. Finally it schedules a switch to
+ * WESTON_SESSION_STATE_VT_SWITCH.
+ *
+ * WESTON_SESSION_STATE_VT_SWITCH - triggered by the drm backend after
+ * disabling the session.
+ * Launchers react to this state by signalling that vt switch can now
+ * happen.
+ *
+ * WESTON_SESSION_STATE_RESUMING - triggered by launchers to tell the
+ * compositor to start resuming.
+ * drm backed reacts to this state by removing the temp fbs and reinstating
+ * the previously active fbs. It also cleans up the surfaces used for
+ * rendering to the temp fbs.
+ * Shells can react to this state to clean up any state used while
+ * ensuring no private data was left on the screen.
+ *
+ * WESTON_SESSION_STATE_ACTIVE - triggered by shells to indicate that
+ * they have finished cleanup during resume and are now active again.
+ */
 enum weston_session_state {
 	WESTON_SESSION_STATE_RESUMING,
 	WESTON_SESSION_STATE_ACTIVE,
