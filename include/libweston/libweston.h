@@ -331,6 +331,10 @@ struct weston_output {
 	int scale;
 	bool skip_animation;
 
+	/* used to paint the screen black as a privacy screen
+	 * during suspend */
+	struct weston_view *privacy_screen;
+
 	int (*enable)(struct weston_output *output);
 	int (*disable)(struct weston_output *output);
 

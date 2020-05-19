@@ -7300,10 +7300,72 @@ switch_to_suspended(void *data)
 	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_SUSPENDED);
 }
 
+static void
+switch_to_suspend_ready(void *data)
+{
+	struct weston_compositor *ec = data;
+	weston_compositor_set_session_state(ec, WESTON_SESSION_STATE_SUSPEND_READY);
+}
+
+static void
+destroy_privacy_screens(struct weston_compositor *ec)
+{
+	struct weston_output *output;
+
+	wl_list_for_each(output, &ec->output_list, link) {
+		if (!output->privacy_screen)
+			continue;
+		weston_surface_destroy(output->privacy_screen->surface);
+		output->privacy_screen = NULL;
+	}
+}
+
+static int
+create_privacy_screens(struct weston_compositor *ec)
+{
+	struct weston_output *output;
+	struct weston_surface *surface;
+	struct weston_view *view;
+
+	wl_list_for_each(output, &ec->output_list, link) {
+		surface = weston_surface_create(ec);
+		if (!surface)
+			goto err;
+
+		view = weston_view_create(surface);
+		if (!view)
+			goto err;
+
+		weston_surface_set_size(surface, output->width, output->height);
+		weston_view_set_position(view, output->x, output->y);
+		weston_surface_set_color(surface, 0.0, 0.0, 0.0, 1.0);
+		weston_layer_entry_insert(&ec->fade_layer.view_list,
+					  &view->layer_link);
+		pixman_region32_init(&surface->input);
+		surface->is_mapped = true;
+		view->is_mapped = true;
+		weston_view_update_transform(view);
+
+		output->privacy_screen = view;
+	}
+
+	return 0;
+err:
+	destroy_privacy_screens(ec);
+
+	return -1;
+}
+
 /** Default session_state handler
  *
- * By default, we just switch to WESTON_SESSION_STATE_SUSPENDED
- * and STATE_RESUMED. Shells can register a replacement
+ * By default, we throw up a privacy screen on the fade layer
+ * and switch to WESTON_SESSION_STATE_SUSPEND_READY while suspending.
+ * If for any reason the privacy screen creation fails, we jump
+ * immediately to WESTON_SESSION_STATE_SUSPENDED. This will cause
+ * all fb's to be removed, which is better than leaving the last
+ * render on screen.
+ * On resume, we destroy the privacy screen ans switch to
+ * WESTON_SESSION_STATE_ACTIVE. Shells can register a replacement
  * handler to do any prep that they need.
  */
 static void
@@ -7312,10 +7374,14 @@ session_notify(struct wl_listener *listener, void *data)
 	struct weston_compositor *ec = data;
 	struct wl_event_loop *loop = wl_display_get_event_loop(ec->wl_display);
 
-	if (ec->session_state == WESTON_SESSION_STATE_SUSPENDING)
-		wl_event_loop_add_idle(loop, switch_to_suspended, ec);
-	else if (ec->session_state == WESTON_SESSION_STATE_RESUMING)
+	if (ec->session_state == WESTON_SESSION_STATE_SUSPENDING) {
+		if (create_privacy_screens(ec) < 0)
+			wl_event_loop_add_idle(loop, switch_to_suspended, ec);
+		wl_event_loop_add_idle(loop, switch_to_suspend_ready, ec);
+	} else if (ec->session_state == WESTON_SESSION_STATE_RESUMING) {
+		destroy_privacy_screens(ec);
 		wl_event_loop_add_idle(loop, switch_to_active, ec);
+	}
 }
 
 /* Trigger session state change
