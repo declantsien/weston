@@ -246,6 +246,12 @@ tests_standalone = [
 	['config-parser', [], [ dep_zucmain ]],
 	['matrix', [], [ dep_libm, dep_matrix_c ]],
 	['timespec', [], [ dep_zucmain ]],
+	['weston-clock',
+		[
+			'../libweston/weston-clock.c',
+		],
+		[ dep_zucmain, dep_libweston_private_h, dep_wayland_server ]
+	],
 	['zuc',
 		[
 			'../tools/zunitc/test/fixtures_test.c',

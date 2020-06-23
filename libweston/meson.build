@@ -30,6 +30,7 @@ srcs_libweston = [
 	'screenshooter.c',
 	'timeline.c',
 	'touch-calibration.c',
+	'weston-clock.c',
 	'weston-log-wayland.c',
 	'weston-log-file.c',
 	'weston-log-flight-rec.c',
