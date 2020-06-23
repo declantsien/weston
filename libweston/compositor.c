@@ -77,6 +77,7 @@
 #include "backend.h"
 #include "libweston-internal.h"
 #include "color.h"
+#include "weston-clock.h"
 
 #include "weston-log-internal.h"
 
@@ -3283,7 +3284,7 @@ convert_presentation_time_now(struct weston_compositor *compositor,
 	if (compositor->presentation_clock == target_clock)
 		return *presentation_stamp;
 
-	clock_gettime(target_clock, &target_now);
+	weston_clock_gettime(compositor->clock, target_clock, &target_now);
 	delta_ns = timespec_sub_to_nsec(presentation_stamp, presentation_now);
 	timespec_add_nsec(&target_stamp, &target_now, delta_ns);
 
@@ -7887,6 +7888,7 @@ weston_compositor_create(struct wl_display *display,
 			 const struct weston_testsuite_data *test_data)
 {
 	struct weston_compositor *ec;
+	struct wl_event_loop *loop;
 
 	if (!log_ctx)
 		return NULL;
@@ -7929,6 +7931,11 @@ weston_compositor_create(struct wl_display *display,
 	ec->touch_mode = WESTON_TOUCH_MODE_NORMAL;
 
 	ec->content_protection = NULL;
+
+	loop = wl_display_get_event_loop(ec->wl_display);
+	ec->clock = weston_clock_create(WESTON_CLOCK_TYPE_REAL, loop);
+	if (!ec->clock)
+		goto fail;
 
 	if (!wl_global_create(ec->wl_display, &wl_compositor_interface, 4,
 			      ec, compositor_bind))
@@ -8006,6 +8013,8 @@ weston_compositor_create(struct wl_display *display,
 	return ec;
 
 fail:
+	if (ec->clock)
+		weston_clock_destroy(ec->clock);
 	free(ec);
 	return NULL;
 }
@@ -8055,6 +8064,8 @@ weston_compositor_shutdown(struct weston_compositor *ec)
 
 	if (!wl_list_empty(&ec->layer_list))
 		weston_log("BUG: layer_list is not empty after shutdown. Calls to weston_layer_fini() are missing somwhere.\n");
+
+	weston_clock_destroy(ec->clock);
 }
 
 /** weston_compositor_exit_with_code
@@ -8097,7 +8108,7 @@ weston_compositor_set_presentation_clock(struct weston_compositor *compositor,
 {
 	struct timespec ts;
 
-	if (clock_gettime(clk_id, &ts) < 0)
+	if (weston_clock_gettime(compositor->clock, clk_id, &ts) < 0)
 		return -1;
 
 	compositor->presentation_clock = clk_id;
@@ -8154,7 +8165,8 @@ weston_compositor_read_presentation_clock(
 	static bool warned;
 	int ret;
 
-	ret = clock_gettime(compositor->presentation_clock, ts);
+	ret = weston_clock_gettime(compositor->clock,
+				   compositor->presentation_clock, ts);
 	if (ret < 0) {
 		ts->tv_sec = 0;
 		ts->tv_nsec = 0;
@@ -8609,10 +8621,7 @@ weston_compositor_add_timer(struct weston_compositor *compositor,
 			    wl_event_loop_timer_func_t func,
 			    void *data)
 {
-	struct wl_event_loop *loop =
-		wl_display_get_event_loop(compositor->wl_display);
-
-	return wl_event_loop_add_timer(loop, func, data);
+	return weston_clock_add_timer(compositor->clock, func, data);
 }
 
 WL_EXPORT void
@@ -8620,12 +8629,12 @@ weston_compositor_timer_update(struct weston_compositor *compositor,
 			       struct wl_event_source *timer,
 			       int ms_delay)
 {
-	wl_event_source_timer_update(timer, ms_delay);
+	weston_clock_timer_update(compositor->clock, timer, ms_delay);
 }
 
 WL_EXPORT void
 weston_compositor_timer_remove(struct weston_compositor *compositor,
 			       struct wl_event_source *timer)
 {
-	wl_event_source_remove(timer);
+	weston_clock_timer_remove(compositor->clock, timer);
 }

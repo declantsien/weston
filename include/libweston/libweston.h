@@ -1038,6 +1038,7 @@ struct weston_debug_compositor;
 struct weston_color_manager;
 struct weston_dmabuf_feedback;
 struct weston_dmabuf_feedback_format_table;
+struct weston_clock;
 
 /** Main object, container-like structure which aggregates all other objects.
  *
@@ -1167,6 +1168,8 @@ struct weston_compositor {
 	struct weston_log_scope *libseat_debug;
 
 	struct content_protection *content_protection;
+
+	struct weston_clock *clock;
 };
 
 struct weston_buffer {
