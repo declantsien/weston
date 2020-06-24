@@ -51,6 +51,8 @@
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "libweston/zalloc.h"
+#include "libweston/libweston.h"
+#include "weston-clock-server-protocol.h"
 
 static clockid_t valid_clocks[] = {
 	CLOCK_REALTIME,
@@ -355,4 +357,56 @@ weston_clock_timer_remove(struct weston_clock *clock,
 		wl_event_source_remove(tinfo->idle_source);
 	wl_list_remove(&tinfo->link);
 	free(tinfo);
+}
+
+static void
+weston_clock_advance_time_request(struct wl_client *client,
+				  struct wl_resource *resource,
+				  uint32_t tv_sec_hi,
+				  uint32_t tv_sec_lo,
+				  uint32_t tv_nsec)
+{
+	struct timespec ts;
+	struct weston_compositor *compositor = wl_resource_get_user_data(resource);
+
+	timespec_from_proto(&ts, tv_sec_hi, tv_sec_lo, tv_nsec);
+
+	weston_clock_advance_time(compositor->clock, &ts);
+}
+
+static const struct weston_clock_interface weston_clock_implementation = {
+	weston_clock_advance_time_request,
+};
+
+static void
+bind_weston_clock(struct wl_client *client,
+		  void *data, uint32_t version,
+		  uint32_t id)
+{
+	struct weston_compositor *compositor = data;
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client,
+				      &weston_clock_interface,
+				      version, id);
+	if (resource == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	wl_resource_set_implementation(resource,
+				       &weston_clock_implementation,
+				       compositor, NULL);
+}
+
+int
+weston_clock_protocol_setup(struct weston_compositor *compositor)
+{
+	if (!wl_global_create(compositor->wl_display,
+			      &weston_clock_interface,
+			      1, compositor,
+			      bind_weston_clock))
+		return -1;
+
+	return 0;
 }

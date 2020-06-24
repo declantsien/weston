@@ -29,6 +29,7 @@
 #include <time.h>
 #include <wayland-server.h>
 
+struct weston_compositor;
 struct weston_clock;
 
 enum weston_clock_type {
@@ -63,5 +64,8 @@ weston_clock_timer_update(struct weston_clock *clock,
 void
 weston_clock_timer_remove(struct weston_clock *clock,
 			  struct wl_event_source *source);
+
+int
+weston_clock_protocol_setup(struct weston_compositor *compositor);
 
 #endif

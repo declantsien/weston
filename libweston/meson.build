@@ -68,6 +68,8 @@ srcs_libweston = [
 	weston_debug_server_protocol_h,
 	weston_direct_display_protocol_c,
 	weston_direct_display_server_protocol_h,
+	weston_clock_protocol_c,
+	weston_clock_server_protocol_h,
 ]
 
 if get_option('renderer-gl')
