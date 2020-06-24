@@ -1502,6 +1502,13 @@ struct weston_surface {
 	struct wl_list subsurface_list; /* weston_subsurface::parent_link */
 	struct wl_list subsurface_list_pending; /* ...::parent_link_pending */
 
+	struct {
+		struct weston_surface_state cached;
+		struct weston_buffer_reference cached_buffer_ref;
+		bool has_cached_data;
+		struct wl_list link; /* weston_transaction::surfaces */
+	} transaction;
+
 	/*
 	 * For tracking protocol role assignments. Different roles may
 	 * have the same configure hook, e.g. in shell.c. Configure hook

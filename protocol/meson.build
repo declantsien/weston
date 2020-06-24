@@ -26,6 +26,7 @@ generated_protocols = [
 	[ 'tablet', 'v2' ],
 	[ 'text-cursor-position', 'internal' ],
 	[ 'text-input', 'v1' ],
+	[ 'transactions', 'staging', 'v1' ],
 	[ 'viewporter', 'stable' ],
 	[ 'weston-debug', 'internal' ],
 	[ 'weston-desktop-shell', 'internal' ],
@@ -47,6 +48,9 @@ foreach proto: generated_protocols
 	elif proto[1] == 'stable'
 		base_file = proto_name
 		xml_path = '@0@/stable/@1@/@1@.xml'.format(dir_wp_base, base_file)
+	elif proto[1] == 'staging'
+		base_file = '@0@-@1@'.format(proto_name, proto[2])
+		xml_path = '@0@/staging/@1@/@2@.xml'.format(dir_wp_base, proto_name, base_file)
 	else
 		base_file = '@0@-unstable-@1@'.format(proto_name, proto[1])
 		xml_path = '@0@/unstable/@1@/@2@.xml'.format(dir_wp_base, proto_name, base_file)

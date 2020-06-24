@@ -53,6 +53,8 @@ srcs_libweston = [
 	text_cursor_position_server_protocol_h,
 	text_input_unstable_v1_protocol_c,
 	text_input_unstable_v1_server_protocol_h,
+	transactions_v1_protocol_c,
+	transactions_v1_server_protocol_h,
 	weston_touch_calibration_protocol_c,
 	weston_touch_calibration_server_protocol_h,
 	weston_content_protection_protocol_c,

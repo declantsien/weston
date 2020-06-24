@@ -60,6 +60,7 @@
 #include "linux-dmabuf.h"
 #include "viewporter-server-protocol.h"
 #include "presentation-time-server-protocol.h"
+#include "transactions-v1-server-protocol.h"
 #include "xdg-output-unstable-v1-server-protocol.h"
 #include "linux-explicit-synchronization-unstable-v1-server-protocol.h"
 #include "linux-explicit-synchronization.h"
@@ -85,6 +86,13 @@
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
 
+struct weston_transaction
+{
+	struct wl_resource *resource;
+
+	struct wl_list surfaces;
+};
+
 static void
 weston_output_update_matrix(struct weston_output *output);
 
@@ -97,6 +105,12 @@ weston_compositor_build_view_list(struct weston_compositor *compositor);
 
 static char *
 weston_output_create_heads_string(struct weston_output *output);
+
+static void
+weston_surface_state_merge_from(struct weston_surface_state *state,
+				struct weston_surface_state *other_state,
+				struct weston_buffer_reference *buffer_ref,
+				struct weston_surface *surface);
 
 /** Send wl_output events for mode and scale changes
  *
@@ -559,6 +573,8 @@ weston_surface_create(struct weston_compositor *compositor)
 
 	wl_list_init(&surface->subsurface_list);
 	wl_list_init(&surface->subsurface_list_pending);
+
+	wl_list_init(&surface->transaction.link);
 
 	weston_matrix_init(&surface->buffer_to_surface_matrix);
 	weston_matrix_init(&surface->surface_to_buffer_matrix);
@@ -2242,6 +2258,13 @@ weston_surface_destroy(struct weston_surface *surface)
 	weston_buffer_reference(&surface->buffer_ref, NULL);
 	weston_buffer_release_reference(&surface->buffer_release_ref, NULL);
 
+	if (!wl_list_empty(&surface->transaction.link)) {
+		wl_list_remove(&surface->transaction.link);
+		weston_buffer_reference(&surface->transaction.cached_buffer_ref,
+					NULL);
+		weston_surface_state_fini(&surface->transaction.cached);
+	}
+
 	pixman_region32_fini(&surface->damage);
 	pixman_region32_fini(&surface->opaque);
 	pixman_region32_fini(&surface->input);
@@ -3625,8 +3648,8 @@ weston_surface_set_protection_mode(struct weston_surface *surface,
 }
 
 static void
-weston_surface_commit_state(struct weston_surface *surface,
-			    struct weston_surface_state *state)
+weston_surface_apply_state(struct weston_surface *surface,
+			   struct weston_surface_state *state)
 {
 	struct weston_view *view;
 	pixman_region32_t opaque;
@@ -3725,9 +3748,11 @@ weston_surface_commit_state(struct weston_surface *surface,
 }
 
 static void
-weston_surface_commit(struct weston_surface *surface)
+weston_surface_apply(struct weston_surface *surface,
+		     struct weston_surface_state *state)
 {
-	weston_surface_commit_state(surface, &surface->pending);
+	if (state)
+		weston_surface_apply_state(surface, state);
 
 	weston_surface_commit_subsurface_order(surface);
 
@@ -3740,6 +3765,45 @@ weston_subsurface_commit(struct weston_subsurface *sub);
 static void
 weston_subsurface_parent_commit(struct weston_subsurface *sub,
 				int parent_is_synchronized);
+
+static void
+weston_surface_commit(struct weston_surface *surface,
+		      struct weston_surface_state *state)
+{
+	struct weston_subsurface *sub;
+
+	if (!wl_list_empty(&surface->transaction.link)) {
+	       if (state) {
+		       weston_surface_state_merge_from(
+				       &surface->transaction.cached,
+				       state,
+				       &surface->transaction.cached_buffer_ref,
+				       surface);
+		       surface->transaction.has_cached_data = true;
+	       }
+
+	       return;
+	}
+
+	if (surface->transaction.has_cached_data) {
+		if (state) {
+			weston_surface_state_merge_from(
+					&surface->transaction.cached,
+					state,
+					&surface->transaction.cached_buffer_ref,
+					surface);
+		}
+		weston_surface_apply(surface, &surface->transaction.cached);
+		surface->transaction.has_cached_data = false;
+	} else {
+		weston_surface_apply(surface, state);
+	}
+
+	wl_list_for_each(sub, &surface->subsurface_list, parent_link) {
+		if (sub->surface != surface)
+			weston_subsurface_parent_commit(sub, 0);
+	}
+}
 
 static void
 surface_commit(struct wl_client *client, struct wl_resource *resource)
@@ -3812,12 +3876,7 @@ surface_commit(struct wl_client *client, struct wl_resource *resource)
 		return;
 	}
 
-	weston_surface_commit(surface);
-
-	wl_list_for_each(sub, &surface->subsurface_list, parent_link) {
-		if (sub->surface != surface)
-			weston_subsurface_parent_commit(sub, 0);
-	}
+	weston_surface_commit(surface, &surface->pending);
 }
 
 static void
@@ -3977,12 +4036,8 @@ weston_subsurface_commit_from_cache(struct weston_subsurface *sub)
 {
 	struct weston_surface *surface = sub->surface;
 
-	weston_surface_commit_state(surface, &sub->cached);
+	weston_surface_commit(surface, &sub->cached);
 	weston_buffer_reference(&sub->cached_buffer_ref, NULL);
-
-	weston_surface_commit_subsurface_order(surface);
-
-	weston_surface_schedule_repaint(surface);
 
 	sub->has_cached_data = 0;
 }
@@ -4081,7 +4136,6 @@ static void
 weston_subsurface_commit(struct weston_subsurface *sub)
 {
 	struct weston_surface *surface = sub->surface;
-	struct weston_subsurface *tmp;
 
 	/* Recursive check for effectively synchronized. */
 	if (weston_subsurface_is_synchronized(sub)) {
@@ -4092,12 +4146,7 @@ weston_subsurface_commit(struct weston_subsurface *sub)
 			weston_subsurface_commit_to_cache(sub);
 			weston_subsurface_commit_from_cache(sub);
 		} else {
-			weston_surface_commit(surface);
-		}
-
-		wl_list_for_each(tmp, &surface->subsurface_list, parent_link) {
-			if (tmp->surface != surface)
-				weston_subsurface_parent_commit(tmp, 0);
+			weston_surface_commit(surface, &surface->pending);
 		}
 	}
 }
@@ -4114,8 +4163,11 @@ weston_subsurface_synchronized_commit(struct weston_subsurface *sub)
 	 * all the way down.
 	 */
 
-	if (sub->has_cached_data)
+	if (sub->has_cached_data) {
 		weston_subsurface_commit_from_cache(sub);
+	} else {
+		weston_surface_commit(surface, &sub->cached);
+	}
 
 	wl_list_for_each(tmp, &surface->subsurface_list, parent_link) {
 		if (tmp->surface != surface)
@@ -7129,6 +7181,137 @@ bind_presentation(struct wl_client *client,
 }
 
 static void
+transaction_add_surface(struct wl_client *client,
+			struct wl_resource *resource,
+			struct wl_resource *surface_resource)
+{
+	struct weston_transaction *transaction =
+		wl_resource_get_user_data(resource);
+	struct weston_surface *surface =
+		wl_resource_get_user_data(surface_resource);
+
+	if (!wl_list_empty(&surface->transaction.link)) {
+		wl_resource_post_error(resource,
+				       WP_TRANSACTION_V1_ERROR_ALREADY_USED,
+				       "wl_surface@%d has already been added to a transaction",
+				       wl_resource_get_id(resource));
+		return;
+	}
+
+	wl_list_insert(&transaction->surfaces, &surface->transaction.link);
+	weston_surface_state_init(&surface->transaction.cached);
+}
+
+static void
+transaction_commit(struct wl_client *client,
+		   struct wl_resource *resource)
+{
+	struct weston_transaction *transaction =
+		wl_resource_get_user_data(resource);
+	struct weston_surface *surface, *next;
+
+	wl_list_for_each_safe(surface, next, &transaction->surfaces,
+			      transaction.link) {
+		wl_list_remove(&surface->transaction.link);
+		wl_list_init(&surface->transaction.link);
+
+		if (surface->transaction.has_cached_data)
+			weston_surface_commit(surface, NULL);
+
+		weston_buffer_reference(&surface->transaction.cached_buffer_ref,
+					NULL);
+		weston_surface_state_fini(&surface->transaction.cached);
+	}
+
+	wl_resource_destroy(resource);
+}
+
+static const struct wp_transaction_v1_interface transaction_implementation = {
+	transaction_add_surface,
+	transaction_commit
+};
+
+static void
+destroy_transaction(struct wl_resource *resource)
+{
+	struct weston_transaction *transaction =
+		wl_resource_get_user_data(resource);
+	struct weston_surface *surface, *next;
+
+	wl_list_for_each_safe(surface, next, &transaction->surfaces,
+			      transaction.link) {
+		wl_list_remove(&surface->transaction.link);
+		wl_list_init(&surface->transaction.link);
+		weston_buffer_reference(&surface->transaction.cached_buffer_ref,
+					NULL);
+		weston_surface_state_fini(&surface->transaction.cached);
+	}
+
+	free(transaction);
+}
+
+static struct weston_transaction *
+weston_transaction_create(struct wl_client *client,
+			  struct wl_resource *manager_resource,
+			  uint32_t id)
+{
+	struct weston_transaction *transaction;
+
+	transaction = zalloc(sizeof *transaction);
+	transaction->resource =
+		wl_resource_create(client, &wp_transaction_v1_interface,
+				   wl_resource_get_version(manager_resource),
+				   id);
+	wl_resource_set_implementation(transaction->resource,
+				       &transaction_implementation,
+				       transaction,
+				       destroy_transaction);
+
+	wl_list_init(&transaction->surfaces);
+
+	return transaction;
+}
+
+static void
+transaction_manager_destroy(struct wl_client *client,
+			    struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static void
+transaction_manager_create_transaction(struct wl_client *client,
+				       struct wl_resource *resource,
+				       uint32_t id)
+{
+	weston_transaction_create(client, resource, id);
+}
+
+static const struct wp_transaction_manager_v1_interface transaction_manager_implementation = {
+	transaction_manager_destroy,
+	transaction_manager_create_transaction
+};
+
+static void
+bind_transaction_manager(struct wl_client *client,
+			 void *data, uint32_t version, uint32_t id)
+{
+	struct weston_compositor *compositor = data;
+	struct wl_resource *resource;
+
+	resource =
+		wl_resource_create(client,
+				   &wp_transaction_manager_v1_interface,
+				   1, id);
+	if (resource == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+	wl_resource_set_implementation(resource, &transaction_manager_implementation,
+				       compositor, NULL);
+}
+
+static void
 compositor_bind(struct wl_client *client,
 		void *data, uint32_t version, uint32_t id)
 {
@@ -7499,6 +7682,11 @@ weston_compositor_create(struct wl_display *display,
 
 	if (!wl_global_create(ec->wl_display, &wp_presentation_interface, 1,
 			      ec, bind_presentation))
+		goto fail;
+
+	if (!wl_global_create(ec->wl_display,
+			      &wp_transaction_manager_v1_interface, 1,
+			      ec, bind_transaction_manager))
 		goto fail;
 
 	if (weston_input_init(ec) != 0)
