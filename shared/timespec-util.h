@@ -33,6 +33,61 @@
 
 #define NSEC_PER_SEC 1000000000
 
+/* Convert nanoseconds to timespec
+ *
+ * \param a timespec
+ * \param b nanoseconds
+ */
+static inline void
+timespec_from_nsec(struct timespec *a, int64_t b)
+{
+	a->tv_sec = b / NSEC_PER_SEC;
+	a->tv_nsec = b % NSEC_PER_SEC;
+}
+
+/* Convert microseconds to timespec
+ *
+ * \param a timespec
+ * \param b microseconds
+ */
+static inline void
+timespec_from_usec(struct timespec *a, int64_t b)
+{
+	timespec_from_nsec(a, b * 1000);
+}
+
+/* Convert milliseconds to timespec
+ *
+ * \param a timespec
+ * \param b milliseconds
+ */
+static inline void
+timespec_from_msec(struct timespec *a, int64_t b)
+{
+	timespec_from_nsec(a, b * 1000000);
+}
+
+/* Add timespecs
+ *
+ * \param r[out] result: a + b
+ * \param a[in] operand
+ * \param b[in] operand
+ */
+static inline void
+timespec_add(struct timespec *r,
+	     const struct timespec *a, const struct timespec *b)
+{
+	r->tv_sec = a->tv_sec + b->tv_sec;
+	r->tv_nsec = a->tv_nsec + b->tv_nsec;
+	if (r->tv_nsec >= NSEC_PER_SEC) {
+		r->tv_sec++;
+		r->tv_nsec -= NSEC_PER_SEC;
+	} else if (r->tv_nsec < 0) {
+		r->tv_sec--;
+		r->tv_nsec += NSEC_PER_SEC;
+	}
+}
+
 /* Subtract timespecs
  *
  * \param r[out] result: a - b
@@ -60,16 +115,9 @@ timespec_sub(struct timespec *r,
 static inline void
 timespec_add_nsec(struct timespec *r, const struct timespec *a, int64_t b)
 {
-	r->tv_sec = a->tv_sec + (b / NSEC_PER_SEC);
-	r->tv_nsec = a->tv_nsec + (b % NSEC_PER_SEC);
-
-	if (r->tv_nsec >= NSEC_PER_SEC) {
-		r->tv_sec++;
-		r->tv_nsec -= NSEC_PER_SEC;
-	} else if (r->tv_nsec < 0) {
-		r->tv_sec--;
-		r->tv_nsec += NSEC_PER_SEC;
-	}
+	struct timespec ts_b;
+	timespec_from_nsec(&ts_b, b);
+	timespec_add(r, a, &ts_b);
 }
 
 /* Add a millisecond value to a timespec
@@ -169,40 +217,6 @@ timespec_to_proto(const struct timespec *a, uint32_t *tv_sec_hi,
 	*tv_sec_hi = sec64 >> 32;
 	*tv_sec_lo = sec64 & 0xffffffff;
 	*tv_nsec = a->tv_nsec;
-}
-
-/* Convert nanoseconds to timespec
- *
- * \param a timespec
- * \param b nanoseconds
- */
-static inline void
-timespec_from_nsec(struct timespec *a, int64_t b)
-{
-	a->tv_sec = b / NSEC_PER_SEC;
-	a->tv_nsec = b % NSEC_PER_SEC;
-}
-
-/* Convert microseconds to timespec
- *
- * \param a timespec
- * \param b microseconds
- */
-static inline void
-timespec_from_usec(struct timespec *a, int64_t b)
-{
-	timespec_from_nsec(a, b * 1000);
-}
-
-/* Convert milliseconds to timespec
- *
- * \param a timespec
- * \param b milliseconds
- */
-static inline void
-timespec_from_msec(struct timespec *a, int64_t b)
-{
-	timespec_from_nsec(a, b * 1000000);
 }
 
 /* Convert protocol data to timespec
