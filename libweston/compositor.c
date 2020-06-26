@@ -7933,7 +7933,16 @@ weston_compositor_create(struct wl_display *display,
 	ec->content_protection = NULL;
 
 	loop = wl_display_get_event_loop(ec->wl_display);
-	ec->clock = weston_clock_create(WESTON_CLOCK_TYPE_REAL, loop);
+
+	if (ec->test_data.test_quirks.use_fake_time) {
+		ec->clock = weston_clock_create(WESTON_CLOCK_TYPE_FAKE, loop);
+		if (weston_clock_protocol_setup(ec) != 0)
+			goto fail;
+		weston_log("Using fake time\n");
+	} else {
+		ec->clock = weston_clock_create(WESTON_CLOCK_TYPE_REAL, loop);
+	}
+
 	if (!ec->clock)
 		goto fail;
 

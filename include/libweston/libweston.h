@@ -185,6 +185,10 @@ struct weston_testsuite_quirks {
 	bool gl_force_full_upload;
 	/** Ensure GL shadow fb is used, and always repaint it fully. */
 	bool gl_force_full_redraw_of_shadow_fb;
+	/** Use fake time in the compositor. This enables the weston_clock
+	 * protocol which allows clients to advance time on demand.
+	 */
+	bool use_fake_time;
 	/** Required enum weston_capability bit mask, otherwise skip run. */
 	uint32_t required_capabilities;
 };
