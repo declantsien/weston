@@ -45,6 +45,7 @@ fixture_setup(struct weston_test_harness *harness)
 	struct compositor_setup setup;
 
 	compositor_setup_defaults(&setup);
+	setup.test_quirks.use_fake_time = true;
 
 	return weston_test_harness_execute_as_client(harness, &setup);
 }
@@ -227,10 +228,22 @@ TEST(test_presentation_feedback_simple)
 	struct client *client;
 	struct feedback *fb;
 	struct wp_presentation *pres;
+	struct timespec ts;
 
 	client = create_client_and_test_surface(100, 50, 123, 77);
 	assert(client);
+	assert(client->clock);
 	pres = get_presentation(client);
+
+	/* Advance time sufficiently far in the future to ensure the compositor
+	 * is in a steady state (no repaints or frames pending). This works
+	 * because advancing the fake time is not a jump but a fast-forward;
+	 * all events during the advanced time frame, even events scheduled
+	 * from within other events or idle sources, are triggered and handled
+	 * properly. */
+	timespec_from_msec(&ts, 1000);
+	client_advance_time(client, &ts);
+	client_roundtrip(client);
 
 	wl_surface_attach(client->surface->wl_surface,
 			  client->surface->buffer->proxy, 0, 0);
@@ -240,11 +253,23 @@ TEST(test_presentation_feedback_simple)
 
 	client_roundtrip(client);
 
+	/* The refresh rate of the headless backend is 60Hz ~= 16.666ms, and
+	 * the default libweston repaint window is 7ms. The repaint delay is
+	 * thus 16 - 7 = 9ms.  After a commit from idle, the compositor waits
+	 * for the repaint delay and then schedules a repaint which for the
+	 * headless backend finishes 16ms later. We thus need to wait 9 + 16
+	 * = 25ms for the commit to be presented and the feedback information
+	 * to be sent. */
+	timespec_from_msec(&ts, 25);
+	client_advance_time(client, &ts);
+
 	feedback_wait(fb);
 
 	testlog("%s feedback:", __func__);
 	feedback_print(fb);
 	testlog("\n");
+
+	assert(timespec_eq(&fb->time, &client->clock->time));
 
 	feedback_destroy(fb);
 	wp_presentation_destroy(pres);
