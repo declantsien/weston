@@ -36,6 +36,12 @@ dep_toytoolkit = declare_dependency(
 	dependencies: deps_toytoolkit,
 )
 
+dep_iio = dependency('libiio', version: '>= 0.16', required: false)
+
+if dep_iio.found()
+  config_h.set('USE_LIBIIO', '1')
+endif
+
 simple_clients = [
 	{
 		'name': 'damage',
@@ -355,6 +361,21 @@ if get_option('shell-desktop')
 	env_modmap += 'weston-desktop-shell=@0@;'.format(exe_shell_desktop.full_path())
 endif
 
+if get_option('rotator')
+	exe_rotator = executable(
+		 'weston-rotator',
+		 'rotator.c',
+		 weston_rotator_client_protocol_h,
+		 weston_rotator_protocol_c,
+		 xdg_output_unstable_v1_client_protocol_h,
+		 xdg_output_unstable_v1_protocol_c,
+		 include_directories: common_inc,
+		 dependencies: [ dep_toytoolkit, dep_iio ],
+		 install_dir: get_option('bindir'),
+		 install: true
+	)
+	env_modmap += 'weston-rotator=@0@;'.format(exe_rotator.full_path())
+endif
 
 if get_option('shell-ivi')
 	exe_shell_ivi_ui = executable(
