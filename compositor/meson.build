@@ -4,12 +4,15 @@ srcs_weston = [
 	'testsuite-util.c',
 	'text-backend.c',
 	'weston-screenshooter.c',
+	'weston-rotator.c',
 	text_input_unstable_v1_server_protocol_h,
 	text_input_unstable_v1_protocol_c,
 	input_method_unstable_v1_server_protocol_h,
 	input_method_unstable_v1_protocol_c,
 	weston_screenshooter_server_protocol_h,
 	weston_screenshooter_protocol_c,
+	weston_rotator_server_protocol_h,
+	weston_rotator_protocol_c,
 ]
 deps_weston = [
 	dep_libshared,

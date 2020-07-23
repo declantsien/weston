@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="weston_rotator">
+  <copyright>
+    Copyright © 2020 Collabora Ltd.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <description summary="Protocol for dynamic orientation of an output">
+    Weston extension that specifies an interface which clients can use to pass
+    a new transform value to the compositor. Client are responsible for sending the
+    transform value as this allows the ability to use an external sensor, like
+    an accelerometer in order to read out the data independently in a different
+    process (APIs might be lacking an event-based reading mechanism).
+    Also, interactively changing the orientation might be
+    something desirable to have and this satisfies that requirement as well.
+  </description>
+
+  <interface name="weston_rotator" version="1">
+    <description summary="weston rotator">
+    The interface is advertised as a global object through wl_registry.
+    </description>
+
+    <request name="rotate">
+      <description summary="perform a rotation">
+        This request is used to tell the compositor the new transform value.
+        A client can use the 'accelerometer' field, under the form of a string,
+        if it intends to use a sensor (like an 'accelerometer'), or can use a
+        wl_output object instead if it knows which output to apply the
+        transform to.
+
+        For the latter, clients can use human-readable description from the
+        xdg_output interface, together with the wl_output interface to identify
+        which wl_output belongs to that human-readable output name.
+
+        For the former, additional configuration is required to match the output
+        on which this 'accelerometer' should apply the new transform. The
+        compositor can identify which output to apply the transform by matching
+        the 'accelerometer' assigned to.  A special dedicated section, called
+        '[accelerometer]' has been added which allows to identify the 'accelerometer'
+        by name.
+
+        The request will be dismissed if both an 'accelerometer' and 'output'
+        fields are set, and only one of them are permitted. A 'done' event will be
+        sent to the client with an invalid transform value.
+      </description>
+      <arg name="accelerometer" type="string" allow-null="true"/>
+      <arg name="output" type="object" interface="wl_output" allow-null="true"/>
+      <arg name="transform" type="uint" enum="wl_output_transform" />
+    </request>
+
+    <event name="done">
+      <description summary="signals when the rotation has been applied">
+        Event sent when the orientation of the output has been applied.
+        Client can use the transform value received here to check against the
+        one passed in 'rotate' request to verify it was applied. This event can
+        also be used in case client doesn't install a handler wl_output.geometry()
+        event (as that event will distribute the new transform value).
+      </description>
+      <arg name="transform" type="uint" enum="wl_output_transform" />
+    </event>
+
+  </interface>
+</protocol>

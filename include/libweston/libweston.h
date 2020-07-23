@@ -226,6 +226,17 @@ struct weston_head {
 	enum weston_hdcp_protection current_protection;
 };
 
+typedef void (*weston_rotator_cb)(void *data);
+
+
+struct output_accel {
+	char *accelerometer;
+	struct wl_event_source *output_redraw;
+
+	weston_rotator_cb done;
+	void *data;
+};
+
 /** Content producer for heads
  *
  * \rst
@@ -290,6 +301,7 @@ struct weston_output {
 	struct wl_list feedback_list;
 
 	uint32_t transform;
+	uint32_t prev_transform;
 	int32_t native_scale;
 	int32_t current_scale;
 	int32_t original_scale;
@@ -304,6 +316,8 @@ struct weston_output {
 	enum weston_hdcp_protection desired_protection;
 	enum weston_hdcp_protection current_protection;
 	bool allow_protection;
+
+	struct output_accel *oac;
 
 	int (*start_repaint_loop)(struct weston_output *output);
 	int (*repaint)(struct weston_output *output,
@@ -1847,6 +1861,10 @@ struct weston_recorder *
 weston_recorder_start(struct weston_output *output, const char *filename);
 void
 weston_recorder_stop(struct weston_recorder *recorder);
+
+void
+weston_rotator_rotate(struct weston_output *output, uint32_t transform,
+		      weston_rotator_cb done, void *data);
 
 struct weston_view_animation;
 typedef	void (*weston_view_animation_done_func_t)(struct weston_view_animation *animation, void *data);

@@ -34,6 +34,9 @@ extern "C" {
 #include <libweston/config-parser.h>
 
 void
+weston_rotator_create(struct weston_compositor *ec);
+
+void
 screenshooter_create(struct weston_compositor *ec);
 
 struct weston_process;

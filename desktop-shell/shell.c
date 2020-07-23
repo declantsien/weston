@@ -5239,6 +5239,7 @@ wet_shell_init(struct weston_compositor *ec,
 	wl_signal_add(&ec->output_resized_signal, &shell->resized_listener);
 
 	screenshooter_create(ec);
+	weston_rotator_create(ec);
 
 	shell_add_bindings(ec, shell);
 
