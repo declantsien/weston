@@ -4277,10 +4277,14 @@ window_schedule_resize(struct window *window, int width, int height)
 			window->min_allocation.height = height;
 	}
 
+	/* pending_allocation.width could be smaller that min_allocation.width
+	 * if we have an orientation change. Adjust the min_allocation in both
+	 * cases whenever that happens */
 	if (window->pending_allocation.width < window->min_allocation.width)
-		window->pending_allocation.width = window->min_allocation.width;
+		window->min_allocation.width = window->pending_allocation.width;
+
 	if (window->pending_allocation.height < window->min_allocation.height)
-		window->pending_allocation.height = window->min_allocation.height;
+		window->min_allocation.height = window->pending_allocation.height;
 
 	window->resize_needed = 1;
 	window_schedule_redraw(window);
