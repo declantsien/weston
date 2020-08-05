@@ -144,6 +144,7 @@ struct shell_surface {
 	int focus_count;
 
 	bool destroying;
+	struct wl_list link;
 };
 
 struct shell_grab {
@@ -2426,6 +2427,8 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	wl_list_init(&shsurf->children_list);
 	wl_list_init(&shsurf->children_link);
 
+	wl_list_insert(&shsurf->shell->shsurf_list, &shsurf->link);
+
 	weston_desktop_surface_set_user_data(desktop_surface, shsurf);
 	weston_desktop_surface_set_activated(desktop_surface,
 					     shsurf->focus_count > 0);
@@ -2460,6 +2463,8 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 	shsurf->desktop_surface = NULL;
 
 	weston_desktop_surface_unlink_view(shsurf->view);
+
+	wl_list_remove(&shsurf->link);
 	if (weston_surface_is_mapped(surface) &&
 	    shsurf->shell->win_close_animation_type == ANIMATION_FADE) {
 		pixman_region32_fini(&surface->pending.input);
@@ -5184,6 +5189,7 @@ wet_shell_init(struct weston_compositor *ec,
 
 	wl_array_init(&shell->workspaces.array);
 	wl_list_init(&shell->workspaces.client_list);
+	wl_list_init(&shell->shsurf_list);
 
 	if (input_panel_setup(shell) < 0)
 		return -1;

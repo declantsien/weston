@@ -152,6 +152,8 @@ struct desktop_shell {
 	struct wl_listener pointer_focus_listener;
 	struct weston_surface *grab_surface;
 
+	struct wl_list shsurf_list;
+
 	struct {
 		struct wl_client *client;
 		struct wl_resource *desktop_shell;
