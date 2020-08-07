@@ -195,6 +195,12 @@ weston_desktop_surface_get_max_size(struct weston_desktop_surface *surface);
 struct weston_size
 weston_desktop_surface_get_min_size(struct weston_desktop_surface *surface);
 
+void
+weston_desktop_surface_set_ack_listener(struct weston_desktop_surface *surface,
+				struct wl_listener *listener);
+void
+weston_desktop_surface_emit_ack_configure(struct weston_desktop_surface *surface);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1234,6 +1234,7 @@ weston_desktop_xdg_surface_protocol_ack_configure(struct wl_client *wl_client,
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_TOPLEVEL:
 		weston_desktop_xdg_toplevel_ack_configure((struct weston_desktop_xdg_toplevel *) surface,
 							  (struct weston_desktop_xdg_toplevel_configure *) configure);
+		weston_desktop_surface_emit_ack_configure(dsurface);
 		break;
 	case WESTON_DESKTOP_XDG_SURFACE_ROLE_POPUP:
 		break;

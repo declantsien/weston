@@ -65,6 +65,7 @@ struct weston_desktop_surface {
 		char *app_id;
 		pid_t pid;
 		struct wl_signal metadata_signal;
+		struct wl_signal configure_ack_signal;
 	};
 	struct {
 		struct weston_desktop_surface *parent;
@@ -289,6 +290,7 @@ weston_desktop_surface_create(struct weston_desktop *desktop,
 	wl_list_init(&surface->grab_link);
 
 	wl_signal_init(&surface->metadata_signal);
+	wl_signal_init(&surface->configure_ack_signal);
 
 	return surface;
 }
@@ -827,4 +829,17 @@ weston_desktop_surface_popup_dismiss(struct weston_desktop_surface *surface)
 	wl_list_remove(&surface->grab_link);
 	wl_list_init(&surface->grab_link);
 	weston_desktop_surface_close(surface);
+}
+
+WL_EXPORT void
+weston_desktop_surface_set_ack_listener(struct weston_desktop_surface *surface,
+					struct wl_listener *listener)
+{
+	wl_signal_add(&surface->configure_ack_signal, listener);
+}
+
+void
+weston_desktop_surface_emit_ack_configure(struct weston_desktop_surface *surface)
+{
+	wl_signal_emit(&surface->configure_ack_signal, surface);
 }
