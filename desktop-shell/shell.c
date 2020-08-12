@@ -4902,6 +4902,41 @@ shell_resize_surface_to_output(struct desktop_shell *shell,
 					output->height);
 }
 
+static void
+handle_output_resized_shsurfs(struct desktop_shell *shell,
+			      struct weston_output *output)
+{
+	struct shell_surface *shsurf;
+
+	wl_list_for_each(shsurf, &shell->shsurf_list, link) {
+		if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) ||
+		    weston_desktop_surface_get_maximized(shsurf->desktop_surface)) {
+
+			weston_desktop_surface_set_size(shsurf->desktop_surface,
+					output->width, output->height);
+		} else {
+			if (1 & (output->prev_transform ^ output->transform)) {
+				/* re-position the view in the 'viewable' area */
+				if (shsurf->saved_position_valid) {
+					weston_view_set_position(shsurf->view,
+							shsurf->saved_x,
+							shsurf->saved_y);
+					shsurf->saved_position_valid = false;
+				} else {
+					/* or save the current one and do a random
+					 * reposition */
+					shsurf->saved_x = shsurf->view->geometry.x;
+					shsurf->saved_y = shsurf->view->geometry.y;
+					shsurf->saved_position_valid = true;
+
+
+					weston_view_set_initial_position(shsurf->view,
+							shsurf->shell);
+				}
+			}
+		}
+	}
+}
 
 static void
 handle_output_resized(struct wl_listener *listener, void *data)
@@ -4913,6 +4948,8 @@ handle_output_resized(struct wl_listener *listener, void *data)
 
 	shell_resize_surface_to_output(shell, sh_output->background_surface, output);
 	shell_resize_surface_to_output(shell, sh_output->panel_surface, output);
+
+	handle_output_resized_shsurfs(shell, output);
 }
 
 static void
