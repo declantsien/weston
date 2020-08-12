@@ -144,7 +144,14 @@ struct shell_surface {
 	int focus_count;
 
 	bool destroying;
+
+	struct wl_listener ack_configure;
 	struct wl_list link;
+};
+
+struct shell_surface_ack {
+	struct shell_surface *shsurf;
+	struct wl_list link;	/**< desktop_shell::shsurf_to_ack_list */
 };
 
 struct shell_grab {
@@ -2368,6 +2375,32 @@ get_shell_surface(struct weston_surface *surface)
 	return NULL;
 }
 
+static void
+handle_ack_configure(struct wl_listener *listener, void *data)
+{
+	struct shell_surface *shsurf;
+	struct desktop_shell *shell;
+	struct shell_surface_ack *shsurf_ack, *shsurf_ack_next;
+
+	shsurf = wl_container_of(listener, shsurf, ack_configure);
+	shell = shsurf->shell;
+
+	weston_output_unsuspend_repaint(shsurf->output);
+
+	/* and from the list of not-acked list */
+	wl_list_for_each_safe(shsurf_ack, shsurf_ack_next,
+			      &shell->shsurf_to_ack_list, link) {
+		if (shsurf == shsurf_ack->shsurf) {
+			wl_list_remove(&shsurf_ack->link);
+			free(shsurf_ack);
+			break;
+		}
+	}
+
+	if (wl_list_empty(&shell->shsurf_to_ack_list))
+		weston_output_suspend_timer_stop(shsurf->output);
+}
+
 /*
  * libweston-desktop
  */
@@ -2427,6 +2460,10 @@ desktop_surface_added(struct weston_desktop_surface *desktop_surface,
 	wl_list_init(&shsurf->children_list);
 	wl_list_init(&shsurf->children_link);
 
+	shsurf->ack_configure.notify = handle_ack_configure;
+	weston_desktop_surface_set_ack_listener(shsurf->desktop_surface,
+						&shsurf->ack_configure);
+
 	wl_list_insert(&shsurf->shell->shsurf_list, &shsurf->link);
 
 	weston_desktop_surface_set_user_data(desktop_surface, shsurf);
@@ -2461,6 +2498,9 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 	weston_surface_set_label_func(surface, NULL);
 	weston_desktop_surface_set_user_data(shsurf->desktop_surface, NULL);
 	shsurf->desktop_surface = NULL;
+
+	wl_list_remove(&shsurf->ack_configure.link);
+	shsurf->ack_configure.notify = NULL;
 
 	weston_desktop_surface_unlink_view(shsurf->view);
 
@@ -4876,13 +4916,21 @@ handle_output_destroy(struct wl_listener *listener, void *data)
 	struct shell_output *output_listener =
 		container_of(listener, struct shell_output, destroy_listener);
 	struct desktop_shell *shell = output_listener->shell;
+	struct shell_surface_ack *shsurf_ack, *shsurf_ack_next;
 
 	shell_for_each_layer(shell, shell_output_changed_move_layer, NULL);
+
+	wl_list_for_each_safe(shsurf_ack, shsurf_ack_next,
+			      &shell->shsurf_to_ack_list, link)
+		weston_output_unsuspend_repaint(output_listener->output);
+
+	weston_output_suspend_timer_destroy(output_listener->output);
 
 	if (output_listener->panel_surface)
 		wl_list_remove(&output_listener->panel_surface_listener.link);
 	if (output_listener->background_surface)
 		wl_list_remove(&output_listener->background_surface_listener.link);
+
 	wl_list_remove(&output_listener->destroy_listener.link);
 	wl_list_remove(&output_listener->link);
 	free(output_listener);
@@ -4903,6 +4951,18 @@ shell_resize_surface_to_output(struct desktop_shell *shell,
 }
 
 static void
+shell_add_pending_shsurf_to_ack(struct shell_surface *shsurf,
+				struct desktop_shell *shell)
+{
+	struct shell_surface_ack *shsurf_ack = zalloc(sizeof(*shsurf_ack));
+
+	shsurf_ack->shsurf = shsurf;
+
+	/* we only remove it from here once we get the configure_ack request */
+	wl_list_insert(&shell->shsurf_to_ack_list, &shsurf_ack->link);
+}
+
+static void
 handle_output_resized_shsurfs(struct desktop_shell *shell,
 			      struct weston_output *output)
 {
@@ -4912,6 +4972,20 @@ handle_output_resized_shsurfs(struct desktop_shell *shell,
 		if (weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) ||
 		    weston_desktop_surface_get_maximized(shsurf->desktop_surface)) {
 
+			/* each weston_output_suspend_repaint() will increase a
+			 * ref_cnt to keep the output repaint cycle skip a
+			 * frame, effectively freezing the output until all the
+			 * configure_ack requests are sent back, which
+			 * decreases the ref_cnt by using
+			 * weston_output_unsuspend_repaint().
+			 *
+			 * We maintain a list not ack'ed shsurfs which will be
+			 * verified by a timer to make sure we don't remain
+			 * with the output frozen, in the unlikely case that
+			 * the application is destroyed/surface gets frozen.
+			 */
+			weston_output_suspend_repaint(shsurf->output);
+			shell_add_pending_shsurf_to_ack(shsurf, shell);
 			weston_desktop_surface_set_size(shsurf->desktop_surface,
 					output->width, output->height);
 		} else {
@@ -4949,7 +5023,30 @@ handle_output_resized(struct wl_listener *listener, void *data)
 	shell_resize_surface_to_output(shell, sh_output->background_surface, output);
 	shell_resize_surface_to_output(shell, sh_output->panel_surface, output);
 
+	/* this timer is necessary to make sure that once the output has been
+	 * frozen we can get it back */
+	weston_output_suspend_timer_arm(output, 5 * shell->compositor->repaint_msec);
 	handle_output_resized_shsurfs(shell, output);
+}
+
+static int
+handle_output_suspend_timer(void *data)
+{
+	struct desktop_shell *shell = data;
+	struct shell_surface_ack *shsurf_to_ack, *shsurf_to_ack_next;
+
+	if (wl_list_empty(&shell->shsurf_to_ack_list))
+		return 0;
+
+	/* unfreeze the output by decreasing the ref counter on suspend_repaint */
+	wl_list_for_each_safe(shsurf_to_ack, shsurf_to_ack_next,
+			      &shell->shsurf_to_ack_list, link) {
+		weston_output_unsuspend_repaint(shsurf_to_ack->shsurf->output);
+		wl_list_remove(&shsurf_to_ack->link);
+		free(shsurf_to_ack);
+	}
+
+	return 0;
 }
 
 static void
@@ -4969,6 +5066,8 @@ create_shell_output(struct desktop_shell *shell,
 		      &shell_output->destroy_listener);
 	wl_list_insert(shell->output_list.prev, &shell_output->link);
 
+	weston_output_suspend_timer_create(output, handle_output_suspend_timer,
+					   shell, 0);
 	if (wl_list_length(&shell->output_list) == 1)
 		shell_for_each_layer(shell,
 				     shell_output_changed_move_layer, NULL);
@@ -5227,6 +5326,7 @@ wet_shell_init(struct weston_compositor *ec,
 	wl_array_init(&shell->workspaces.array);
 	wl_list_init(&shell->workspaces.client_list);
 	wl_list_init(&shell->shsurf_list);
+	wl_list_init(&shell->shsurf_to_ack_list);
 
 	if (input_panel_setup(shell) < 0)
 		return -1;

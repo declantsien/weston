@@ -153,6 +153,7 @@ struct desktop_shell {
 	struct weston_surface *grab_surface;
 
 	struct wl_list shsurf_list;
+	struct wl_list shsurf_to_ack_list; /**< shell_surface_ack::link */
 
 	struct {
 		struct wl_client *client;
