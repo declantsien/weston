@@ -318,6 +318,9 @@ struct weston_output {
 	bool allow_protection;
 
 	struct output_accel *oac;
+	int suspend_repaint_cnt;
+	bool suspend_repaint;
+	struct wl_event_source *suspend_repaint_timer;
 
 	int (*start_repaint_loop)(struct weston_output *output);
 	int (*repaint)(struct weston_output *output,
@@ -2076,6 +2079,20 @@ weston_compositor_enable_content_protection(struct weston_compositor *compositor
 void
 weston_timeline_refresh_subscription_objects(struct weston_compositor *wc,
 					     void *object);
+
+void
+weston_output_suspend_repaint(struct weston_output *output);
+void
+weston_output_unsuspend_repaint(struct weston_output *output);
+void
+weston_output_suspend_timer_create(struct weston_output *output, int (*timer_cb)(void *data),
+		void *data, int ms_delay);
+void
+weston_output_suspend_timer_destroy(struct weston_output *output);
+void
+weston_output_suspend_timer_arm(struct weston_output *output, int ms_delay);
+void
+weston_output_suspend_timer_stop(struct weston_output *output);
 
 #ifdef  __cplusplus
 }

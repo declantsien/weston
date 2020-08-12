@@ -2838,6 +2838,9 @@ weston_output_maybe_repaint(struct weston_output *output, struct timespec *now,
 	if (output->repaint_status != REPAINT_SCHEDULED)
 		return ret;
 
+	if (output->suspend_repaint)
+		return ret;
+
 	msec_to_repaint = timespec_sub_to_msec(&output->next_repaint, now);
 	if (msec_to_repaint > 1)
 		return ret;
@@ -7990,4 +7993,62 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	if (output->disable_planes == 0)
 		weston_schedule_surface_protection_update(output->compositor);
 
+}
+
+WL_EXPORT void
+weston_output_suspend_repaint(struct weston_output *output)
+{
+	if (output->suspend_repaint_cnt++ == 0)
+		output->suspend_repaint = true;
+}
+
+WL_EXPORT void
+weston_output_suspend_timer_create(struct weston_output *output,
+				   int (*timer_cb)(void *data), void *data, int ms_delay)
+{
+	if (!output->suspend_repaint_timer) {
+		struct wl_event_loop *loop =
+			wl_display_get_event_loop(output->compositor->wl_display);
+		output->suspend_repaint_timer =
+			wl_event_loop_add_timer(loop, timer_cb, data);
+	}
+
+	if (ms_delay > 0)
+		wl_event_source_timer_update(output->suspend_repaint_timer, ms_delay);
+}
+
+WL_EXPORT void
+weston_output_suspend_timer_arm(struct weston_output *output, int ms_delay)
+{
+	if (!output->suspend_repaint_timer || ms_delay <= 0)
+		return;
+
+	wl_event_source_timer_update(output->suspend_repaint_timer, ms_delay);
+}
+
+WL_EXPORT void
+weston_output_suspend_timer_destroy(struct weston_output *output)
+{
+	if (output->suspend_repaint_timer) {
+		wl_event_source_timer_update(output->suspend_repaint_timer, 0);
+		wl_event_source_remove(output->suspend_repaint_timer);
+
+		output->suspend_repaint_timer = NULL;
+	}
+}
+
+WL_EXPORT void
+weston_output_suspend_timer_stop(struct weston_output *output)
+{
+	wl_event_source_timer_update(output->suspend_repaint_timer, 0);
+}
+
+WL_EXPORT void
+weston_output_unsuspend_repaint(struct weston_output *output)
+{
+	if (--output->suspend_repaint_cnt == 0)
+		output->suspend_repaint = false;
+
+	if (output->suspend_repaint_cnt < 0)
+		output->suspend_repaint_cnt = 0;
 }
