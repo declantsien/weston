@@ -2094,6 +2094,10 @@ weston_output_suspend_timer_arm(struct weston_output *output, int ms_delay);
 void
 weston_output_suspend_timer_stop(struct weston_output *output);
 
+void
+weston_output_flush_frame_callbacks(struct weston_output *output,
+				    struct wl_list *frame_callback_list);
+
 #ifdef  __cplusplus
 }
 #endif

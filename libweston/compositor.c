@@ -2719,17 +2719,32 @@ weston_output_take_feedback_list(struct weston_output *output,
 	wl_list_init(&surface->feedback_list);
 }
 
+WL_EXPORT void
+weston_output_flush_frame_callbacks(struct weston_output *output,
+				    struct wl_list *frame_callback_list)
+{
+	struct weston_frame_callback *frame_cb, *frame_cb_next;
+	uint32_t frame_time_msec = timespec_to_msec(&output->frame_time);
+
+	if (wl_list_empty(frame_callback_list))
+		return;
+
+	wl_list_for_each_safe(frame_cb, frame_cb_next,
+			      frame_callback_list, link) {
+		wl_callback_send_done(frame_cb->resource, frame_time_msec);
+		wl_resource_destroy(frame_cb->resource);
+	}
+}
+
 static int
 weston_output_repaint(struct weston_output *output, void *repaint_data)
 {
 	struct weston_compositor *ec = output->compositor;
 	struct weston_view *ev;
 	struct weston_animation *animation, *next;
-	struct weston_frame_callback *cb, *cnext;
 	struct wl_list frame_callback_list;
 	pixman_region32_t output_damage;
 	int r;
-	uint32_t frame_time_msec;
 	enum weston_hdcp_protection highest_requested = WESTON_HDCP_DISABLE;
 
 	if (output->destroying)
@@ -2801,12 +2816,7 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 
 	weston_compositor_repick(ec);
 
-	frame_time_msec = timespec_to_msec(&output->frame_time);
-
-	wl_list_for_each_safe(cb, cnext, &frame_callback_list, link) {
-		wl_callback_send_done(cb->resource, frame_time_msec);
-		wl_resource_destroy(cb->resource);
-	}
+	weston_output_flush_frame_callbacks(output, &frame_callback_list);
 
 	wl_list_for_each_safe(animation, next, &output->animation_list, link) {
 		animation->frame_counter++;

@@ -4963,6 +4963,16 @@ shell_add_pending_shsurf_to_ack(struct shell_surface *shsurf,
 }
 
 static void
+weston_output_flush_frame_cbs(struct shell_surface *shsurf)
+{
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	weston_output_flush_frame_callbacks(shsurf->output,
+					    &surface->frame_callback_list);
+}
+
+static void
 handle_output_resized_shsurfs(struct desktop_shell *shell,
 			      struct weston_output *output)
 {
@@ -4984,10 +4994,13 @@ handle_output_resized_shsurfs(struct desktop_shell *shell,
 			 * with the output frozen, in the unlikely case that
 			 * the application is destroyed/surface gets frozen.
 			 */
+
 			weston_output_suspend_repaint(shsurf->output);
 			shell_add_pending_shsurf_to_ack(shsurf, shell);
 			weston_desktop_surface_set_size(shsurf->desktop_surface,
 					output->width, output->height);
+
+			weston_output_flush_frame_cbs(shsurf);
 		} else {
 			if (1 & (output->prev_transform ^ output->transform)) {
 				/* re-position the view in the 'viewable' area */
