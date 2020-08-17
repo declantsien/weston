@@ -30,13 +30,21 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <stdbool.h>
+#include <dlfcn.h>
+
 #include <drm_fourcc.h>
 
 #include <libweston/libweston.h>
 #include <libweston/backend-headless.h>
 #include "headless-internal.h"
+
+#ifdef BUILD_HEADLESS_GBM
+#include <gbm.h>
+#endif
+
 #include "shared/helpers.h"
 #include "linux-explicit-synchronization.h"
 #include "pixman-renderer.h"
@@ -69,6 +77,56 @@ finish_frame_handler(void *data)
 	return 1;
 }
 
+#ifdef BUILD_HEADLESS_GBM
+bool
+gbm_create_device_headless(struct headless_backend *b)
+{
+	const char render_node[] = "/dev/dri/renderD128";
+
+	b->drm_fd = open(render_node, O_RDWR);
+	if (b->drm_fd < 0) {
+		fprintf(stderr, "Failed to open drm render node %s\n",
+			render_node);
+		return false;
+	}
+
+	b->gbm = gbm_create_device(b->drm_fd);
+	if (b->gbm == NULL) {
+		fprintf(stderr, "Failed to create gbm device\n");
+		return false;
+	}
+
+	return true;
+}
+
+int
+headless_output_repaint_gbm(struct headless_output *output,
+			    pixman_region32_t *damage)
+{
+	struct weston_compositor *compositor = output->base.compositor;
+
+	compositor->renderer->repaint_output(&output->base, damage);
+
+	pixman_region32_subtract(&compositor->primary_plane.damage,
+				 &compositor->primary_plane.damage, damage);
+
+	wl_event_source_timer_update(output->finish_frame_timer, 16);
+
+	return 0;
+}
+
+void
+headless_output_disable_gl_gbm(struct headless_output *output)
+{
+	struct weston_compositor *compositor = output->base.compositor;
+	struct headless_backend *b = to_headless_backend(compositor);
+
+	b->glri->output_destroy(&output->base);
+	gbm_surface_destroy(output->gbm_surface);
+	output->gbm_surface = NULL;
+}
+#endif
+
 static int
 headless_output_repaint(struct weston_output *output_base,
 		       pixman_region32_t *damage,
@@ -76,6 +134,10 @@ headless_output_repaint(struct weston_output *output_base,
 {
 	struct headless_output *output = to_headless_output(output_base);
 	struct weston_compositor *ec = output->base.compositor;
+	struct headless_backend *b = to_headless_backend(ec);
+
+	if (b->renderer_type == HEADLESS_GL_GBM)
+		return headless_output_repaint_gbm(output, damage);
 
 	ec->renderer->repaint_output(&output->base, damage);
 
@@ -119,6 +181,9 @@ headless_output_disable(struct weston_output *base)
 	case HEADLESS_GL:
 		headless_output_disable_gl(output);
 		break;
+	case HEADLESS_GL_GBM:
+		headless_output_disable_gl_gbm(output);
+		break;
 	case HEADLESS_PIXMAN:
 		headless_output_disable_pixman(output);
 		break;
@@ -159,6 +224,40 @@ headless_output_enable_gl(struct headless_output *output)
 
 	return 0;
 }
+
+#ifdef BUILD_HEADLESS_GBM
+int
+headless_output_enable_gl_gbm(struct headless_output *output)
+{
+	struct weston_compositor *compositor = output->base.compositor;
+	struct headless_backend *b = to_headless_backend(compositor);
+	struct gl_renderer_output_options options = {
+		.drm_formats = headless_formats,
+		.drm_formats_count = ARRAY_LENGTH(headless_formats),
+	};
+
+	output->gbm_surface = gbm_surface_create(b->gbm,
+						 output->base.current_mode->width,
+						 output->base.current_mode->height,
+						 output->gbm_format,
+						 output->gbm_bo_flags);
+	if (!output->gbm_surface) {
+		weston_log("failed to create gbm surface\n");
+		return -1;
+	}
+
+	options.window_for_legacy = (EGLNativeWindowType) output->gbm_surface;
+	options.window_for_platform = output->gbm_surface;
+	if (b->glri->output_window_create(&output->base, &options) < 0) {
+		weston_log("failed to create gl renderer output state\n");
+		gbm_surface_destroy(output->gbm_surface);
+		output->gbm_surface = NULL;
+		return -1;
+	}
+
+	return 0;
+}
+#endif
 
 static int
 headless_output_enable_pixman(struct headless_output *output)
@@ -207,6 +306,9 @@ headless_output_enable(struct weston_output *base)
 	switch (b->renderer_type) {
 	case HEADLESS_GL:
 		ret = headless_output_enable_gl(output);
+		break;
+	case HEADLESS_GL_GBM:
+		ret = headless_output_enable_gl_gbm(output);
 		break;
 	case HEADLESS_PIXMAN:
 		ret = headless_output_enable_pixman(output);
@@ -281,6 +383,11 @@ headless_output_create(struct weston_compositor *compositor, const char *name)
 
 	weston_output_init(&output->base, compositor, name);
 
+#ifdef BUILD_HEADLESS_GBM
+	output->gbm_bo_flags = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
+	output->gbm_format = DRM_FORMAT_XRGB8888;
+#endif
+
 	output->base.destroy = headless_output_destroy;
 	output->base.disable = headless_output_disable;
 	output->base.enable = headless_output_enable;
@@ -338,6 +445,34 @@ headless_destroy(struct weston_compositor *ec)
 	free(b);
 }
 
+#ifdef BUILD_HEADLESS_GBM
+int
+headless_gl_renderer_init_gbm(struct headless_backend *b)
+{
+	if (!gbm_create_device_headless(b))
+		return -1;
+
+	struct gl_renderer_display_options options = {
+		.egl_platform = EGL_PLATFORM_GBM_KHR,
+		.egl_native_display = b->gbm,
+		.egl_surface_type = EGL_WINDOW_BIT,
+		.drm_formats = headless_formats,
+		.drm_formats_count = ARRAY_LENGTH(headless_formats),
+	};
+
+	b->glri = weston_load_module("gl-renderer.so", "gl_renderer_interface");
+	if (!b->glri)
+		return -1;
+
+	dlopen("libglapi.so.0", RTLD_LAZY | RTLD_GLOBAL);
+
+	if (b->glri->display_create(b->compositor, &options) < 0)
+		return -1;
+
+	return 0;
+}
+#endif
+
 static int
 headless_gl_renderer_init(struct headless_backend *b)
 {
@@ -386,7 +521,9 @@ headless_backend_create(struct weston_compositor *compositor,
 		goto err_free;
 	}
 
-	if (config->use_gl)
+	if (config->use_gl && config->use_gbm)
+		b->renderer_type = HEADLESS_GL_GBM;
+	else if (config->use_gl)
 		b->renderer_type = HEADLESS_GL;
 	else if (config->use_pixman)
 		b->renderer_type = HEADLESS_PIXMAN;
@@ -396,6 +533,9 @@ headless_backend_create(struct weston_compositor *compositor,
 	switch (b->renderer_type) {
 	case HEADLESS_GL:
 		ret = headless_gl_renderer_init(b);
+		break;
+	case HEADLESS_GL_GBM:
+		ret = headless_gl_renderer_init_gbm(b);
 		break;
 	case HEADLESS_PIXMAN:
 		ret = pixman_renderer_init(compositor);
