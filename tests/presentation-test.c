@@ -223,12 +223,13 @@ feedback_destroy(struct feedback *fb)
 	free(fb);
 }
 
-TEST(test_presentation_feedback_simple)
+TEST_WITH_COMPOSITOR(test_presentation_feedback_simple)
 {
 	struct client *client;
 	struct feedback *fb;
 	struct wp_presentation *pres;
 	struct timespec ts;
+	struct weston_output *output;
 
 	client = create_client_and_test_surface(100, 50, 123, 77);
 	assert(client);
@@ -244,6 +245,11 @@ TEST(test_presentation_feedback_simple)
 	timespec_from_msec(&ts, 1000);
 	client_advance_time(client, &ts);
 	client_roundtrip(client);
+
+	output = container_of(compositor->output_list.next,
+			      struct weston_output,
+			      link);
+	assert(output->repaint_status == REPAINT_NOT_SCHEDULED);
 
 	wl_surface_attach(client->surface->wl_surface,
 			  client->surface->buffer->proxy, 0, 0);
