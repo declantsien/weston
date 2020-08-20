@@ -1860,6 +1860,20 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 void
 weston_compositor_get_time(struct timespec *time);
 
+struct wl_event_source *
+weston_compositor_add_timer(struct weston_compositor *compositor,
+			    wl_event_loop_timer_func_t func,
+			    void *data);
+
+void
+weston_compositor_timer_update(struct weston_compositor *compositor,
+			       struct wl_event_source *timer,
+			       int ms_delay);
+
+void
+weston_compositor_timer_remove(struct weston_compositor *compositor,
+			       struct wl_event_source *timer);
+
 void
 weston_compositor_destroy(struct weston_compositor *ec);
 

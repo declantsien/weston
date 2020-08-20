@@ -132,7 +132,7 @@ headless_output_repaint(struct weston_output *output_base,
 	pixman_region32_subtract(&ec->primary_plane.damage,
 				 &ec->primary_plane.damage, damage);
 
-	wl_event_source_timer_update(output->finish_frame_timer, 16);
+	weston_compositor_timer_update(ec, output->finish_frame_timer, 16);
 
 	return 0;
 }
@@ -163,7 +163,7 @@ headless_output_disable(struct weston_output *base)
 	if (!output->base.enabled)
 		return 0;
 
-	wl_event_source_remove(output->finish_frame_timer);
+	weston_compositor_timer_remove(base->compositor, output->finish_frame_timer);
 
 	switch (b->renderer_type) {
 	case HEADLESS_GL:
@@ -247,12 +247,11 @@ headless_output_enable(struct weston_output *base)
 {
 	struct headless_output *output = to_headless_output(base);
 	struct headless_backend *b = to_headless_backend(base->compositor);
-	struct wl_event_loop *loop;
+	struct weston_compositor *ec = base->compositor;
 	int ret = 0;
 
-	loop = wl_display_get_event_loop(b->compositor->wl_display);
 	output->finish_frame_timer =
-		wl_event_loop_add_timer(loop, finish_frame_handler, output);
+		weston_compositor_add_timer(ec, finish_frame_handler, output);
 
 	if (output->finish_frame_timer == NULL) {
 		weston_log("failed to add finish frame timer\n");
@@ -271,7 +270,7 @@ headless_output_enable(struct weston_output *base)
 	}
 
 	if (ret < 0) {
-		wl_event_source_remove(output->finish_frame_timer);
+		weston_compositor_timer_remove(ec, output->finish_frame_timer);
 		return -1;
 	}
 

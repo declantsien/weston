@@ -3210,7 +3210,8 @@ output_repaint_timer_arm(struct weston_compositor *compositor)
 	if (msec_to_next < 1)
 		msec_to_next = 1;
 
-	wl_event_source_timer_update(compositor->repaint_timer, msec_to_next);
+	weston_compositor_timer_update(compositor, compositor->repaint_timer,
+				       msec_to_next);
 }
 
 static int
@@ -5166,8 +5167,9 @@ weston_compositor_wake(struct weston_compositor *compositor)
 		wl_signal_emit(&compositor->wake_signal, compositor);
 		/* fall through */
 	default:
-		wl_event_source_timer_update(compositor->idle_source,
-					     compositor->idle_time * 1000);
+		weston_compositor_timer_update(compositor,
+					       compositor->idle_source,
+					       compositor->idle_time * 1000);
 	}
 }
 
@@ -5191,7 +5193,9 @@ weston_compositor_offscreen(struct weston_compositor *compositor)
 	case WESTON_COMPOSITOR_SLEEPING:
 	default:
 		compositor->state = WESTON_COMPOSITOR_OFFSCREEN;
-		wl_event_source_timer_update(compositor->idle_source, 0);
+		weston_compositor_timer_update(compositor,
+					       compositor->idle_source,
+					       0);
 	}
 }
 
@@ -5213,7 +5217,7 @@ weston_compositor_sleep(struct weston_compositor *compositor)
 	if (compositor->state == WESTON_COMPOSITOR_SLEEPING)
 		return;
 
-	wl_event_source_timer_update(compositor->idle_source, 0);
+	weston_compositor_timer_update(compositor, compositor->idle_source, 0);
 	compositor->state = WESTON_COMPOSITOR_SLEEPING;
 	weston_compositor_dpms(compositor, WESTON_DPMS_OFF);
 }
@@ -7883,7 +7887,6 @@ weston_compositor_create(struct wl_display *display,
 			 const struct weston_testsuite_data *test_data)
 {
 	struct weston_compositor *ec;
-	struct wl_event_loop *loop;
 
 	if (!log_ctx)
 		return NULL;
@@ -7973,11 +7976,9 @@ weston_compositor_create(struct wl_display *display,
 
 	wl_display_init_shm(ec->wl_display);
 
-	loop = wl_display_get_event_loop(ec->wl_display);
-	ec->idle_source = wl_event_loop_add_timer(loop, idle_handler, ec);
+	ec->idle_source = weston_compositor_add_timer(ec, idle_handler, ec);
 	ec->repaint_timer =
-		wl_event_loop_add_timer(loop, output_repaint_timer_handler,
-					ec);
+		weston_compositor_add_timer(ec, output_repaint_timer_handler, ec);
 
 	weston_layer_init(&ec->fade_layer, ec);
 	weston_layer_init(&ec->cursor_layer, ec);
@@ -8017,7 +8018,7 @@ weston_compositor_shutdown(struct weston_compositor *ec)
 {
 	struct weston_output *output, *next;
 
-	wl_event_source_remove(ec->idle_source);
+	weston_compositor_timer_remove(ec, ec->idle_source);
 	wl_event_source_remove(ec->repaint_timer);
 
 	if (ec->touch_calibration)
@@ -8601,4 +8602,30 @@ weston_output_disable_planes_decr(struct weston_output *output)
 	if (output->disable_planes == 0)
 		weston_schedule_surface_protection_update(output->compositor);
 
+}
+
+WL_EXPORT struct wl_event_source *
+weston_compositor_add_timer(struct weston_compositor *compositor,
+			    wl_event_loop_timer_func_t func,
+			    void *data)
+{
+	struct wl_event_loop *loop =
+		wl_display_get_event_loop(compositor->wl_display);
+
+	return wl_event_loop_add_timer(loop, func, data);
+}
+
+WL_EXPORT void
+weston_compositor_timer_update(struct weston_compositor *compositor,
+			       struct wl_event_source *timer,
+			       int ms_delay)
+{
+	wl_event_source_timer_update(timer, ms_delay);
+}
+
+WL_EXPORT void
+weston_compositor_timer_remove(struct weston_compositor *compositor,
+			       struct wl_event_source *timer)
+{
+	wl_event_source_remove(timer);
 }
