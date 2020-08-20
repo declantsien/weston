@@ -587,6 +587,7 @@ idle_launch_testsuite(void *test_)
 
 	switch (data->type) {
 	case TEST_TYPE_CLIENT:
+		data->compositor = test->compositor;
 		if (create_client_thread(test, data) < 0) {
 			weston_log("Error: creating client thread for test suite failed.\n");
 			weston_compositor_exit_with_code(test->compositor,

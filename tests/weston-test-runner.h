@@ -51,7 +51,7 @@
  */
 struct weston_test_entry {
 	const char *name;
-	void (*run)(void *);
+	void (*run)(struct weston_compositor *, void *);
 	const void *table_data;
 	size_t element_size;
 	int n_elements;
@@ -61,7 +61,7 @@ struct weston_test_entry {
 	static void name(arg)
 
 #define TEST_COMMON(func, name, data, size, n_elem)			\
-	static void func(void *);					\
+	static void func(struct weston_compositor *, void *);		\
 									\
 	const struct weston_test_entry test##name			\
 		__attribute__ ((used, section ("test_section"))) =	\
@@ -72,8 +72,9 @@ struct weston_test_entry {
 #define NO_ARG_TEST(name)						\
 	TEST_COMMON(wrap##name, name, NULL, 0, 1)			\
 	static void name(void);						\
-	static void wrap##name(void *data)				\
+	static void wrap##name(struct weston_compositor *c, void *data)	\
 	{								\
+		(void) c;						\
 		(void) data;						\
 		name();							\
 	}								\
@@ -81,10 +82,17 @@ struct weston_test_entry {
 	TEST_BEGIN(name, void)
 
 #define ARG_TEST(name, test_data)					\
-	TEST_COMMON(name, name, test_data,				\
+	TEST_COMMON(wrap##name, name, test_data,			\
 		    sizeof(test_data[0]),				\
 		    ARRAY_LENGTH(test_data))				\
-	TEST_BEGIN(name, void *data)					\
+	static void name(void *);					\
+	static void wrap##name(struct weston_compositor *c, void *data)	\
+	{								\
+		(void) c;						\
+		name(data);						\
+	}								\
+									\
+	TEST_BEGIN(name, void *data)
 
 /** Add a test with no parameters
  *
@@ -115,7 +123,31 @@ struct weston_test_entry {
  */
 #define TEST_P(name, data_array) ARG_TEST(name, data_array)
 
-/** Add a test with weston_compositor argument
+/** Add a test with a weston_compositor argument
+ *
+ * This defines one test as a new function. Use this macro in place of the
+ * function signature and put the function body after this. The function
+ * will have one argument <tt>struct weston_compositor *compositor</tt>.
+ *
+ * This macro is only usable if fixture setup is using
+ * weston_test_harness_execute_as_client().
+ *
+ * \param name Name for the test, must be a valid function name.
+ *
+ * \ingroup testharness
+ */
+#define TEST_WITH_COMPOSITOR(name)					\
+	TEST_COMMON(wrap##name, name, NULL, 0, 1)			\
+	static void name(struct weston_compositor *);			\
+	static void wrap##name(struct weston_compositor *c, void *data)	\
+	{								\
+		(void) data;						\
+		name(c);						\
+	}								\
+									\
+	TEST_BEGIN(name, struct weston_compositor *compositor)
+
+/** Add a plugin test with weston_compositor argument
  *
  * This defines one test as a new function. Use this macro in place of the
  * function signature and put the function body after this. The function
@@ -128,14 +160,7 @@ struct weston_test_entry {
  *
  * \ingroup testharness
  */
-#define PLUGIN_TEST(name) 						\
-	TEST_COMMON(wrap##name, name, NULL, 0, 1)			\
-	static void name(struct weston_compositor *);			\
-	static void wrap##name(void *compositor)			\
-	{								\
-		name(compositor);					\
-	}								\
-	TEST_BEGIN(name, struct weston_compositor *compositor)
+#define PLUGIN_TEST(name) TEST_WITH_COMPOSITOR(name)
 
 void
 testlog(const char *fmt, ...) WL_PRINTF(1, 2);

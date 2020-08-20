@@ -144,8 +144,8 @@ find_test(const char *name)
 }
 
 static enum test_result_code
-run_test(int fixture_nr, const struct weston_test_entry *t, void *data,
-	 int iteration)
+run_test(int fixture_nr, const struct weston_test_entry *t,
+	 struct weston_compositor *compositor, void *data, int iteration)
 {
 	struct weston_test_run_info info;
 
@@ -159,7 +159,7 @@ run_test(int fixture_nr, const struct weston_test_entry *t, void *data,
 	info.fixture_nr = fixture_nr;
 
 	test_run_info_ = &info;
-	t->run(data);
+	t->run(compositor, data);
 	test_run_info_ = NULL;
 
 	/*
@@ -270,12 +270,8 @@ run_case(struct wet_testsuite_data *suite_data,
 	testlog("*** Run %s %s/%d\n",
 		suite_data->fixture_name, t->name, iteration_nr);
 
-	if (suite_data->type == TEST_TYPE_PLUGIN) {
-		ret = run_test(fixture_nr, t, suite_data->compositor,
-			       iteration);
-	} else {
-		ret = run_test(fixture_nr, t, (void *)test_data, iteration);
-	}
+	ret = run_test(fixture_nr, t, suite_data->compositor, (void*) test_data,
+		       iteration);
 
 	switch (ret) {
 	case RESULT_OK:
