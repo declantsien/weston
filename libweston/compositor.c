@@ -8019,7 +8019,7 @@ weston_compositor_shutdown(struct weston_compositor *ec)
 	struct weston_output *output, *next;
 
 	weston_compositor_timer_remove(ec, ec->idle_source);
-	wl_event_source_remove(ec->repaint_timer);
+	weston_compositor_timer_remove(ec, ec->repaint_timer);
 
 	if (ec->touch_calibration)
 		weston_compositor_destroy_touch_calibrator(ec);
