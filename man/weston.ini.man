@@ -78,6 +78,7 @@ The section headers are:
 .BR "terminal       " "Terminal application options"
 .BR "xwayland       " "XWayland options"
 .BR "screen-share   " "Screen sharing options"
+.BR "accelerometer  " "Accelerometer options"
 .fi
 .RE
 .PP
@@ -559,6 +560,64 @@ of content-protection protocol. Currently, HDCP is supported by drm-backend.
 A comma separated list of the IDs of applications to place on this output.
 These IDs should match the application IDs as set with the xdg_shell.set_app_id
 request. Currently, this option is supported by kiosk-shell.
+.TP 7
+.BI "accelerometer=" iio:deviceX
+Specify an accelerometer which will use be used to drive the orientation
+of the output. Note that an ACCELEROMETER SECTION has to be created (with a name)
+in order to start-up a client that reads out the channel data.
+.RE
+.RE
+.SH "ACCELEROMETER SECTION"
+Exposed as an IIO (Industrial I/O) device, the accelerometer is a sensor that
+can be used, by inferring the data, to determine the current orientation of the
+sensor when different axes of movement have changed.  The default name values
+are standard, but in case some of them are not, you can use this section to customize
+them. These values are sysfs entries found under '/sys/bus/iio/devices/'.
+The kernel drivers implement the protocol specifics, for each type of device,
+most of them using some lower level communication protocol like I2C or SPI.
+
+You will need at least a '/dev/iio:device' type of device to make use of this.
+While on the kernel side, data passes using those protocols, at user-space side
+the data is exposed as regular file descriptors, clients being able to make use
+of a library that abstracts even further the data being read. For an
+accelerometer, there are 3 channels (X, Y, and Z axes -- ignored here), and a
+sampling reading rate. Due to the way the library/kernel interface is done, the
+compositor will not read out the information directly but instead spawn out a
+child process to handle that.
+.TP 7
+.BI "name=" iio:deviceX
+Specifies the IIO device (in the form of iio:deviceX where X is an integer).
+.TP 7
+.BI "channel_x=" name
+The name of the X channel. See libiio documentation. (Defaults to 'accel_x').
+.TP 7
+.BI "channel_y=" name
+The name of the Y channel. See libiio documentation. (Defaults to 'accel_y').
+.TP 7
+.BI "sampling_frequency_attr=" name
+The name of sampling frequency file. See libiio documentation. (Defaults to 'sampling_frequency').
+.TP 7
+.BI "wanting_sampling_frequency=" value
+Increasing the sampling frequency will allow reading data much faster. If no value
+is specified, the client will attempt to use 'sampling_frequency_available' and
+use the first value it founds there as 'wanting_sampling_frequency'.
+.TP 7
+.BI "threshold=" value
+Used to filter out the data read on X and Y channel. Based on this value if one
+changes one of the axis it would at least this threshold amount to be taken
+into consideration.
+.TP 7
+.BI "cumulative_reads=" value
+Controls how many reads are used as to filter out the channel data.
+Higher sampling rates might require a higher cumulative data as to avoid sudden
+spikes in the orientation, as a result to fast change in axis orientation.
+The data is accumulated, with the transform value picked-out as the one with
+the highest occurrence.
+.TP 7
+.BI "allowed_rotations=" normal[,flipped,rotate-270]
+Specify which rotations will the client send out to the compositor to change
+the orientation. Only those here will then be allowed, and are under a
+human-readable string corresponding to that of wl_output.transform.
 .RE
 .SH "INPUT-METHOD SECTION"
 .TP 7

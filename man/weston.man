@@ -142,10 +142,11 @@ which any client can use to receive debugging messages from the compositor.
 This is risky for two reasons. First, a client may cause a denial-of-service
 blocking the compositor by providing an unsuitable file descriptor, and
 second, the debug messages may expose sensitive information.
-Additionally this will expose weston-screenshooter interface allowing the user
-to take screenshots of the outputs using weston-screenshooter application,
-which can lead to silently leaking the output contents.  This option should
-not be used in production.
+Additionally this will expose a few private weston extensions like the
+weston-screenshooter interface allowing the user to take screenshots of the outputs
+using weston-screenshooter application, that can lead to silently leaking the
+output contents, or to allow controlling the output orientation using weston-rotator protocol,
+with the client under the same name. This option should not be used in production.
 .TP
 \fB\-\^l\fIscope1,scope2\fR, \fB\-\-logger-scopes\fR=\fIscope1,scope2\fR
 Specify to which log scopes should subscribe to. When no scopes are supplied,
