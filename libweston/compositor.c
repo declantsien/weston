@@ -57,6 +57,7 @@
 
 #include <libweston/libweston.h>
 #include <libweston/weston-log.h>
+#include <libweston/transform.h>
 #include "linux-dmabuf.h"
 #include "viewporter-server-protocol.h"
 #include "presentation-time-server-protocol.h"
@@ -7264,6 +7265,8 @@ weston_compositor_print_scene_graph(struct weston_compositor *ec)
 			output->current_mode->height,
 			output->current_mode->refresh / 1000.0);
 		fprintf(fp, "\tscale: %d\n", output->scale);
+		fprintf(fp, "\ttransform: %s\n",
+				weston_transform_to_string(output->transform));
 
 		fprintf(fp, "\trepaint status: %s\n",
 			output_repaint_status_text(output));

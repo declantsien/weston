@@ -1,5 +1,6 @@
 srcs_libshared = [
 	'config-parser.c',
+	'transform.c',
 	'option-parser.c',
 	'file-util.c',
 	'os-compatibility.c',
