@@ -2602,8 +2602,10 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 	}
 
 	if (sx == 0 && sy == 0 &&
-	    shsurf->last_width == surface->width &&
-	    shsurf->last_height == surface->height &&
+	    ((shsurf->last_width == surface->width &&
+	      shsurf->last_height == surface->height) ||
+	      (shsurf->last_width == surface->height &&
+	       shsurf->last_height == surface->width)) &&
 	    was_fullscreen == shsurf->state.fullscreen &&
 	    was_maximized == shsurf->state.maximized)
 	    return;
