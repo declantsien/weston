@@ -398,6 +398,8 @@ create_surface(struct window *window)
 
 	if (window->fullscreen)
 		xdg_toplevel_set_fullscreen(window->xdg_toplevel, NULL);
+	if (window->maximized)
+		xdg_toplevel_set_maximized(window->xdg_toplevel);
 }
 
 static void
@@ -829,6 +831,8 @@ main(int argc, char **argv)
 			window.fullscreen = 1;
 		else if (strcmp("-o", argv[i]) == 0)
 			window.opaque = 1;
+		else if (strcmp("-m", argv[i]) == 0)
+			window.maximized = 1;
 		else if (strcmp("-s", argv[i]) == 0)
 			window.buffer_size = 16;
 		else if (strcmp("-b", argv[i]) == 0)
