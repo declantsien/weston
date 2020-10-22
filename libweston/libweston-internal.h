@@ -237,9 +237,6 @@ weston_touch_create_touch_device(struct weston_touch *touch,
 void
 weston_touch_device_destroy(struct weston_touch_device *device);
 
-bool
-weston_touch_has_focus_resource(struct weston_touch *touch);
-
 int
 weston_touch_start_drag(struct weston_touch *touch,
 			struct weston_data_source *source,

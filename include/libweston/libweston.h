@@ -714,6 +714,9 @@ weston_touch_start_grab(struct weston_touch *touch,
 void
 weston_touch_end_grab(struct weston_touch *touch);
 
+bool
+weston_touch_has_focus_resource(struct weston_touch *touch);
+
 void
 weston_touch_send_down(struct weston_touch *touch, const struct timespec *time,
 		       int touch_id, wl_fixed_t x, wl_fixed_t y);
