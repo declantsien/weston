@@ -148,8 +148,6 @@ void
 weston_output_init(struct weston_output *output,
 		   struct weston_compositor *compositor,
 		   const char *name);
-void
-weston_output_damage(struct weston_output *output);
 
 void
 weston_output_release(struct weston_output *output);

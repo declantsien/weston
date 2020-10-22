@@ -1639,6 +1639,8 @@ weston_layer_mask_is_infinite(struct weston_layer *layer);
 void
 weston_output_schedule_repaint(struct weston_output *output);
 void
+weston_output_damage(struct weston_output *output);
+void
 weston_compositor_schedule_repaint(struct weston_compositor *compositor);
 void
 weston_compositor_damage_all(struct weston_compositor *compositor);
