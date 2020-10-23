@@ -41,6 +41,7 @@ struct kiosk_shell {
 	struct weston_layer normal_layer;
 
 	struct wl_list output_list;
+	struct wl_list shsurf_to_ack_list;	/** kiosk_shell_surface_to_ack::link */
 };
 
 struct kiosk_shell_surface {
@@ -66,6 +67,13 @@ struct kiosk_shell_surface {
 		int32_t x;
 		int32_t y;
 	} xwayland;
+
+	struct wl_listener ack_configure;
+};
+
+struct kiosk_shell_surface_to_ack {
+	struct kiosk_shell_surface *shsurf;
+	struct wl_list link;	/** kiosk_shell::shsurf_to_ack_list */
 };
 
 struct kiosk_shell_seat {

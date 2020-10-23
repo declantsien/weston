@@ -50,6 +50,10 @@ get_kiosk_shell_surface(struct weston_surface *surface)
 static void
 kiosk_shell_seat_handle_destroy(struct wl_listener *listener, void *data);
 
+static struct kiosk_shell_output *
+kiosk_shell_find_shell_output(struct kiosk_shell *shell,
+			      struct weston_output *output);
+
 static struct kiosk_shell_seat *
 get_kiosk_shell_seat(struct weston_seat *seat)
 {
@@ -231,6 +235,28 @@ kiosk_shell_surface_set_parent(struct kiosk_shell_surface *shsurf,
 }
 
 static void
+weston_output_flush_frame_cbs(struct kiosk_shell_surface *shsurf)
+{
+	struct weston_surface *surface =
+		weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	weston_output_flush_frame_callbacks(shsurf->output,
+					    &surface->frame_callback_list);
+}
+
+static void
+kiosk_shell_add_pending_shsurf_to_ack(struct kiosk_shell_surface *shsurf,
+				      struct kiosk_shell *shell)
+{
+	struct kiosk_shell_surface_to_ack *shsurf_ack = zalloc(sizeof(*shsurf_ack));
+
+	shsurf_ack->shsurf = shsurf;
+
+	/* we only remove it from here once we get the configure_ack request */
+	wl_list_insert(&shell->shsurf_to_ack_list, &shsurf_ack->link);
+}
+
+static void
 kiosk_shell_surface_reconfigure_for_output(struct kiosk_shell_surface *shsurf)
 {
 	struct weston_desktop_surface *desktop_surface;
@@ -242,9 +268,13 @@ kiosk_shell_surface_reconfigure_for_output(struct kiosk_shell_surface *shsurf)
 
 	if (weston_desktop_surface_get_maximized(desktop_surface) ||
 	    weston_desktop_surface_get_fullscreen(desktop_surface)) {
+		weston_output_suspend_repaint(shsurf->output);
+		kiosk_shell_add_pending_shsurf_to_ack(shsurf, shsurf->shell);
+
 		weston_desktop_surface_set_size(desktop_surface,
 						shsurf->output->width,
 						shsurf->output->height);
+		weston_output_flush_frame_cbs(shsurf);
 	}
 
 	center_on_output(shsurf->view, shsurf->output);
@@ -277,6 +307,33 @@ kiosk_shell_surface_destroy(struct kiosk_shell_surface *shsurf)
 	free(shsurf);
 }
 
+static void
+handle_ack_configure(struct wl_listener *listener, void *data)
+{
+	struct kiosk_shell_surface *shsurf;
+	struct kiosk_shell *shell;
+	struct kiosk_shell_surface_to_ack *shsurf_ack, *shsurf_ack_next;
+
+	shsurf = wl_container_of(listener, shsurf, ack_configure);
+	shell = shsurf->shell;
+
+	/* remove our reference on the output */
+	weston_output_unsuspend_repaint(shsurf->output);
+
+	/* and from the list of not-acked list */
+	wl_list_for_each_safe(shsurf_ack, shsurf_ack_next,
+			      &shell->shsurf_to_ack_list, link) {
+		if (shsurf == shsurf_ack->shsurf) {
+			wl_list_remove(&shsurf_ack->link);
+			free(shsurf_ack);
+			break;
+		}
+	}
+
+	if (wl_list_empty(&shell->shsurf_to_ack_list))
+		weston_output_suspend_timer_stop(shsurf->output);
+}
+
 static struct kiosk_shell_surface *
 kiosk_shell_surface_create(struct kiosk_shell *shell,
 			   struct weston_desktop_surface *desktop_surface)
@@ -304,6 +361,10 @@ kiosk_shell_surface_create(struct kiosk_shell *shell,
 	shsurf->desktop_surface = desktop_surface;
 	shsurf->view = view;
 	shsurf->shell = shell;
+
+	shsurf->ack_configure.notify = handle_ack_configure;
+	weston_desktop_surface_set_ack_listener(shsurf->desktop_surface,
+						&shsurf->ack_configure);
 
 	weston_desktop_surface_set_user_data(desktop_surface, shsurf);
 
@@ -448,6 +509,14 @@ kiosk_shell_output_recreate_background(struct kiosk_shell_output *shoutput)
 static void
 kiosk_shell_output_destroy(struct kiosk_shell_output *shoutput)
 {
+	struct kiosk_shell_surface_to_ack *shsurf_ack, *shsurf_ack_next;
+
+	wl_list_for_each_safe(shsurf_ack, shsurf_ack_next,
+			      &shoutput->shell->shsurf_to_ack_list, link)
+		weston_output_unsuspend_repaint(shoutput->output);
+
+	weston_output_suspend_timer_destroy(shoutput->output);
+
 	shoutput->output = NULL;
 	shoutput->output_destroy_listener.notify = NULL;
 
@@ -511,6 +580,26 @@ kiosk_shell_output_notify_output_destroy(struct wl_listener *listener, void *dat
 	kiosk_shell_output_destroy(shoutput);
 }
 
+static int
+kiosk_handle_output_suspend_timer(void *data)
+{
+	struct kiosk_shell *shell = data;
+	struct kiosk_shell_surface_to_ack *shsurf_to_ack, *shsurf_to_ack_next;
+
+	if (wl_list_empty(&shell->shsurf_to_ack_list))
+		return 0;
+
+	/* unfreeze the output by decreasing the ref counter on suspend_repaint */
+	wl_list_for_each_safe(shsurf_to_ack, shsurf_to_ack_next,
+			      &shell->shsurf_to_ack_list, link) {
+		weston_output_unsuspend_repaint(shsurf_to_ack->shsurf->output);
+		wl_list_remove(&shsurf_to_ack->link);
+		free(shsurf_to_ack);
+	}
+
+	return 0;
+}
+
 static struct kiosk_shell_output *
 kiosk_shell_output_create(struct kiosk_shell *shell, struct weston_output *output)
 {
@@ -529,6 +618,9 @@ kiosk_shell_output_create(struct kiosk_shell *shell, struct weston_output *outpu
 		      &shoutput->output_destroy_listener);
 
 	wl_list_insert(shell->output_list.prev, &shoutput->link);
+
+	weston_output_suspend_timer_create(output, 
+			kiosk_handle_output_suspend_timer, shell, 0);
 
 	kiosk_shell_output_recreate_background(shoutput);
 	kiosk_shell_output_configure(shoutput);
@@ -617,6 +709,9 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 				weston_view_activate(focus_view, seat, 0);
 		}
 	}
+
+	wl_list_remove(&shsurf->ack_configure.link);
+	shsurf->ack_configure.notify = NULL;
 
 	kiosk_shell_surface_destroy(shsurf);
 }
@@ -943,6 +1038,9 @@ kiosk_shell_handle_output_resized(struct wl_listener *listener, void *data)
 
 	kiosk_shell_output_recreate_background(shoutput);
 
+	weston_output_suspend_timer_arm(shoutput->output,
+					8 * shell->compositor->repaint_msec);
+
 	wl_list_for_each(view, &shell->normal_layer.view_list.link,
 			 layer_link.link) {
 		struct kiosk_shell_surface *shsurf;
@@ -1065,6 +1163,8 @@ wet_shell_init(struct weston_compositor *ec,
 	shell->output_moved_listener.notify = kiosk_shell_handle_output_moved;
 	wl_signal_add(&ec->output_moved_signal, &shell->output_moved_listener);
 
+	wl_list_init(&shell->shsurf_to_ack_list);
+	weston_rotator_create(ec);
 	kiosk_shell_add_bindings(shell);
 
 	return 0;
