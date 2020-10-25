@@ -89,6 +89,14 @@ weston_do_rotate(struct wl_client *client, struct wl_resource *resource,
 	if (wl_output) {
 		struct weston_head *head = weston_head_from_resource(wl_output);
 		output = weston_head_get_output(head);
+
+		if (output->suspend_repaint) {
+			weston_log("Output %s is in rotation process. Refusing"
+					"to rotate\n", output->name);
+			weston_rotator_send_done(resource, UINT32_MAX);
+			return;
+		}
+
 		weston_log("Rotator performing rotation %s on output %s\n",
 				weston_transform_to_string(transform), output->name);
 		weston_rotator_rotate(output, transform,
@@ -100,6 +108,14 @@ weston_do_rotate(struct wl_client *client, struct wl_resource *resource,
 	wl_list_for_each(output, &rotator->compositor->output_list, link) {
 		if (output->oac && output->oac->accelerometer &&
 		    strcmp(output->oac->accelerometer, accelerometer_device) == 0) {
+
+			if (output->suspend_repaint) {
+				weston_log("Output %s is in rotation process. Refusing"
+						"to rotate\n", output->name);
+				weston_rotator_send_done(resource, UINT32_MAX);
+				return;
+			}
+
 			weston_log("Rotator performing rotation %s on output %s\n",
 					weston_transform_to_string(transform), output->name);
 			weston_rotator_rotate(output, transform,
