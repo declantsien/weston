@@ -1840,6 +1840,10 @@ weston_compositor_exit(struct weston_compositor *ec);
 void *
 weston_compositor_get_user_data(struct weston_compositor *compositor);
 void
+weston_compositor_read_presentation_clock(
+                       const struct weston_compositor *compositor,
+                       struct timespec *ts);
+void
 weston_compositor_exit_with_code(struct weston_compositor *compositor,
 				 int exit_code);
 void
