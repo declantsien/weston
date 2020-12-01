@@ -259,7 +259,6 @@ out:
 	return state;
 }
 
-#ifdef BUILD_DRM_GBM
 /**
  * Update the image for the current cursor surface
  *
@@ -270,31 +269,39 @@ static void
 cursor_bo_update(struct drm_plane_state *plane_state, struct weston_view *ev)
 {
 	struct drm_backend *b = plane_state->plane->backend;
-	struct gbm_bo *bo = plane_state->fb->bo;
 	struct weston_buffer *buffer = ev->surface->buffer_ref.buffer;
-	uint32_t buf[b->cursor_width * b->cursor_height];
-	int32_t stride;
-	uint8_t *s;
-	int i;
+	struct drm_output *output =  plane_state->output;
+	pixman_image_t *cursor_buffer;
 
 	assert(buffer && buffer->shm_buffer);
 	assert(buffer->shm_buffer == wl_shm_buffer_get(buffer->resource));
 	assert(buffer->width <= b->cursor_width);
 	assert(buffer->height <= b->cursor_height);
 
-	memset(buf, 0, sizeof buf);
-	stride = wl_shm_buffer_get_stride(buffer->shm_buffer);
-	s = wl_shm_buffer_get_data(buffer->shm_buffer);
+	/*FIXME: error check*/
+	/* wrap cursor shm buffer in pixman_image_t */
+	cursor_buffer = pixman_image_create_bits(PIXMAN_a8r8g8b8,
+			buffer->width, buffer->height,
+			wl_shm_buffer_get_data(buffer->shm_buffer),
+			wl_shm_buffer_get_stride(buffer->shm_buffer));
 
-	wl_shm_buffer_begin_access(buffer->shm_buffer);
-	for (i = 0; i < buffer->height; i++)
-		memcpy(buf + i * b->cursor_width,
-		       s + i * stride,
-		       buffer->width * 4);
-	wl_shm_buffer_end_access(buffer->shm_buffer);
+	/**
+	 * we have already wrapped dumb cursor_fb buffer in to
+	 * cursor_image see drm_output_init_cursor()
+	 * now copy cursor_buffer image which we created above
+	 * to cursor_image.
+	 */
+	pixman_image_composite32(PIXMAN_OP_SRC,
+						cursor_buffer, /* src */
+						NULL /* mask */,
+						output->cursor_image[0], /* dest */
+						0, 0, /* src_x, src_y */
+						0, 0, /* mask_x, mask_y */
+						0, 0, /* dest_x, dest_y */
+						pixman_image_get_width (output->cursor_image[0]), /* width */
+						pixman_image_get_height (output->cursor_image[0]) /* height */);
 
-	if (gbm_bo_write(bo, buf, sizeof buf) < 0)
-		weston_log("failed update cursor: %s\n", strerror(errno));
+	pixman_image_unref(cursor_buffer);
 }
 
 static struct drm_plane_state *
@@ -317,10 +324,6 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 		return NULL;
 
 	if (plane->state_cur->output && plane->state_cur->output != output)
-		return NULL;
-
-	/* We use GBM to import SHM buffers. */
-	if (b->gbm == NULL)
 		return NULL;
 
 	plane_state = drm_output_state_get_plane(output_state, plane);
@@ -359,7 +362,7 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 		output->current_cursor++;
 		output->current_cursor =
 			output->current_cursor %
-				ARRAY_LENGTH(output->gbm_cursor_fb);
+				ARRAY_LENGTH(output->cursor_fb);
 		needs_update = true;
 	}
 
@@ -367,7 +370,7 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 	plane_state->ev = ev;
 
 	plane_state->fb =
-		drm_fb_ref(output->gbm_cursor_fb[output->current_cursor]);
+		drm_fb_ref(output->cursor_fb[output->current_cursor]);
 
 	if (needs_update) {
 		drm_debug(b, "\t\t\t\t[%s] copying new content to cursor BO\n", p_name);
@@ -392,14 +395,6 @@ err:
 	drm_plane_state_put_back(plane_state);
 	return NULL;
 }
-#else
-static struct drm_plane_state *
-drm_output_prepare_cursor_view(struct drm_output_state *output_state,
-			       struct weston_view *ev, uint64_t zpos)
-{
-	return NULL;
-}
-#endif
 
 static struct drm_plane_state *
 drm_output_prepare_scanout_view(struct drm_output_state *output_state,

@@ -1193,6 +1193,54 @@ make_connector_name(const drmModeConnector *con)
 	return name;
 }
 
+static void drm_output_fini_cursor(struct drm_output *output)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_LENGTH(output->cursor_fb); i++) {
+			if (output->cursor_fb[i])
+				drm_fb_unref(output->cursor_fb[i]);
+			if (output->cursor_image[i])
+				pixman_image_unref(output->cursor_image[i]);
+
+			output->cursor_fb[i] = NULL;
+			output->cursor_image[i] = NULL;
+		}
+}
+
+static int
+drm_output_init_cursor(struct drm_output *output, struct drm_backend *b)
+{
+	unsigned int i;
+
+	/* No point creating cursors if we don't have a plane for them. */
+	if (!output->cursor_plane)
+		return 0;
+
+	for (i = 0; i < ARRAY_LENGTH(output->cursor_fb); i++) {
+		output->cursor_fb[i] = drm_fb_create_dumb(b, b->cursor_width, b->cursor_height, DRM_FORMAT_ARGB8888);
+				if (!output->cursor_fb[i])
+					goto err;
+
+				/* wrap dumb buffer in to pixman_image_t */
+				output->cursor_image[i] =
+					pixman_image_create_bits(PIXMAN_a8r8g8b8, b->cursor_width, b->cursor_height,
+								 output->cursor_fb[i]->map,
+								 output->cursor_fb[i]->strides[0]);
+				if (!output->cursor_image[i])
+					goto err;
+	}
+
+	return 0;
+
+err:
+	/* set cursor broken since we cannot use it. */
+	weston_log("cursor buffers unavailable\n");
+	b->cursors_are_broken = true;
+	drm_output_fini_cursor(output);
+	return -1;
+}
+
 static int
 drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 {
@@ -1223,6 +1271,8 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 		if (!output->dumb[i])
 			goto err;
 
+		output->cursor_handle[i] = output->dumb[i]->handles[0];
+
 		output->image[i] =
 			pixman_image_create_bits(pixman_format, w, h,
 						 output->dumb[i]->map,
@@ -1239,6 +1289,8 @@ drm_output_init_pixman(struct drm_output *output, struct drm_backend *b)
 
 	pixman_region32_init_rect(&output->previous_damage,
 				  output->base.x, output->base.y, output->base.width, output->base.height);
+
+	drm_output_init_cursor(output, b);
 
 	return 0;
 
@@ -1279,6 +1331,8 @@ drm_output_fini_pixman(struct drm_output *output)
 		output->dumb[i] = NULL;
 		output->image[i] = NULL;
 	}
+
+	drm_output_fini_cursor(output);
 }
 
 static void
@@ -1822,9 +1876,14 @@ drm_output_enable(struct weston_output *base)
 			weston_log("Failed to init output pixman state\n");
 			goto err_planes;
 		}
-	} else if (drm_output_init_egl(output, b) < 0) {
-		weston_log("Failed to init output gl state\n");
-		goto err_planes;
+	} else {
+		if (drm_output_init_egl(output, b) < 0) {
+			weston_log("Failed to init output gl state\n");
+			goto err_planes;
+		} else {
+			/* Egl init successful initialize cursor */
+			drm_output_init_cursor(output, b);
+		}
 	}
 
 	drm_output_init_backlight(output);
@@ -1855,11 +1914,12 @@ drm_output_deinit(struct weston_output *base)
 	struct drm_output *output = to_drm_output(base);
 	struct drm_backend *b = to_drm_backend(base->compositor);
 
-	if (b->use_pixman)
+	if (b->use_pixman) {
 		drm_output_fini_pixman(output);
-	else
+	} else {
 		drm_output_fini_egl(output);
-
+		drm_output_fini_cursor(output);
+	}
 	drm_output_deinit_planes(output);
 	drm_output_detach_crtc(output);
 }

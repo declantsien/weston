@@ -513,8 +513,9 @@ struct drm_output {
 	bool disable_pending;
 	bool dpms_off_pending;
 
-	uint32_t gbm_cursor_handle[2];
-	struct drm_fb *gbm_cursor_fb[2];
+	uint32_t cursor_handle[2];
+	struct drm_fb *cursor_fb[2];
+	pixman_image_t *cursor_image[2];
 	struct drm_plane *cursor_plane;
 	struct weston_view *cursor_view;
 	int current_cursor;

@@ -131,52 +131,6 @@ init_egl(struct drm_backend *b)
 	return 0;
 }
 
-static void drm_output_fini_cursor_egl(struct drm_output *output)
-{
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_LENGTH(output->gbm_cursor_fb); i++) {
-		drm_fb_unref(output->gbm_cursor_fb[i]);
-		output->gbm_cursor_fb[i] = NULL;
-	}
-}
-
-static int
-drm_output_init_cursor_egl(struct drm_output *output, struct drm_backend *b)
-{
-	unsigned int i;
-
-	/* No point creating cursors if we don't have a plane for them. */
-	if (!output->cursor_plane)
-		return 0;
-
-	for (i = 0; i < ARRAY_LENGTH(output->gbm_cursor_fb); i++) {
-		struct gbm_bo *bo;
-
-		bo = gbm_bo_create(b->gbm, b->cursor_width, b->cursor_height,
-				   GBM_FORMAT_ARGB8888,
-				   GBM_BO_USE_CURSOR | GBM_BO_USE_WRITE);
-		if (!bo)
-			goto err;
-
-		output->gbm_cursor_fb[i] =
-			drm_fb_get_from_bo(bo, b, false, BUFFER_CURSOR);
-		if (!output->gbm_cursor_fb[i]) {
-			gbm_bo_destroy(bo);
-			goto err;
-		}
-		output->gbm_cursor_handle[i] = gbm_bo_get_handle(bo).s32;
-	}
-
-	return 0;
-
-err:
-	weston_log("cursor buffers unavailable, using gl cursors\n");
-	b->cursors_are_broken = true;
-	drm_output_fini_cursor_egl(output);
-	return -1;
-}
-
 /* Init output state that depends on gl or gbm */
 int
 drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
@@ -245,8 +199,6 @@ drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 		return -1;
 	}
 
-	drm_output_init_cursor_egl(output, b);
-
 	return 0;
 }
 
@@ -266,7 +218,6 @@ drm_output_fini_egl(struct drm_output *output)
 	gl_renderer->output_destroy(&output->base);
 	gbm_surface_destroy(output->gbm_surface);
 	output->gbm_surface = NULL;
-	drm_output_fini_cursor_egl(output);
 }
 
 struct drm_fb *
