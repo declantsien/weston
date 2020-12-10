@@ -220,6 +220,7 @@ tests = [
 		],
 		'dep_objs': [ dep_lib_desktop, dep_shell_utils ]
 	},
+	{	'name': 'invalid-buffer-size', },
 ]
 
 if get_option('renderer-gl')
