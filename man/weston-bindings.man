@@ -38,9 +38,19 @@ Maximize active window
 Zoom desktop in (or out)
 .P
 .RE
-.B mod + Tab
+.B mod + Tab, mod + Shift + Tab
 .RS 4
-Switch active window
+Switch active next window and previous window respectively
+.P
+.RE
+.B mod + right
+.RS 4
+Switch to next window. If you want to traverse multiple window don't release mod key. You can also switch between next and previous window without releasing mod key just by switching right and left arrow repectively
+.P
+.RE
+.B mod + left
+.RS 4
+Switch to previous window. If you want to traverse multiple window don't release mod key. You can also switch between next and previous window without releasing mod key just by switching right and left arrow repectively
 .P
 .RE
 .B mod + Up, mod + Down
