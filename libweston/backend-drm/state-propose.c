@@ -192,8 +192,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 	assert(b->atomic_modeset);
 
 	if (!fb) {
-		drm_debug(b, "\t\t\t\t[overlay] not placing view %p on overlay: "
-			     " couldn't get fb\n", ev);
+		drm_debug(b, "\t\t\t\t[overlay] not placing view %u on overlay: "
+			     " couldn't get fb\n", ev->view_id);
 		return NULL;
 	}
 
@@ -205,8 +205,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 	state->output = output;
 
 	if (!drm_plane_state_coords_for_view(state, ev, zpos)) {
-		drm_debug(b, "\t\t\t\t[overlay] not placing view %p on overlay: "
-			     "unsuitable transform\n", ev);
+		drm_debug(b, "\t\t\t\t[overlay] not placing view %u on overlay: "
+			     "unsuitable transform\n", ev->view_id);
 		drm_plane_state_put_back(state);
 		state = NULL;
 		goto out;
@@ -217,8 +217,8 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 	 * plane. */
 	if (ev->surface->acquire_fence_fd >= 0 &&
 	     plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
-		drm_debug(b, "\t\t\t\t[overlay] not placing view %p on overlay: "
-			     "no in-fence support\n", ev);
+		drm_debug(b, "\t\t\t\t[overlay] not placing view %u on overlay: "
+			     "no in-fence support\n", ev->view_id);
 		drm_plane_state_put_back(state);
 		state = NULL;
 		goto out;
@@ -235,22 +235,22 @@ drm_output_prepare_overlay_view(struct drm_plane *plane,
 	 * test against, so we just hope it'll work. */
 	if (mode == DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY) {
 		drm_debug(b, "\t\t\t[overlay] provisionally placing "
-			     "view %p on overlay %lu in planes-only mode\n",
-			  ev, (unsigned long) plane->plane_id);
+			     "view %u on overlay %lu in planes-only mode\n",
+			  ev->view_id, (unsigned long) plane->plane_id);
 		goto out;
 	}
 
 	ret = drm_pending_state_test(output_state->pending_state);
 	if (ret == 0) {
 		drm_debug(b, "\t\t\t[overlay] provisionally placing "
-			     "view %p on overlay %d in mixed mode\n",
-			  ev, plane->plane_id);
+			     "view %u on overlay %d in mixed mode\n",
+			  ev->view_id, plane->plane_id);
 		goto out;
 	}
 
-	drm_debug(b, "\t\t\t[overlay] not placing view %p on overlay %lu "
+	drm_debug(b, "\t\t\t[overlay] not placing view %u on overlay %lu "
 		     "in mixed mode: kernel test failed\n",
-		  ev, (unsigned long) plane->plane_id);
+		  ev->view_id, (unsigned long) plane->plane_id);
 
 	drm_plane_state_put_back(state);
 	state = NULL;
@@ -332,8 +332,8 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 	 * simple cropping/translation in cursor_bo_update. */
 	plane_state->output = output;
 	if (!drm_plane_state_coords_for_view(plane_state, ev, zpos)) {
-		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
-			     "unsuitable transform\n", p_name, ev, p_name);
+		drm_debug(b, "\t\t\t\t[%s] not placing view %u on %s: "
+			     "unsuitable transform\n", p_name, ev->view_id, p_name);
 		goto err;
 	}
 
@@ -342,9 +342,9 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 	    plane_state->src_h > (unsigned) b->cursor_height << 16 ||
 	    plane_state->src_w != plane_state->dest_w << 16 ||
 	    plane_state->src_h != plane_state->dest_h << 16) {
-		drm_debug(b, "\t\t\t\t[%s] not assigning view %p to %s plane "
+		drm_debug(b, "\t\t\t\t[%s] not assigning view %u to %s plane "
 			     "(positioning requires cropping or scaling)\n",
-			     p_name, ev, p_name);
+			     p_name, ev->view_id, p_name);
 		goto err;
 	}
 
@@ -383,8 +383,8 @@ drm_output_prepare_cursor_view(struct drm_output_state *output_state,
 	plane_state->dest_w = b->cursor_width;
 	plane_state->dest_h = b->cursor_height;
 
-	drm_debug(b, "\t\t\t\t[%s] provisionally assigned view %p to cursor\n",
-		  p_name, ev);
+	drm_debug(b, "\t\t\t\t[%s] provisionally assigned view %u to cursor\n",
+		  p_name, ev->view_id);
 
 	return plane_state;
 
@@ -420,9 +420,9 @@ drm_output_prepare_scanout_view(struct drm_output_state *output_state,
 	/* Check the view spans exactly the output size, calculated in the
 	 * logical co-ordinate space. */
 	if (!weston_view_matches_output_entirely(ev, &output->base)) {
-		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
+		drm_debug(b, "\t\t\t\t[%s] not placing view %u on %s: "
 			     " view does not match output entirely\n",
-			     p_name, ev, p_name);
+			     p_name, ev->view_id, p_name);
 		return NULL;
 	}
 
@@ -430,14 +430,14 @@ drm_output_prepare_scanout_view(struct drm_output_state *output_state,
 	 * support fences, we can't place the buffer on this plane. */
 	if (ev->surface->acquire_fence_fd >= 0 &&
 	    scanout_plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
-		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
-			     "no in-fence support\n", p_name, ev, p_name);
+		drm_debug(b, "\t\t\t\t[%s] not placing view %u on %s: "
+			     "no in-fence support\n", p_name, ev->view_id, p_name);
 		return NULL;
 	}
 
 	if (!fb) {
-		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
-			     " couldn't get fb\n", p_name, ev, p_name);
+		drm_debug(b, "\t\t\t\t[%s] not placing view %u on %s: "
+			     " couldn't get fb\n", p_name, ev->view_id, p_name);
 		return NULL;
 	}
 
@@ -455,16 +455,16 @@ drm_output_prepare_scanout_view(struct drm_output_state *output_state,
 	state->ev = ev;
 	state->output = output;
 	if (!drm_plane_state_coords_for_view(state, ev, zpos)) {
-		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
-			     "unsuitable transform\n", p_name, ev, p_name);
+		drm_debug(b, "\t\t\t\t[%s] not placing view %u on %s: "
+			     "unsuitable transform\n", p_name, ev->view_id, p_name);
 		goto err;
 	}
 
 	if (state->dest_x != 0 || state->dest_y != 0 ||
 	    state->dest_w != (unsigned) output->base.current_mode->width ||
 	    state->dest_h != (unsigned) output->base.current_mode->height) {
-		drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
-			     " invalid plane state\n", p_name, ev, p_name);
+		drm_debug(b, "\t\t\t\t[%s] not placing view %u on %s: "
+			     " invalid plane state\n", p_name, ev->view_id, p_name);
 		goto err;
 	}
 
@@ -581,8 +581,8 @@ out:
 		break;
 	case NO_PLANES_ACCEPTED:
 		drm_debug(b, "\t\t\t\t[plane] plane %d refusing to "
-			     "place view %p in %s\n",
-			     plane->plane_id, ev, p_name);
+			     "place view %u in %s\n",
+			     plane->plane_id, ev->view_id, p_name);
 		break;
 	case PLACED_ON_PLANE:
 		break;
@@ -743,9 +743,9 @@ drm_output_prepare_plane_view(struct drm_output_state *state,
 						  mode, fb, zpos);
 		drm_output_destroy_zpos_plane(head_p_zpos);
 		if (ps) {
-			drm_debug(b, "\t\t\t\t[view] view %p has been placed to "
+			drm_debug(b, "\t\t\t\t[view] view %u has been placed to "
 				     "%s plane with computed zpos %"PRIu64"\n",
-				     ev, p_name, zpos);
+				     ev->view_id, p_name, zpos);
 			break;
 		}
 	}
@@ -846,16 +846,16 @@ drm_output_propose_state(struct weston_output *output_base,
 		pixman_region32_t surface_overlap;
 		bool totally_occluded = false;
 
-		drm_debug(b, "\t\t\t[view] evaluating view %p for "
+		drm_debug(b, "\t\t\t[view] evaluating view %u for "
 		             "output %s (%lu)\n",
-		          ev, output->base.name,
+		          ev->view_id, output->base.name,
 			  (unsigned long) output->base.id);
 
 		/* If this view doesn't touch our output at all, there's no
 		 * reason to do anything with it. */
 		if (!(ev->output_mask & (1u << output->base.id))) {
-			drm_debug(b, "\t\t\t\t[view] ignoring view %p "
-			             "(not on our output)\n", ev);
+			drm_debug(b, "\t\t\t\t[view] ignoring view %u "
+			             "(not on our output)\n", ev->view_id);
 			continue;
 		}
 
@@ -873,8 +873,8 @@ drm_output_propose_state(struct weston_output *output_base,
 		 * the entire output */
 		totally_occluded = !pixman_region32_not_empty(&surface_overlap);
 		if (totally_occluded) {
-			drm_debug(b, "\t\t\t\t[view] ignoring view %p "
-			             "(occluded on our output)\n", ev);
+			drm_debug(b, "\t\t\t\t[view] ignoring view %u "
+			             "(occluded on our output)\n", ev->view_id);
 			pixman_region32_fini(&surface_overlap);
 			pixman_region32_fini(&clipped_view);
 			continue;
@@ -883,14 +883,14 @@ drm_output_propose_state(struct weston_output *output_base,
 		/* We only assign planes to views which are exclusively present
 		 * on our output. */
 		if (ev->output_mask != (1u << output->base.id)) {
-			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
-			             "(on multiple outputs)\n", ev);
+			drm_debug(b, "\t\t\t\t[view] not assigning view %u to plane "
+			             "(on multiple outputs)\n", ev->view_id);
 			force_renderer = true;
 		}
 
 		if (!weston_view_has_valid_buffer(ev)) {
-			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
-			             "(no buffer available)\n", ev);
+			drm_debug(b, "\t\t\t\t[view] not assigning view %u to plane "
+			             "(no buffer available)\n", ev->view_id);
 			force_renderer = true;
 		}
 
@@ -900,8 +900,8 @@ drm_output_propose_state(struct weston_output *output_base,
 		pixman_region32_intersect(&surface_overlap, &renderer_region,
 					  &clipped_view);
 		if (pixman_region32_not_empty(&surface_overlap)) {
-			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
-			             "(occluded by renderer views)\n", ev);
+			drm_debug(b, "\t\t\t\t[view] not assigning view %u to plane "
+			             "(occluded by renderer views)\n", ev->view_id);
 			force_renderer = true;
 		}
 		pixman_region32_fini(&surface_overlap);
@@ -911,8 +911,8 @@ drm_output_propose_state(struct weston_output *output_base,
 		 */
 		if (ev->surface->protection_mode == WESTON_SURFACE_PROTECTION_MODE_ENFORCED &&
 		    ev->surface->desired_protection > output_base->current_protection) {
-			drm_debug(b, "\t\t\t\t[view] not assigning view %p to plane "
-				     "(enforced protection mode on unsecured output)\n", ev);
+			drm_debug(b, "\t\t\t\t[view] not assigning view %u to plane "
+				     "(enforced protection mode on unsecured output)\n", ev->view_id);
 			force_renderer = true;
 		}
 
@@ -931,8 +931,8 @@ drm_output_propose_state(struct weston_output *output_base,
 				      current_lowest_zpos);
 		} else if (!ps && !renderer_ok) {
 			drm_debug(b, "\t\t[view] failing state generation: "
-				      "placing view %p to renderer not allowed\n",
-				  ev);
+				      "placing view %u to renderer not allowed\n",
+				  ev->view_id);
 			pixman_region32_fini(&clipped_view);
 			goto err_region;
 		} else if (!ps) {
@@ -942,8 +942,8 @@ drm_output_propose_state(struct weston_output *output_base,
 					      &renderer_region,
 					      &clipped_view);
 
-			drm_debug(b, "\t\t\t\t[view] view %p will be placed "
-				     "on the renderer\n", ev);
+			drm_debug(b, "\t\t\t\t[view] view %u will be placed "
+				     "on the renderer\n", ev->view_id);
 		}
 
 		/* Opaque areas of our clipped view occlude areas behind it;
@@ -1083,13 +1083,13 @@ drm_assign_planes(struct weston_output *output_base, void *repaint_data)
 		}
 
 		if (target_plane) {
-			drm_debug(b, "\t[repaint] view %p on %s plane %lu\n",
-				  ev, plane_type_enums[target_plane->type].name,
+			drm_debug(b, "\t[repaint] view %u on %s plane %lu\n",
+				  ev->view_id, plane_type_enums[target_plane->type].name,
 				  (unsigned long) target_plane->plane_id);
 			weston_view_move_to_plane(ev, &target_plane->base);
 		} else {
-			drm_debug(b, "\t[repaint] view %p using renderer "
-				     "composition\n", ev);
+			drm_debug(b, "\t[repaint] view %u using renderer "
+				     "composition\n", ev->view_id);
 			weston_view_move_to_plane(ev, primary);
 		}
 

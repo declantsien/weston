@@ -329,6 +329,8 @@ weston_view_create(struct weston_surface *surface)
 
 	view->surface = surface;
 	view->plane = &surface->compositor->primary_plane;
+	/*TODO: MAX limit check before incrementing */
+	view->view_id = ++surface->compositor->id_counter;
 
 	/* Assign to surface */
 	wl_list_insert(&surface->views, &view->surface_link);
@@ -566,6 +568,9 @@ weston_surface_create(struct weston_compositor *compositor)
 	wl_list_init(&surface->pointer_constraints);
 
 	surface->acquire_fence_fd = -1;
+
+	/*TODO: MAX limit check before incrementing */
+	surface->surface_id = ++compositor->id_counter;
 
 	surface->desired_protection = WESTON_HDCP_DISABLE;
 	surface->current_protection = WESTON_HDCP_DISABLE;
@@ -1502,8 +1507,8 @@ weston_view_update_transform_enable(struct weston_view *view)
 
 	if (weston_matrix_invert(inverse, matrix) < 0) {
 		/* Oops, bad total transformation, not invertible */
-		weston_log("error: weston_view %p"
-			" transformation not invertible.\n", view);
+		weston_log("error: weston_view %u"
+			" transformation not invertible.\n", view->view_id);
 		return -1;
 	}
 
@@ -1833,7 +1838,7 @@ weston_view_set_mask(struct weston_view *view,
 	}
 
 	if (view->geometry.parent) {
-		weston_log("view %p has a parent, clip forbidden!\n", view);
+		weston_log("view %u has a parent, clip forbidden!\n", view->view_id);
 		return;
 	}
 
@@ -2214,6 +2219,10 @@ weston_view_destroy(struct weston_view *view)
 
 	wl_list_remove(&view->surface_link);
 
+	/* Is this really required?
+	 * if yes should we use some invalid macro VIEW_ID_INVALID*/
+	view->view_id = 0;
+
 	free(view);
 }
 
@@ -2257,6 +2266,9 @@ weston_surface_destroy(struct weston_surface *surface)
 		weston_pointer_constraint_destroy(constraint);
 
 	fd_clear(&surface->acquire_fence_fd);
+	/* Is this really required?
+	 * if yes should we use some invalid macro SURFACE_ID_INVALID*/
+	surface->surface_id = 0;
 
 	free(surface);
 }
@@ -7408,6 +7420,8 @@ weston_compositor_create(struct wl_display *display,
 	ec->touch_mode = WESTON_TOUCH_MODE_NORMAL;
 
 	ec->content_protection = NULL;
+
+	ec->id_counter = 0;
 
 	if (!wl_global_create(ec->wl_display, &wl_compositor_interface, 4,
 			      ec, compositor_bind))
