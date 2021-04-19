@@ -23,8 +23,8 @@ dep_test_runner = declare_dependency(
 	link_with: lib_test_runner
 )
 
-lib_test_client = static_library(
-	'test-client',
+libweston_test = static_library(
+	'weston-test',
 	[
 		'weston-test-client-helper.c',
 		'weston-test-fixture-compositor.c',
@@ -34,18 +34,17 @@ lib_test_client = static_library(
 		viewporter_client_protocol_h,
 		viewporter_protocol_c,
 	],
-	include_directories: common_inc,
+	include_directories: [ common_inc, include_directories('../compositor') ],
 	dependencies: [
 		dep_libshared,
 		dep_wayland_client,
-		dep_libexec_weston,
 		dep_pixman,
 		dependency('cairo'),
 	],
-	install: false,
+	install: true,
 )
 dep_test_client = declare_dependency(
-	link_with: lib_test_client,
+	link_with: libweston_test,
 	sources: [
 		viewporter_client_protocol_h,
 	],
@@ -55,6 +54,21 @@ dep_test_client = declare_dependency(
 		dep_pixman,
 		dependency('libudev', version: '>= 136'),
 	]
+)
+
+pkgconfig.generate(
+       libweston_test,
+       filebase: 'libweston-test-@0@'.format(libweston_major),
+       name: 'libweston test API',
+       version: version_weston,
+       description: 'Header files for libweston-test',
+)
+
+install_headers(
+	'weston-test-client-helper.h',
+	'weston-test-fixture-compositor.h',
+	'weston-testsuite-data.h',
+	subdir: join_paths(dir_include_libweston, 'libweston-test')
 )
 
 exe_plugin_test = shared_library(
@@ -283,7 +297,7 @@ foreach t : tests
 	t_sources = t.get('sources', [t.get('name') + '-test.c'])
 	t_sources += weston_test_client_protocol_h
 
-	t_deps = [ dep_test_client, dep_libweston_private_h ]
+	t_deps = [ dep_test_client, dep_libweston_private_h, dep_libexec_weston ]
 	t_deps += t.get('dep_objs', [])
 
 	t_exe = executable(
