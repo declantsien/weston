@@ -62,14 +62,13 @@ exe_plugin_test = shared_library(
 	'weston-test.c',
 	weston_test_server_protocol_h,
 	weston_test_protocol_c,
-	include_directories: common_inc,
+	include_directories: [ common_inc, include_directories('../libweston') ],
 	dependencies: [
 		dep_libexec_weston,
-		dep_libweston_private,
 		dep_threads
 	],
 	name_prefix: '',
-	install: false,
+	install: true,
 )
 
 deps_zuc = [ dep_libshared ]
