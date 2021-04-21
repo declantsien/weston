@@ -415,8 +415,10 @@ execute_compositor(const struct compositor_setup *setup,
 	if (ctmp)
 		prog_args_take(&args, strdup(ctmp));
 
-	asprintf(&tmp, "--shell=%s", shell_to_str(setup->shell));
-	prog_args_take(&args, tmp);
+	if (setup->shell != SHELL_EMBEDDED) {
+		asprintf(&tmp, "--shell=%s", shell_to_str(setup->shell));
+		prog_args_take(&args, tmp);
+	}
 
 	if (setup->logging_scopes) {
 		asprintf(&tmp, "--logger-scopes=%s", setup->logging_scopes);
