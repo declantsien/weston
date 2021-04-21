@@ -423,6 +423,11 @@ execute_compositor(const struct compositor_setup *setup,
 		prog_args_take(&args, tmp);
 	}
 
+	if (setup->extra_args) {
+		asprintf(&tmp, "%s", setup->extra_args);
+		prog_args_take(&args, tmp);
+	}
+
 	if (setup->xwayland)
 		prog_args_take(&args, strdup("--xwayland"));
 
