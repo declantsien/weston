@@ -34,7 +34,6 @@
 #include <wayland-util.h>
 #include "shared/helpers.h"
 #include "weston-test-fixture-compositor.h"
-#include "weston-testsuite-data.h"
 
 #ifdef NDEBUG
 #error "Tests must not be built with NDEBUG defined, they rely on assert()."
