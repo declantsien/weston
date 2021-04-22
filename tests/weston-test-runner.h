@@ -47,7 +47,7 @@
  * Iterating through the section then allows to iterate through all
  * the defined tests.
  *
- * \ingroup testharness_private
+ * \ingroup testharness
  */
 struct weston_test_entry {
 	const char *name;
@@ -165,7 +165,7 @@ struct fixture_metadata {
  * Helper to store the attributes of the data array passed in to
  * DECLARE_FIXTURE_SETUP_WITH_ARG().
  *
- * \ingroup testharness_private
+ * \ingroup testharness
  */
 struct fixture_setup_array {
 	const void *array;

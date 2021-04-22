@@ -49,7 +49,7 @@ struct weston_compositor;
  * weston_test_harness_execute_as_plugin
  * weston_test_harness_execute_as_client
  *
- * \ingroup testharness_private
+ * \ingroup testharness
  */
 enum test_type {
 	TEST_TYPE_STANDALONE,
@@ -59,7 +59,7 @@ enum test_type {
 
 /** Test harness specific data for running tests
  *
- * \ingroup testharness_private
+ * \ingroup testharness
  */
 struct wet_testsuite_data {
 	void (*run)(struct wet_testsuite_data *);
