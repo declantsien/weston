@@ -40,6 +40,9 @@
 #include "shared/os-compatibility.h"
 #include "shared/xalloc.h"
 #include <libweston/zalloc.h>
+#include "weston-test-client-protocol.h"
+#include "weston-screenshooter-client-protocol.h"
+#include "viewporter-client-protocol.h"
 #include "weston-test-client-helper.h"
 
 #define max(a, b) (((a) > (b)) ? (a) : (b))

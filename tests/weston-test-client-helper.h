@@ -36,9 +36,6 @@
 
 #include <wayland-client-protocol.h>
 #include "weston-test-runner.h"
-#include "weston-test-client-protocol.h"
-#include "weston-screenshooter-client-protocol.h"
-#include "viewporter-client-protocol.h"
 
 struct client {
 	struct wl_display *wl_display;

@@ -29,6 +29,9 @@
 
 #include "input-timestamps-helper.h"
 #include "shared/timespec-util.h"
+
+#include "weston-test-client-protocol.h"
+
 #include "weston-test-client-helper.h"
 #include "wayland-server-protocol.h"
 #include "weston-test-fixture-compositor.h"

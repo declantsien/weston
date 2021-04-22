@@ -29,6 +29,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "weston-test-client-protocol.h"
+
 #include "weston-test-client-helper.h"
 #include "text-input-unstable-v1-client-protocol.h"
 #include "weston-test-fixture-compositor.h"
