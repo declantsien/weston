@@ -158,6 +158,18 @@ will the compositor functionality use or depend on the weston_config
 functionality.
 
 
+Libweston-test
+==============
+
+A collection of static libraries (`libweston-test`, and `libweston-test-runner`)
+which contains the testing harness and helpers to write test features of the Weston
+compositor and libweston. Libweston-based compositor can re-use these libraries to
+create their own tests. In order to install them you'll need to add
+`-Dtest-dev-install=true` when running `meson`.
+`doc/sphinx/toc/test-suite.rst` contains more information on how to use the
+testing framework itself.
+
+
 API/ABI (in)stability and parallel installability
 -------------------------------------------------
 

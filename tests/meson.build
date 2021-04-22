@@ -16,20 +16,22 @@ libweston_test_runner = static_library(
 		dep_wayland_client,
 	],
 	include_directories: common_inc,
-	install: true,
+	install: get_option('test-dev-install'),
 )
 dep_test_runner = declare_dependency(
 	dependencies: dep_wayland_client,
 	link_with: libweston_test_runner
 )
 
-pkgconfig.generate(
-       libweston_test_runner,
-       filebase: 'libweston-test-runner-@0@'.format(libweston_major),
-       name: 'libweston test-runner API',
-       version: version_weston,
-       description: 'Header files for libweston-test-runner',
-)
+if get_option('test-dev-install')
+	pkgconfig.generate(
+	       libweston_test_runner,
+	       filebase: 'libweston-test-runner-@0@'.format(libweston_major),
+	       name: 'libweston test-runner API',
+	       version: version_weston,
+	       description: 'Header files for libweston-test-runner',
+	)
+endif
 
 libweston_test = static_library(
 	'weston-test',
@@ -49,7 +51,7 @@ libweston_test = static_library(
 		dep_pixman,
 		dependency('cairo'),
 	],
-	install: true,
+	install: get_option('test-dev-install'),
 )
 dep_test_client = declare_dependency(
 	link_with: libweston_test,
@@ -64,21 +66,25 @@ dep_test_client = declare_dependency(
 	]
 )
 
-pkgconfig.generate(
-       libweston_test,
-       filebase: 'libweston-test-@0@'.format(libweston_major),
-       name: 'libweston test API',
-       version: version_weston,
-       description: 'Header files for libweston-test',
-)
+if get_option('test-dev-install')
+	pkgconfig.generate(
+	       libweston_test,
+	       filebase: 'libweston-test-@0@'.format(libweston_major),
+	       name: 'libweston test API',
+	       version: version_weston,
+	       description: 'Header files for libweston-test',
+	)
+endif
 
-install_headers(
+if get_option('test-dev-install')
+	install_headers(
 	'weston-test-client-helper.h',
 	'weston-test-fixture-compositor.h',
 	'weston-testsuite-data.h',
 	'weston-test-runner.h',
 	subdir: join_paths(dir_include_libweston, 'libweston-test')
-)
+	)
+endif
 
 exe_plugin_test = shared_library(
 	'test-plugin',
@@ -91,7 +97,7 @@ exe_plugin_test = shared_library(
 		dep_threads
 	],
 	name_prefix: '',
-	install: true,
+	install: get_option('test-dev-install'),
 )
 
 deps_zuc = [ dep_libshared ]

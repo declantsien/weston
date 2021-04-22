@@ -230,6 +230,12 @@ option(
 	description: 'Tests: allow running with GL-renderer'
 )
 option(
+	'test-dev-install',
+	type: 'boolean',
+	value: false,
+	description: 'Tests: install static libraries for writing tests'
+)
+option(
 	'doc',
 	type: 'boolean',
 	value: false,
