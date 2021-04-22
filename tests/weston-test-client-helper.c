@@ -1768,10 +1768,14 @@ verify_screen_content(struct client *client,
 		      const struct rectangle *clip,
 		      int seq_no)
 {
-	struct buffer *shot;
+	struct buffer *shot = NULL;
 	bool match;
 
-	shot = capture_screenshot_of_output(client);
+	if (client->screenshooter)
+		shot = capture_screenshot_of_output(client);
+	else if (client->take_shot)
+		shot = client->take_shot(client->take_shot_data);
+
 	assert(shot);
 	match = verify_image(shot, ref_image, ref_seq_no, clip, seq_no);
 	buffer_destroy(shot);
@@ -1867,6 +1871,32 @@ bind_to_singleton_global(struct client *client,
 	assert(proxy);
 
 	return proxy;
+}
+
+/**
+ * Set-up a custom screenshooter function, similar to
+ * capture_screenshot_of_output() which assumes the implicit
+ * weston-screenshooter interface.
+ *
+ * Note that you still need to bind_to_singleton_global() to a your
+ * own screenshooter interface. You can use the 'shot_data' such
+ * that you can gain access to the interface.
+ *
+ * \param client Client whose registry and globals to use.
+ * \param take_shot The screenshooter function.
+ * \param shot_data Additional data you might want passed to take_shot
+ * function. You can use this to hang whatever data, or the screenshooter
+ * interface.
+ *
+ */
+void
+client_set_screenshoot(struct client *client,
+		       struct buffer *(*take_shot)(void *data), void *shot_data)
+{
+	if (!client->screenshooter) {
+		client->take_shot = take_shot;
+		client->take_shot_data = shot_data;
+	}
 }
 
 /**
