@@ -65,6 +65,25 @@ get_kiosk_shell_seat(struct weston_seat *seat)
 			    struct kiosk_shell_seat, seat_destroy_listener);
 }
 
+static bool
+kiosk_shell_surface_is_xwayland(struct kiosk_shell_surface *shsurf)
+{
+	const struct weston_xwayland_surface_api *api;
+	struct weston_surface *surface;
+
+	api = shsurf->shell->xwayland_surface_api;
+	if (!api) {
+		api = weston_xwayland_surface_get_api(shsurf->shell->compositor);
+		shsurf->shell->xwayland_surface_api = api;
+	}
+
+	if (!api)
+		return false;
+
+	surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	return api->is_xwayland_surface(surface);
+}
+
 static void
 transform_handler(struct wl_listener *listener, void *data)
 {
@@ -708,6 +727,17 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 		}
 
 		weston_view_update_transform(shsurf->view);
+
+		/* re-dirtying the surface geometry state will allow, at
+		 * surfaces list re-build time, to perform another
+		 * weston_view_update_transform() on the same view.  This
+		 * seems to be particular useful for xwayland surfaces that do
+		 * not explicitly perform a surface geometry change when
+		 * started as fullscreen (which is always case with
+		 * kiosk-shell).
+		 */
+		if (kiosk_shell_surface_is_xwayland(shsurf))
+			weston_view_geometry_dirty(shsurf->view);
 	}
 
 	if (!weston_surface_is_mapped(surface)) {
