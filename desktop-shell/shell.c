@@ -1449,7 +1449,7 @@ constrain_position(struct weston_move_grab *move, int *cx, int *cy)
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 	struct weston_pointer *pointer = move->base.grab.pointer;
-	int x, y, bottom;
+	int x, y, bottom, maxbottom;
 	const int safety = 50;
 	pixman_rectangle32_t area;
 	struct weston_geometry geometry;
@@ -1464,9 +1464,12 @@ constrain_position(struct weston_move_grab *move, int *cx, int *cy)
 			weston_desktop_surface_get_geometry(shsurf->desktop_surface);
 
 		bottom = y + geometry.height + geometry.y;
+		maxbottom = area.height + geometry.height;
 		if (bottom - safety < area.y)
 			y = area.y + safety - geometry.height
 			  - geometry.y;
+		if (bottom > maxbottom)
+			y = area.height - geometry.y;
 
 		if (move->client_initiated &&
 		    y + geometry.y < area.y)
