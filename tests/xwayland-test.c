@@ -1,5 +1,6 @@
 /*
  * Copyright © 2015 Samsung Electronics Co., Ltd
+ * Copyright 2021 Collabora, Ltd.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -27,8 +28,10 @@
  *
  *		  This is done in steps:
  *		  1) Confirm that the WL_SURFACE_ID atom exists
- *		  2) Confirm that the window manager's name is "Weston WM"
- *		  3) Make sure we can map a window
+ *		  2) Confirm that our window name is "Xwayland Test Window"
+ *		  3) Confirm that there's conforming Window Manager
+ *		  4) Confirm that the window manager's name is "Weston WM"
+ *		  5) Make sure we can map a window
  */
 
 #include "config.h"
@@ -37,12 +40,16 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
 #include <string.h>
 
 #include "weston-test-runner.h"
 #include "weston-test-fixture-compositor.h"
+#include "shared/string-helpers.h"
+#include "weston-test-client-helper.h"
+#include "xcb-client-helper.h"
+
+static struct atom_x11 atoms;
+static struct atom_x11 *atoms_ptr;
 
 static enum test_result_code
 fixture_setup(struct weston_test_harness *harness)
@@ -51,69 +58,123 @@ fixture_setup(struct weston_test_harness *harness)
 
 	compositor_setup_defaults(&setup);
 	setup.xwayland = true;
+	setup.logging_scopes = "xwm-wm-x11";
+
+	memset(&atoms, 0, sizeof(struct atom_x11));
+	atoms_ptr = NULL;
 
 	return weston_test_harness_execute_as_client(harness, &setup);
 }
 DECLARE_FIXTURE_SETUP(fixture_setup);
 
-TEST(xwayland_client_test)
+static char *
+get_x11_window_name(struct window_x11 *window, xcb_drawable_t win)
 {
-	Display *display;
-	Window window, root, *support;
-	XEvent event;
-	int screen, status, actual_format;
-	unsigned long nitems, bytes;
-	Atom atom, type_atom, actual_type;
-	char *wm_name;
+	xcb_get_property_reply_t *reply;
+	int reply_len;
+	char *name;
 
-	if (access(XSERVER_PATH, X_OK) != 0)
-		exit(77);
+	reply = window_x11_dump_prop(window, win, window->atoms->net_wm_name);
+	assert(reply);
 
-	display = XOpenDisplay(NULL);
-	if (!display)
-		exit(EXIT_FAILURE);
+	assert(reply->type == window->atoms->string ||
+	       reply->type == window->atoms->utf8_string);
+	reply_len = xcb_get_property_value_length(reply);
+	assert(reply_len > 0);
 
-	atom = XInternAtom(display, "WL_SURFACE_ID", True);
-	assert(atom != None);
+	str_printf(&name, "%.*s", reply_len,
+		   (char *) xcb_get_property_value(reply));
+	free(reply);
+	return name;
+}
 
-	atom = XInternAtom(display, "_NET_SUPPORTING_WM_CHECK", True);
-	assert(atom != None);
+static char *
+get_wm_name(struct window_x11 *window)
+{
+	xcb_get_property_reply_t *reply;
+	xcb_generic_error_t *error;
+	xcb_get_property_cookie_t prop_cookie;
+	char *wm_name = NULL;
 
-	screen = DefaultScreen(display);
-	root = RootWindow(display, screen);
+	prop_cookie = xcb_get_property(window->connection, 0, window->root_win,
+				       window->atoms->net_supporting_wm_check,
+				       XCB_ATOM_WINDOW, 0, 1024);
+	reply = xcb_get_property_reply(window->connection, prop_cookie, &error);
+	assert(reply);
 
-	status = XGetWindowProperty(display, root, atom, 0L, ~0L,
-				    False, XA_WINDOW, &actual_type,
-				    &actual_format, &nitems, &bytes,
-				    (void *)&support);
-	assert(status == Success);
-
-	atom = XInternAtom(display, "_NET_WM_NAME", True);
-	assert(atom != None);
-	type_atom = XInternAtom(display, "UTF8_STRING", True);
-	assert(atom != None);
-	status = XGetWindowProperty(display, *support, atom, 0L, BUFSIZ,
-				    False, type_atom, &actual_type,
-				    &actual_format, &nitems, &bytes,
-				    (void *)&wm_name);
-	assert(status == Success);
-	assert(nitems);
-	assert(strcmp("Weston WM", wm_name) == 0);
-	free(support);
-	free(wm_name);
-
-	window = XCreateSimpleWindow(display, root, 100, 100, 300, 300, 1,
-				     BlackPixel(display, screen),
-				     WhitePixel(display, screen));
-	XSelectInput(display, window, ExposureMask);
-	XMapWindow(display, window);
-
-	alarm(4);
-	while (1) {
-		XNextEvent(display, &event);
-		if (event.type == Expose)
-			break;
+	if (reply && reply->format == 32 && reply->type == XCB_ATOM_WINDOW) {
+		xcb_window_t wm_id = *(xcb_window_t *) xcb_get_property_value(reply);
+		wm_name = get_x11_window_name(window, wm_id);
 	}
 
-	XCloseDisplay(display);
+	free(error);
+	return wm_name;
+}
+
+TEST(xwayland_client_test)
+{
+	struct window_x11 *window;
+	xcb_get_property_reply_t *reply;
+	char *win_name;
+	char *wm_name;
+	pixman_color_t bg_color;
+
+	color_rgb888(&bg_color, 255, 0, 0);
+	window = create_x11_window(100, 100, 100, 100, bg_color, NULL);
+	assert(window);
+
+	if (atoms_ptr == NULL) {
+		get_atoms(window->connection, &atoms);
+		atoms_ptr = &atoms;
+	}
+
+	window_x11_set_atoms(window, &atoms);
+	assert(window->atoms);
+
+	window_x11_set_win_name(window, "Xwayland Test Window");
+	handle_events_x11(window);
+	assert(window->state.win_state & PROPERTY_NAME);
+
+	assert(window->atoms->net_supporting_wm_check != XCB_ATOM_NONE);
+	assert(window->atoms->wl_surface_id != XCB_ATOM_NONE);
+	assert(window->atoms->net_wm_name != XCB_ATOM_NONE);
+	assert(window->atoms->utf8_string != XCB_ATOM_NONE);
+
+	window_x11_map(window);
+	handle_events_x11(window);
+	assert(window->state.win_state & MAPPED);
+
+	win_name = get_x11_window_name(window, window->win);
+	assert(strcmp(win_name, "Xwayland Test Window") == 0);
+	free(win_name);
+
+	/* The Window Manager MUST set _NET_SUPPORTING_WM_CHECK on the root
+	 * window to be the ID of a child window created by himself, to
+	 * indicate that a compliant window manager is active.
+	 *
+	 * The child window MUST also have the _NET_SUPPORTING_WM_CHECK
+	 * property set to the ID of the child window. The child window MUST
+	 * also have the _NET_WM_NAME property set to the name of the Window
+	 * Manager.
+	 *
+	 * See Extended Window Manager Hints,
+	 * https://specifications.freedesktop.org/wm-spec/latest/ar01s03.html,
+	 * _NET_SUPPORTING_WM_CHECK
+	 * */
+	reply = window_x11_dump_prop(window, window->root_win,
+				     window->atoms->net_supporting_wm_check);
+	assert(reply);
+	assert(reply->type == XCB_ATOM_WINDOW);
+	free(reply);
+
+	wm_name = get_wm_name(window);
+	assert(wm_name);
+	assert(strcmp(wm_name, "Weston WM") == 0);
+	free(wm_name);
+
+	window_x11_unmap(window);
+	handle_events_x11(window);
+	assert(window->state.win_state & UNMAPPED);
+
+	destroy_x11_window(window);
 }
