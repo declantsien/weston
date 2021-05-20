@@ -253,10 +253,14 @@ if get_option('xwayland')
 		link_with: libxwayland_test_client,
 	)
 
-	tests += {
+	tests += [ {
 		'name': 'xwayland',
 		'dep_objs': dep_libxwayland_test,
-	}
+	}, {
+		'name': 'xwayland-states',
+		'dep_objs': dep_libxwayland_test,
+	} ]
+
 endif
 
 # Manual test plugin, not used in the automatic suite
