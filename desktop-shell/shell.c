@@ -1588,11 +1588,22 @@ resize_grab_motion(struct weston_pointer_grab *grab,
 	struct weston_size min_size, max_size;
 	wl_fixed_t from_x, from_y;
 	wl_fixed_t to_x, to_y;
+	int panel_width, panel_height;
 
 	weston_pointer_move(pointer, event);
 
 	if (!shsurf)
 		return;
+
+	if (shsurf->shell->panel_position ==
+	    WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP) {
+		get_output_panel_size(shsurf->shell, shsurf->output,
+			 &panel_width, &panel_height);
+		if (wl_fixed_to_int(pointer->y) < panel_height)
+        	return ;
+	}
+	
+    
 
 	weston_view_from_global_fixed(shsurf->view,
 				      pointer->grab_x, pointer->grab_y,
