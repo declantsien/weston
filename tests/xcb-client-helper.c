@@ -44,6 +44,7 @@
 #include "shared/xcb-xwayland.h"
 #include <libweston/zalloc.h>
 #include "xcb-client-helper.h"
+#include "weston-test-client-helper.h"
 
 #define DEBUG
 

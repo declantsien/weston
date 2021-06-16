@@ -373,6 +373,8 @@ struct weston_output {
 	bool enabled; /**< is in the output_list, not pending list */
 	int scale;
 
+	struct wl_signal output_repainted;
+
 	struct weston_color_transform *from_sRGB_to_output;
 	struct weston_color_transform *from_sRGB_to_blend;
 	struct weston_color_transform *from_blend_to_output;

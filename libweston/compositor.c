@@ -2951,6 +2951,8 @@ weston_output_repaint(struct weston_output *output, void *repaint_data)
 		wl_resource_destroy(cb);
 	}
 
+	wl_signal_emit(&output->output_repainted, output);
+
 	wl_list_for_each_safe(animation, next, &output->animation_list, link) {
 		animation->frame_counter++;
 		animation->frame(animation, output, &output->frame_time);
@@ -6474,6 +6476,7 @@ weston_output_init(struct weston_output *output,
 	output->name = strdup(name);
 	wl_list_init(&output->link);
 	wl_signal_init(&output->user_destroy_signal);
+	wl_signal_init(&output->output_repainted);
 	output->enabled = false;
 	output->desired_protection = WESTON_HDCP_DISABLE;
 	output->allow_protection = true;
