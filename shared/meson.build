@@ -5,6 +5,11 @@ srcs_libshared = [
 	'os-compatibility.c',
 	'xalloc.c',
 ]
+
+xcb_xwayland_srcs = [
+	'xcb-xwayland.c',
+]
+
 deps_libshared = dep_wayland_client
 
 lib_libshared = static_library(
@@ -15,10 +20,27 @@ lib_libshared = static_library(
 	pic: true,
 	install: false
 )
+
+xcb_dep = dependency('xcb', required: false)
+
+lib_xcb_xwayland = static_library(
+	'xcb-xwayland',
+	xcb_xwayland_srcs,
+	include_directories: common_inc,
+	dependencies: [ xcb_dep ],
+	pic: true,
+	install: false
+)
+
 dep_libshared = declare_dependency(
 	link_with: lib_libshared,
 	include_directories: public_inc,
 	dependencies: deps_libshared
+)
+
+dep_xcb_xwayland = declare_dependency(
+	link_with: lib_xcb_xwayland,
+	include_directories: public_inc,
 )
 
 srcs_cairo_shared = [
