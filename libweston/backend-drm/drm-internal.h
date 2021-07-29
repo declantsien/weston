@@ -224,6 +224,7 @@ enum wdrm_panel_orientation {
 enum wdrm_crtc_property {
 	WDRM_CRTC_MODE_ID = 0,
 	WDRM_CRTC_ACTIVE,
+	WDRM_CRTC_RELEASE_FENCE,
 	WDRM_CRTC__COUNT
 };
 
@@ -286,6 +287,8 @@ struct drm_backend {
 	bool aspect_ratio_supported;
 
 	bool fb_modifiers;
+
+	bool release_fence;
 
 	struct weston_log_scope *debug;
 };
@@ -539,7 +542,19 @@ struct drm_output {
 
 	bool virtual;
 
+	int release_fence_fd;
+
 	submit_frame_cb virtual_submit_frame;
+};
+
+struct drm_release_fence_data {
+	struct wl_event_source *release_fence_source;
+	struct wl_list old_fb_list;
+};
+
+struct drm_release_fence_fb {
+	struct drm_fb *fb;
+	struct wl_list link;
 };
 
 static inline struct drm_head *

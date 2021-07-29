@@ -148,6 +148,7 @@ const struct drm_property_info connector_props[] = {
 const struct drm_property_info crtc_props[] = {
 	[WDRM_CRTC_MODE_ID] = { .name = "MODE_ID", },
 	[WDRM_CRTC_ACTIVE] = { .name = "ACTIVE", },
+	[WDRM_CRTC_RELEASE_FENCE] = { .name = "RELEASE_FENCE_PTR", },
 };
 
 
@@ -524,6 +525,72 @@ drm_output_set_gamma(struct weston_output *output_base,
 		weston_log("set gamma failed: %s\n", strerror(errno));
 }
 
+static int
+drm_output_release_fence_handler(int fd, uint32_t mask, void *data)
+{
+	struct drm_release_fence_data *release_fence_data = data;
+	struct drm_release_fence_fb *old, *tmp;
+
+	wl_list_for_each_safe(old, tmp, &release_fence_data->old_fb_list, link) {
+		drm_fb_unref(old->fb);
+		wl_list_remove(&old->link);
+		free(old);
+	}
+
+	wl_event_source_remove(release_fence_data->release_fence_source);
+	free(release_fence_data);
+	close(fd);
+
+	return 0;
+}
+
+static int
+drm_output_add_release_fence(struct drm_output_state *state)
+{
+	struct drm_output *output = state->output;
+	struct weston_compositor *compositor = output->base.compositor;
+	struct drm_plane_state *ps, *next;
+	struct drm_release_fence_data *release_fence_data;
+	struct drm_release_fence_fb *release_fence_fb, *old, *tmp;
+	struct wl_event_loop *loop;
+
+	release_fence_data = zalloc(sizeof *release_fence_data);
+	if (!release_fence_data)
+		return -1;
+
+	wl_list_init(&release_fence_data->old_fb_list);
+	wl_list_for_each_safe(ps, next, &state->plane_list, link) {
+		release_fence_fb = zalloc(sizeof *release_fence_fb);
+		if (!release_fence_fb)
+			goto err;
+
+		drm_fb_ref(ps->fb);
+		release_fence_fb->fb = ps->fb;
+		wl_list_init(&release_fence_fb->link);
+		wl_list_insert(&release_fence_data->old_fb_list,
+			       &release_fence_fb->link);
+	}
+
+	loop = wl_display_get_event_loop(compositor->wl_display);
+	release_fence_data->release_fence_source =
+		wl_event_loop_add_fd(loop, output->release_fence_fd,
+				     WL_EVENT_READABLE,
+				     drm_output_release_fence_handler,
+				     release_fence_data);
+
+	return 0;
+
+err:
+	wl_list_for_each_safe(old, tmp, &release_fence_data->old_fb_list, link) {
+		drm_fb_unref(old->fb);
+		wl_list_remove(&old->link);
+		free(old);
+	}
+
+	free(release_fence_data);
+	return -1;
+}
+
 /**
  * Mark an output state as current on the output, i.e. it has been
  * submitted to the kernel. The mode argument determines whether this
@@ -556,6 +623,13 @@ drm_output_assign_state(struct drm_output_state *state,
 		drm_debug(b, "\t[CRTC:%u] setting pending flip\n",
 			  output->crtc->crtc_id);
 		output->atomic_complete_pending = true;
+
+		if (output->release_fence_fd > 0) {
+			if (drm_output_add_release_fence(state) < 0)
+				close(output->release_fence_fd);
+
+			output->release_fence_fd = -1;
+		}
 	}
 
 	if (b->atomic_modeset &&
@@ -951,6 +1025,10 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 		ret |= crtc_add_prop(req, crtc, WDRM_CRTC_MODE_ID,
 				     current_mode->blob_id);
 		ret |= crtc_add_prop(req, crtc, WDRM_CRTC_ACTIVE, 1);
+
+		if (b->release_fence)
+			ret |= crtc_add_prop(req, crtc, WDRM_CRTC_RELEASE_FENCE,
+					     (uint64_t)&output->release_fence_fd);
 
 		/* No need for the DPMS property, since it is implicit in
 		 * routing and CRTC activity. */
@@ -1472,6 +1550,13 @@ init_kms_caps(struct drm_backend *b)
 		   b->fb_modifiers ? "supports" : "does not support");
 
 	drmSetClientCap(b->drm.fd, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1);
+
+#ifndef DRM_CAP_RELEASE_FENCE
+#define DRM_CAP_RELEASE_FENCE      0x15
+#endif
+	ret = drmGetCap(b->drm.fd, DRM_CAP_RELEASE_FENCE, &cap);
+	if (ret == 0)
+		b->release_fence = cap;
 
 	/*
 	 * KMS support for hardware planes cannot properly synchronize
