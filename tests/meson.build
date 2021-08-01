@@ -265,6 +265,9 @@ if get_option('xwayland')
 	}, {
 		'name': 'xwayland-states-move',
 		'dep_objs': dep_libxwayland_test,
+	}, {
+		'name': 'xwayland-states-kiosk',
+		'dep_objs': dep_libxwayland_test,
 	} ]
 
 endif
