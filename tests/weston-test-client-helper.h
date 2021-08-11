@@ -79,6 +79,7 @@ struct global {
 
 struct test {
 	struct weston_test *weston_test;
+	struct weston_test_xwayland *weston_test_xwayland;
 	int pointer_x;
 	int pointer_y;
 	uint32_t n_egl_buffers;
@@ -163,6 +164,7 @@ struct output {
 	int height;
 	int scale;
 	int initialized;
+	bool output_repainted;
 };
 
 struct buffer {
@@ -299,5 +301,17 @@ fill_image_with_color(pixman_image_t *image, const pixman_color_t *color);
 
 pixman_color_t *
 color_rgb888(pixman_color_t *tmp, uint8_t r, uint8_t g, uint8_t b);
+
+void
+client_destroy_xwayland(struct client *client);
+
+void
+client_enable_xwayland_output_repaint_events(struct client *client);
+
+void
+client_wait_xwayland_output(struct client *client);
+
+void
+client_wait_xwayland_output_reset(struct client *client);
 
 #endif

@@ -91,6 +91,16 @@
     </request>
   </interface>
 
+  <interface name="weston_test_xwayland" version="1">
+    <description summary="weston xwayland interface">
+      This is a global singleton interface for Xwayland.
+    </description>
+    <request name="enable_output_repaint_events">
+      <arg name="output" type="object" interface="wl_output"/>
+    </request>
+    <event name="output_repaint" />
+  </interface>
+
   <interface name="weston_test_runner" version="1">
     <description summary="weston internal testing">
       This is a global singleton interface for Weston internal tests.

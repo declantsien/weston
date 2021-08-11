@@ -551,12 +551,29 @@ test_handle_capture_screenshot_done(void *data, struct weston_screenshooter *scr
 	client->buffer_copy_done = true;
 }
 
+static void
+test_handle_output_repaint(void *data, struct weston_test_xwayland *weston_test_xwayland)
+{
+	struct client *client = data;
+
+	if (client->output->output_repainted)
+		return;
+
+	testlog("Done waiting for output repaint %p\n", client->output->wl_output);
+	client->output->output_repainted = true;
+}
+
+
 static const struct weston_screenshooter_listener screenshooter_listener = {
 	test_handle_capture_screenshot_done
 };
 
 static const struct weston_test_listener test_listener = {
 	test_handle_pointer_position,
+};
+
+static const struct weston_test_xwayland_listener test_xwayland_listener = {
+	test_handle_output_repaint,
 };
 
 static void
@@ -798,6 +815,12 @@ handle_global(void *data, struct wl_registry *registry,
 					 &weston_test_interface, version);
 		weston_test_add_listener(test->weston_test, &test_listener, test);
 		client->test = test;
+	} else if (strcmp(interface, "weston_test_xwayland") == 0) {
+		client->test->weston_test_xwayland =
+			wl_registry_bind(registry, id,
+					 &weston_test_xwayland_interface, version);
+		weston_test_xwayland_add_listener(client->test->weston_test_xwayland,
+						  &test_xwayland_listener, client);
 	} else if (strcmp(interface, "weston_screenshooter") == 0) {
 		client->screenshooter =
 			wl_registry_bind(registry, id,
@@ -1070,6 +1093,9 @@ client_destroy(struct client *client)
 		global_destroy(container_of(client->global_list.next,
 					    struct global, link));
 	}
+
+	if (client->test->weston_test_xwayland)
+		client_destroy_xwayland(client);
 
 	if (client->test) {
 		weston_test_destroy(client->test->weston_test);
@@ -1945,4 +1971,39 @@ color_rgb888(pixman_color_t *tmp, uint8_t r, uint8_t g, uint8_t b)
 	tmp->blue = (b << 8) + b;
 
 	return tmp;
+}
+
+void
+client_destroy_xwayland(struct client *client)
+{
+	weston_test_xwayland_destroy(client->test->weston_test_xwayland);
+}
+
+void
+client_enable_xwayland_output_repaint_events(struct client *client)
+{
+	if (client->test->weston_test_xwayland) {
+		struct wl_output *woutput = client->output->wl_output;
+		client->output->output_repainted = false;
+		testlog("Enabling repaint events for output %p\n", woutput);
+		weston_test_xwayland_enable_output_repaint_events(client->test->weston_test_xwayland,
+								  woutput);
+		client_roundtrip(client);
+	}
+}
+
+void
+client_wait_xwayland_output(struct client *client)
+{
+	while (client->output->output_repainted == false) {
+		testlog("Waiting for repaint events for output %p\n", client->output->wl_output);
+		assert(wl_display_dispatch(client->wl_display) >= 0);
+	}
+}
+
+void
+client_wait_xwayland_output_reset(struct client *client)
+{
+	testlog("Resetting output repaints for output %p\n", client->output->wl_output);
+	client->output->output_repainted = false;
 }

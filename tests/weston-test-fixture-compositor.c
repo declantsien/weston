@@ -244,6 +244,7 @@ shell_to_str(enum shell_type t)
 		[SHELL_DESKTOP] = "desktop-shell.so",
 		[SHELL_FULLSCREEN] = "fullscreen-shell.so",
 		[SHELL_IVI] = "ivi-shell.so",
+		[SHELL_KIOSK] = "kiosk-shell.so"
 	};
 	assert(t >= 0 && t < ARRAY_LENGTH(names));
 	return names[t];

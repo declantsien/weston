@@ -53,6 +53,9 @@ struct weston_test {
 	struct weston_compositor *compositor;
 	struct wl_listener destroy_listener;
 
+	struct wl_listener xwayland_listener_output_events;
+	struct wl_resource *xwayland_res;
+
 	struct weston_log_scope *log;
 
 	struct weston_layer layer;
@@ -443,6 +446,62 @@ static const struct weston_test_interface test_implementation = {
 };
 
 static void
+xwayland_send_output_event(struct wl_listener *listener, void *data)
+{
+	struct weston_test *test = container_of(listener, struct weston_test,
+						xwayland_listener_output_events);
+	struct wl_resource *resource = test->xwayland_res;
+	assert(resource);
+
+	if (resource)
+		weston_test_xwayland_send_output_repaint(resource);
+}
+
+static void
+xwayland_enable_output_repaint_events(struct wl_client *client,
+				      struct wl_resource *resource,
+				      struct wl_resource *wresource)
+{
+	struct weston_test *test = wl_resource_get_user_data(resource);
+	struct wl_resource *wres = NULL;
+	struct weston_head *whead;
+
+
+	wl_list_for_each(whead, &test->compositor->head_list, compositor_link) {
+		wl_resource_for_each(wres, &whead->resource_list) {
+			if (wres == wresource) {
+				goto out;
+			}
+		}
+	}
+out:
+	if (wres) {
+		struct weston_output *wo = whead->output;
+		test->xwayland_listener_output_events.notify =
+			xwayland_send_output_event;
+
+		test->xwayland_res = resource;
+		wl_signal_add(&wo->output_repainted,
+			      &test->xwayland_listener_output_events);
+	}
+}
+
+static void
+xwayland_disable_output_repaint_events(struct wl_resource *resource)
+{
+	struct weston_test *test = wl_resource_get_user_data(resource);
+
+	if (test->xwayland_listener_output_events.notify) {
+		wl_list_remove(&test->xwayland_listener_output_events.link);
+		test->xwayland_listener_output_events.notify = NULL;
+	}
+}
+
+static const struct weston_test_xwayland_interface test_xwayland_implementation = {
+	xwayland_enable_output_repaint_events,
+};
+
+static void
 bind_test(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 {
 	struct weston_test *test = data;
@@ -458,6 +517,24 @@ bind_test(struct wl_client *client, void *data, uint32_t version, uint32_t id)
 				       &test_implementation, test, NULL);
 
 	notify_pointer_position(test, resource);
+}
+
+static void
+bind_test_xwayland(struct wl_client *client, void *data, uint32_t version, uint32_t id)
+{
+	struct weston_test *test = data;
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client, &weston_test_xwayland_interface, 1, id);
+	if (!resource) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	wl_resource_set_implementation(resource,
+				       &test_xwayland_implementation, test,
+				       xwayland_disable_output_repaint_events);
+
 }
 
 static void
@@ -662,6 +739,10 @@ wet_module_init(struct weston_compositor *ec,
 
 	if (wl_global_create(ec->wl_display, &weston_test_interface, 1,
 			     test, bind_test) == NULL)
+		goto out_free;
+
+	if (wl_global_create(ec->wl_display, &weston_test_xwayland_interface, 1,
+			     test, bind_test_xwayland) == NULL)
 		goto out_free;
 
 	if (test_seat_init(test) == -1)
