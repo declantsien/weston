@@ -2660,6 +2660,16 @@ output_accumulate_damage(struct weston_output *output)
 
 		surface_flush_damage(pnode->surface);
 
+		/* inflict damage on the views that have set a cp */
+		if (pnode->surface->desired_protection > WESTON_HDCP_DISABLE &&
+		    output->disable_planes > 0) {
+			weston_log_scope_printf(ec->content_protection->debug,
+					"[content-protection] Recording in "
+					"progress, inflicting damage on view %p\n",
+					pnode->view);
+			weston_view_damage_below(pnode->view);
+		}
+
 		/* Both the renderer and the backend have seen the buffer
 		 * by now. If renderer needs the buffer, it has its own
 		 * reference set. If the backend wants to keep the buffer
