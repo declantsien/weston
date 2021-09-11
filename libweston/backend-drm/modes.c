@@ -506,8 +506,34 @@ drm_output_choose_mode(struct drm_output *output,
 	return tmp_mode;
 }
 
+static const struct { const char *name; uint32_t token; } transforms[] = {
+	{ "normal",             WL_OUTPUT_TRANSFORM_NORMAL },
+	{ "rotate-90",          WL_OUTPUT_TRANSFORM_90 },
+	{ "rotate-180",         WL_OUTPUT_TRANSFORM_180 },
+	{ "rotate-270",         WL_OUTPUT_TRANSFORM_270 },
+	{ "flipped",            WL_OUTPUT_TRANSFORM_FLIPPED },
+	{ "flipped-rotate-90",  WL_OUTPUT_TRANSFORM_FLIPPED_90 },
+	{ "flipped-rotate-180", WL_OUTPUT_TRANSFORM_FLIPPED_180 },
+	{ "flipped-rotate-270", WL_OUTPUT_TRANSFORM_FLIPPED_270 },
+};
+
+static int
+weston_drm_parse_transform(const char *transform, uint32_t *out)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_LENGTH(transforms); i++)
+		if (strcmp(transforms[i].name, transform) == 0) {
+			*out = transforms[i].token;
+			return 0;
+		}
+
+	*out = WL_OUTPUT_TRANSFORM_NORMAL;
+	return -1;
+}
+
 void
-update_head_from_connector(struct drm_head *head)
+update_head_from_connector(struct drm_head *head, struct udev_device *drm_device)
 {
 	struct drm_connector *connector = &head->connector;
 	drmModeObjectProperties *props = connector->props_drm;
@@ -515,6 +541,9 @@ update_head_from_connector(struct drm_head *head)
 	const char *make = "unknown";
 	const char *model = "unknown";
 	const char *serial_number = "unknown";
+	const char *wl_transform = NULL;
+	const char *wl_output;
+	uint32_t transform;
 
 	find_and_parse_output_edid(head, props, &make, &model, &serial_number);
 	weston_head_set_monitor_strings(&head->base, make, model, serial_number);
@@ -525,8 +554,22 @@ update_head_from_connector(struct drm_head *head)
 
 	weston_head_set_physical_size(&head->base, conn->mmWidth, conn->mmHeight);
 
-	weston_head_set_transform(&head->base,
-				  get_panel_orientation(connector, props));
+	wl_output = udev_device_get_property_value(drm_device, "WL_OUTPUT");
+	if (!wl_output || !strcmp(wl_output, head->base.name)) {
+		wl_transform = udev_device_get_property_value(drm_device, "WL_TRANSFORM");
+	}
+
+	if (wl_transform) {
+		if (weston_drm_parse_transform(wl_transform, &transform) < 0) {
+			weston_log("Invalid transform \"%s\" for output %s\n",
+				wl_transform, head->base.name);
+			transform = get_panel_orientation(connector, props);
+		}
+	} else {
+		transform = get_panel_orientation(connector, props);
+	}
+
+	weston_head_set_transform(&head->base, transform);
 
 	/* Unknown connection status is assumed disconnected. */
 	weston_head_set_connection_status(&head->base,
