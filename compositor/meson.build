@@ -20,6 +20,7 @@ deps_weston = [
 	dep_libinput,
 	dep_libevdev,
 	dep_libdl,
+	dep_librt,
 	dep_threads,
 ]
 

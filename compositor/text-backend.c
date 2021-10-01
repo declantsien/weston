@@ -27,14 +27,18 @@
 
 #include "config.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
+#include <sys/mman.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <libweston/libweston.h>
+#include <libweston/libweston-internal.h>
 #include <linux/input.h>
 
 #include "weston.h"
@@ -43,6 +47,8 @@
 #include "virtual-keyboard-unstable-v1-server-protocol.h"
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
+
+#define RANDNAME_PATTERN "/weston-XXXXXX"
 
 struct input_method;
 struct input_method_manager;
@@ -119,6 +125,21 @@ struct input_method_state {
 	} delete;
 };
 
+struct input_method_keyboard_grab {
+	struct wl_resource *resource;
+	struct input_method *input_method;
+	struct weston_keyboard *keyboard;
+
+	struct wl_listener keyboard_keymap;
+	struct wl_listener keyboard_repeat_info;
+	struct wl_listener keyboard_destroy;
+
+	struct wl_listener destroy_listener;
+	struct {
+		struct wl_signal destroy; // (struct input_method_keyboard_grab*)
+	} events;
+};
+
 struct input_method {
 	struct wl_resource *resource;
 
@@ -131,11 +152,11 @@ struct input_method {
 
 	bool focus_listener_initialized;
 
-	struct wl_resource *keyboard;
-
 	struct input_method_manager *manager;
 
 	struct weston_surface *pending_focused_surface;
+
+	struct input_method_keyboard_grab *keyboard_grab;
 
 	struct input_method_state pending;
 	struct input_method_state current;
@@ -196,6 +217,10 @@ input_method_init_seat(struct weston_seat *seat);
 
 static void
 text_input_show_input_panel(struct text_input *text_input);
+
+static void input_method_keyboard_grab_set_keyboard(
+		struct input_method_keyboard_grab *keyboard_grab,
+		struct weston_keyboard *keyboard);
 
 static void
 deactivate_input_method(struct input_method *input_method)
@@ -627,13 +652,27 @@ input_method_commit(struct wl_client *client,
 }
 
 static void
-unbind_keyboard(struct wl_resource *resource)
+keyboard_grab_resource_destroy(struct wl_resource *resource)
 {
-	struct input_method *input_method =
+	struct input_method_keyboard_grab *keyboard_grab =
 		wl_resource_get_user_data(resource);
+	if (!keyboard_grab) {
+		return;
+	}
 
-	input_method_end_keyboard_grab(input_method);
-	input_method->keyboard = NULL;
+	wl_signal_emit(&keyboard_grab->events.destroy, keyboard_grab);
+	keyboard_grab->input_method->keyboard_grab = NULL;
+	if (keyboard_grab->keyboard && keyboard_grab->keyboard_keymap.link.next) {
+		wl_list_remove(&keyboard_grab->keyboard_keymap.link);
+		wl_list_remove(&keyboard_grab->keyboard_repeat_info.link);
+		wl_list_remove(&keyboard_grab->keyboard_destroy.link);
+	}
+	wl_resource_set_user_data(keyboard_grab->resource, NULL);
+
+	input_method_end_keyboard_grab(keyboard_grab->input_method);
+	keyboard_grab->keyboard = NULL;
+
+	free(keyboard_grab);
 }
 
 static void
@@ -646,16 +685,33 @@ input_method_context_grab_key(struct weston_keyboard_grab *grab,
 	struct wl_display *display;
 	uint32_t serial;
 	uint32_t msecs;
+	struct wl_resource* im_grab_resource;
 
-	if (!keyboard->input_method_resource)
+	im_grab_resource = keyboard->im_keyboard_grab->resource;
+	if (!im_grab_resource)
 		return;
 
 	display = wl_client_get_display(
-		wl_resource_get_client(keyboard->input_method_resource));
+		wl_resource_get_client(im_grab_resource));
 	serial = wl_display_next_serial(display);
 	msecs = timespec_to_msec(time);
-	wl_keyboard_send_key(keyboard->input_method_resource,
-			     serial, msecs, key, state_w);
+
+	zwp_input_method_keyboard_grab_v2_send_key(im_grab_resource, serial,
+			msecs, key, state_w);
+}
+
+static void input_method_keyboard_grab_send_modifiers(
+		struct input_method_keyboard_grab *keyboard_grab) {
+	int serial = wl_display_next_serial(
+			keyboard_grab->input_method->ec->wl_display);
+
+	struct weston_keyboard* keyboard = keyboard_grab->keyboard;
+	zwp_input_method_keyboard_grab_v2_send_modifiers(
+		keyboard_grab->resource, serial,
+		keyboard->modifiers.mods_depressed,
+		keyboard->modifiers.mods_latched,
+		keyboard->modifiers.mods_locked,
+		keyboard->modifiers.group);
 }
 
 static void
@@ -666,14 +722,31 @@ input_method_context_grab_modifier(struct weston_keyboard_grab *grab,
 				   uint32_t mods_locked,
 				   uint32_t group)
 {
+	struct wl_resource* im_grab_resource;
 	struct weston_keyboard *keyboard = grab->keyboard;
 
-	if (!keyboard->input_method_resource)
+	im_grab_resource = keyboard->im_keyboard_grab->resource;
+	if (!im_grab_resource)
 		return;
 
-	wl_keyboard_send_modifiers(keyboard->input_method_resource,
-				   serial, mods_depressed, mods_latched,
-				   mods_locked, group);
+	if (weston_keyboard_has_focus_resource(keyboard)) {
+		struct wl_list *resource_list;
+		struct wl_resource *resource;
+
+		resource_list = &keyboard->focus_resource_list;
+		wl_resource_for_each(resource, resource_list) {
+			wl_keyboard_send_modifiers(resource, serial,
+						   mods_depressed, mods_latched,
+						   mods_locked, group);
+		}
+	}
+
+	keyboard->modifiers.mods_depressed = mods_depressed;
+	keyboard->modifiers.mods_latched = mods_latched;
+	keyboard->modifiers.mods_locked = mods_locked;
+	keyboard->modifiers.group = group;
+
+	input_method_keyboard_grab_send_modifiers(keyboard->im_keyboard_grab);
 }
 
 static void
@@ -688,32 +761,218 @@ static const struct weston_keyboard_grab_interface input_method_context_grab = {
 	input_method_context_grab_cancel,
 };
 
+static void keyboard_grab_send_repeat_info(
+		struct input_method_keyboard_grab *keyboard_grab,
+		struct weston_keyboard *keyboard) {
+	zwp_input_method_keyboard_grab_v2_send_repeat_info(
+		keyboard_grab->resource, keyboard->repeat_info.rate,
+		keyboard->repeat_info.delay);
+}
+
+static void randname(char *buf) {
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	long r = ts.tv_nsec;
+	for (int i = 0; i < 6; ++i) {
+		buf[i] = 'A'+(r&15)+(r&16)*2;
+		r >>= 5;
+	}
+}
+
+static int excl_shm_open(char *name) {
+	int retries = 100;
+	do {
+		randname(name + strlen(RANDNAME_PATTERN) - 6);
+
+		--retries;
+		// CLOEXEC is guaranteed to be set by shm_open
+		int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+		if (fd >= 0) {
+			return fd;
+		}
+	} while (retries > 0 && errno == EEXIST);
+
+	return -1;
+}
+
+static int allocate_shm_file(size_t size) {
+	char name[] = RANDNAME_PATTERN;
+	int fd = excl_shm_open(name);
+	if (fd < 0) {
+		return -1;
+	}
+	shm_unlink(name);
+
+	int ret;
+	do {
+		ret = ftruncate(fd, size);
+	} while (ret < 0 && errno == EINTR);
+	if (ret < 0) {
+		close(fd);
+		return -1;
+	}
+
+	return fd;
+}
+
+static bool keyboard_grab_send_keymap(
+		struct input_method_keyboard_grab *keyboard_grab,
+		struct weston_keyboard *keyboard) {
+	int keymap_fd = allocate_shm_file(keyboard->keymap_size);
+	if (keymap_fd < 0) {
+		weston_log("creating a keymap file for %zu bytes failed",
+			keyboard->keymap_size);
+		return false;
+	}
+
+	void *ptr = mmap(NULL, keyboard->keymap_size, PROT_READ | PROT_WRITE,
+		MAP_SHARED, keymap_fd, 0);
+	if (ptr == MAP_FAILED) {
+		weston_log("failed to mmap() %zu bytes",
+			keyboard->keymap_size);
+		close(keymap_fd);
+		return false;
+	}
+
+	memcpy(ptr, keyboard->keymap_string, keyboard->keymap_size);
+	munmap(ptr, keyboard->keymap_size);
+
+	zwp_input_method_keyboard_grab_v2_send_keymap(keyboard_grab->resource,
+		WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd,
+		keyboard->keymap_size);
+
+	close(keymap_fd);
+	return true;
+}
+
+static void handle_keyboard_destroy(struct wl_listener *listener,
+		void *data) {
+	struct input_method_keyboard_grab *keyboard_grab =
+		wl_container_of(listener, keyboard_grab, keyboard_destroy);
+	input_method_keyboard_grab_set_keyboard(keyboard_grab, NULL);
+}
+
+static void handle_keyboard_keymap(struct wl_listener *listener, void *data) {
+	struct input_method_keyboard_grab *keyboard_grab =
+		wl_container_of(listener, keyboard_grab, keyboard_keymap);
+	keyboard_grab_send_keymap(keyboard_grab, data);
+}
+
+static void handle_keyboard_repeat_info(struct wl_listener *listener, void *data) {
+	struct input_method_keyboard_grab *keyboard_grab =
+		wl_container_of(listener, keyboard_grab, keyboard_repeat_info);
+	keyboard_grab_send_repeat_info(keyboard_grab, data);
+}
+
+static void input_method_keyboard_grab_set_keyboard(
+		struct input_method_keyboard_grab *keyboard_grab,
+		struct weston_keyboard *keyboard) {
+	if (keyboard == keyboard_grab->keyboard) {
+		return;
+	}
+
+	if (keyboard_grab->keyboard) {
+		wl_list_remove(&keyboard_grab->keyboard_keymap.link);
+		wl_list_remove(&keyboard_grab->keyboard_repeat_info.link);
+		wl_list_remove(&keyboard_grab->keyboard_destroy.link);
+	}
+
+	if (keyboard) {
+		if (keyboard_grab->keyboard == NULL ||
+				strcmp(keyboard_grab->keyboard->keymap_string,
+				keyboard->keymap_string) != 0) {
+			// send keymap only if it is changed, or if input method is not
+			// aware that it did not change and blindly send it back with
+			// virtual keyboard, it may cause an infinite recursion.
+			if (!keyboard_grab_send_keymap(keyboard_grab, keyboard)) {
+				weston_log("Failed to send keymap for input-method keyboard grab");
+				return;
+			}
+		}
+
+		keyboard_grab_send_repeat_info(keyboard_grab, keyboard);
+
+		keyboard_grab->keyboard_keymap.notify = handle_keyboard_keymap;
+		wl_signal_add(&keyboard->events.keymap,
+			&keyboard_grab->keyboard_keymap);
+		keyboard_grab->keyboard_repeat_info.notify =
+			handle_keyboard_repeat_info;
+		wl_signal_add(&keyboard->events.repeat_info,
+			&keyboard_grab->keyboard_repeat_info);
+		keyboard_grab->keyboard_destroy.notify =
+			handle_keyboard_destroy;
+		wl_signal_add(&keyboard->events.destroy,
+			&keyboard_grab->keyboard_destroy);
+
+		input_method_keyboard_grab_send_modifiers(keyboard_grab);
+	}
+
+	keyboard_grab->keyboard = keyboard;
+};
+
+static void keyboard_grab_release(struct wl_client *client,
+		struct wl_resource *resource) {
+	struct input_method_keyboard_grab *keyboard_grab =
+		wl_resource_get_user_data(resource);
+	if (!keyboard_grab) {
+		wl_resource_destroy(resource);
+		return;
+	}
+
+	input_method_end_keyboard_grab(keyboard_grab->input_method);
+	wl_resource_destroy(resource);
+}
+
+static const struct zwp_input_method_keyboard_grab_v2_interface keyboard_grab_impl = {
+	.release = keyboard_grab_release,
+};
+
 static void
 input_method_grab_keyboard(struct wl_client *client,
 			   struct wl_resource *resource,
 			   uint32_t id)
 {
-	struct input_method *input_method =
-		wl_resource_get_user_data(resource);
-	struct wl_resource *cr;
+	struct wl_resource *kb_grab_resource;
+	struct input_method *input_method = wl_resource_get_user_data(resource);
 	struct weston_seat *seat = input_method->seat;
 	struct weston_keyboard *keyboard = weston_seat_get_keyboard(seat);
 
 	if (!keyboard)
 		return;
 
-	cr = wl_resource_create(client, &wl_keyboard_interface, 1, id);
-	wl_resource_set_implementation(cr, NULL, input_method, unbind_keyboard);
-
-	input_method->keyboard = cr;
-
-	weston_keyboard_send_keymap(keyboard, cr);
-
-	if (keyboard->grab != &keyboard->default_grab) {
-		weston_keyboard_end_grab(keyboard);
+	struct input_method_keyboard_grab *keyboard_grab =
+		calloc(1, sizeof(struct input_method_keyboard_grab));
+	if (!keyboard_grab) {
+		wl_client_post_no_memory(client);
+		return;
 	}
+
+	kb_grab_resource = wl_resource_create(client,
+			&zwp_input_method_keyboard_grab_v2_interface,
+		wl_resource_get_version(resource), id);
+	if (!kb_grab_resource) {
+		free(keyboard_grab);
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	wl_resource_set_implementation(kb_grab_resource, &keyboard_grab_impl,
+			keyboard_grab, keyboard_grab_resource_destroy);
+
+	keyboard_grab->resource = kb_grab_resource;
+	keyboard_grab->keyboard = keyboard;
+	keyboard_grab->input_method = input_method;
+	wl_signal_init(&keyboard_grab->events.destroy);
+
+	input_method->ec = seat->compositor;
+
+	keyboard->im_keyboard_grab = keyboard_grab;
+
+	input_method_keyboard_grab_set_keyboard(keyboard_grab, keyboard);
+
+	weston_keyboard_send_keymap(keyboard, kb_grab_resource);
+
 	weston_keyboard_start_grab(keyboard, &keyboard->input_method_grab);
-	keyboard->input_method_resource = cr;
 }
 
 static void
@@ -919,8 +1178,9 @@ destroy_input_method(struct wl_resource *resource)
 	struct input_method *input_method =
 		wl_resource_get_user_data(resource);
 
-	if (input_method->keyboard)
-		wl_resource_destroy(input_method->keyboard);
+	if (input_method->keyboard_grab &&
+		input_method->keyboard_grab->resource)
+		wl_resource_destroy(input_method->keyboard_grab->resource);
 
 	if (input_method->input)
 		deactivate_input_method(input_method);

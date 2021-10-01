@@ -30,6 +30,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <errno.h>
 
 #include <linux/input.h>
@@ -59,9 +61,17 @@ struct virtual_keyboard {
 	struct zwp_input_method_v2 *input_method;
 	struct zwp_virtual_keyboard_manager_v1 *virtual_keyboard_manager;
 	struct zwp_virtual_keyboard_v1 *virtual_keyboard;
+	struct zwp_input_method_keyboard_grab_v2 *keyboard_grab;
 	struct display *display;
 	struct output *output;
 	struct wl_seat *seat;
+
+	struct xkb_context *xkb_context;
+	struct xkb_keymap *keymap;
+	struct xkb_state *state;
+	xkb_mod_mask_t control_mask;
+	xkb_mod_mask_t alt_mask;
+	xkb_mod_mask_t shift_mask;
 
 	uint32_t serial;
 	char *preedit_string;
@@ -748,6 +758,103 @@ touch_up_handler(struct widget *widget, struct input *input,
 }
 
 static void
+input_method_keyboard_grab_keymap(void *data,
+			     struct zwp_input_method_keyboard_grab_v2 *grab,
+			     uint32_t format,
+			     int32_t fd,
+			     uint32_t size)
+{
+	struct virtual_keyboard *virtual_keyboard = data;
+	char *map_str;
+
+	if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+		close(fd);
+		return;
+	}
+
+	map_str = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+	if (map_str == MAP_FAILED) {
+		close(fd);
+		return;
+	}
+
+	virtual_keyboard->keymap =
+		xkb_keymap_new_from_string(virtual_keyboard->xkb_context,
+					   map_str,
+					   XKB_KEYMAP_FORMAT_TEXT_V1,
+					   XKB_KEYMAP_COMPILE_NO_FLAGS);
+
+	munmap(map_str, size);
+
+	if (!virtual_keyboard->keymap) {
+		fprintf(stderr, "Failed to compile keymap\n");
+		close(fd);
+		return;
+	}
+
+	virtual_keyboard->state = xkb_state_new(virtual_keyboard->keymap);
+	if (!virtual_keyboard->state) {
+		fprintf(stderr, "Failed to create XKB state\n");
+		xkb_keymap_unref(virtual_keyboard->keymap);
+		close(fd);
+		return;
+	}
+
+	virtual_keyboard->control_mask =
+		1 << xkb_keymap_mod_get_index(virtual_keyboard->keymap, "Control");
+	virtual_keyboard->alt_mask =
+		1 << xkb_keymap_mod_get_index(virtual_keyboard->keymap, "Mod1");
+	virtual_keyboard->shift_mask =
+		1 << xkb_keymap_mod_get_index(virtual_keyboard->keymap, "Shift");
+
+	zwp_virtual_keyboard_v1_keymap(virtual_keyboard->virtual_keyboard,
+			format, fd, size);
+
+	close(fd);
+}
+
+static void
+input_method_keyboard_grab_key(void *data,
+			  struct zwp_input_method_keyboard_grab_v2 *grab,
+			  uint32_t serial,
+			  uint32_t time,
+			  uint32_t key,
+			  uint32_t state_w)
+{
+	struct virtual_keyboard *virtual_keyboard = data;
+	virtual_keyboard_commit_preedit(virtual_keyboard);
+
+	zwp_virtual_keyboard_v1_key(virtual_keyboard->virtual_keyboard,
+		time, key, state_w);
+}
+
+static void
+input_method_keyboard_grab_modifiers(void *data,
+				struct zwp_input_method_keyboard_grab_v2 * grab,
+				uint32_t serial,
+				uint32_t mods_depressed,
+				uint32_t mods_latched,
+				uint32_t mods_locked,
+				uint32_t group)
+{
+	fprintf(stderr, "keyboard_grab_modifiers event received\n");
+}
+
+static void input_method_keyboard_grab_repeat_info(void *data,
+    struct zwp_input_method_keyboard_grab_v2 *grab,
+    int32_t rate, int32_t delay)
+{
+	fprintf(stderr, "keyboard_grab_repeat_info event received\n");
+}
+
+static const struct zwp_input_method_keyboard_grab_v2_listener input_method_keyboard_grab_listener = {
+	.keymap = input_method_keyboard_grab_keymap,
+	.key = input_method_keyboard_grab_key,
+	.modifiers = input_method_keyboard_grab_modifiers,
+	.repeat_info = input_method_keyboard_grab_repeat_info,
+};
+
+static void
 input_method_activate(void *data,
 		      struct zwp_input_method_v2 *input_method)
 {
@@ -771,6 +878,9 @@ input_method_deactivate(void *data,
 	struct virtual_keyboard *virtual_keyboard = data;
 
 	virtual_keyboard->pending.active = false;
+
+	zwp_input_method_keyboard_grab_v2_destroy(virtual_keyboard->keyboard_grab);
+	zwp_input_method_v2_destroy(virtual_keyboard->input_method);
 }
 
 static void
@@ -864,6 +974,11 @@ make_input_method(struct virtual_keyboard *virtual_keyboard)
 			virtual_keyboard->input_method_manager, virtual_keyboard->seat);
 	zwp_input_method_v2_add_listener(virtual_keyboard->input_method,
 		&input_method_listener, virtual_keyboard);
+
+	virtual_keyboard->keyboard_grab = zwp_input_method_v2_grab_keyboard(
+			virtual_keyboard->input_method);
+	zwp_input_method_keyboard_grab_v2_add_listener(virtual_keyboard->keyboard_grab,
+				 &input_method_keyboard_grab_listener, virtual_keyboard);
 }
 
 static void
@@ -893,7 +1008,6 @@ global_handler(struct display *display, uint32_t name,
 			display_bind(display, name,
 				     &zwp_virtual_keyboard_manager_v1_interface, 1);
 	}
-
 }
 
 static void
@@ -1006,6 +1120,8 @@ keyboard_create(struct virtual_keyboard *virtual_keyboard)
 	keyboard->keyboard = virtual_keyboard;
 	virtual_keyboard->keyboard = keyboard;
 
+	virtual_keyboard->xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+
 	display_set_output_configure_handler(virtual_keyboard->display,
 					     display_output_handler);
 }
@@ -1066,10 +1182,10 @@ main(int argc, char *argv[])
 		return -1;
 	}
 
+	keyboard_create(&virtual_keyboard);
+
 	make_input_method(&virtual_keyboard);
 	make_virtual_keyboard(&virtual_keyboard);
-
-	keyboard_create(&virtual_keyboard);
 
 	keyboard_set_visibility(&virtual_keyboard, true);
 

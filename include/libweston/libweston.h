@@ -793,6 +793,11 @@ struct weston_keyboard {
 	uint32_t grab_serial;
 	struct timespec grab_time;
 
+	struct {
+		int32_t rate;
+		int32_t delay;
+	} repeat_info;
+
 	struct wl_array keys;
 
 	struct {
@@ -803,6 +808,7 @@ struct weston_keyboard {
 	} modifiers;
 
 	struct weston_keyboard_grab input_method_grab;
+	struct input_method_keyboard_grab *im_keyboard_grab;
 	struct wl_resource *input_method_resource;
 
 	struct weston_xkb_info *xkb_info;
@@ -811,6 +817,22 @@ struct weston_keyboard {
 		enum weston_led leds;
 	} xkb_state;
 	struct xkb_keymap *pending_keymap;
+	char *keymap_string;
+	size_t keymap_size;
+
+	struct {
+		/**
+                 * The `modifiers` event signals that the modifier
+                 * state of the `wlr_keyboard` has been updated. At
+                 * this time, you can read the modifier state of the
+                 * `wlr_keyboard` and handle the updated state by
+                 * sending it to clients.
+		 */
+		struct wl_signal modifiers;
+		struct wl_signal keymap;
+		struct wl_signal repeat_info;
+		struct wl_signal destroy;
+	} events;
 
 	struct wl_list timestamps_list;
 };

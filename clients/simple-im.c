@@ -164,7 +164,6 @@ input_method_keyboard_grab_keymap(void *data,
 					   XKB_KEYMAP_COMPILE_NO_FLAGS);
 
 	munmap(map_str, size);
-	close(fd);
 
 	if (!simple_im->keymap) {
 		fprintf(stderr, "Failed to compile keymap\n");
@@ -187,6 +186,8 @@ input_method_keyboard_grab_keymap(void *data,
 
 	zwp_virtual_keyboard_v1_keymap(simple_im->virtual_keyboard,
 			format, fd, size);
+
+	close(fd);
 }
 
 static void
