@@ -89,18 +89,21 @@ bind_shooter(struct wl_client *client,
 {
 	struct screenshooter *shooter = data;
 	struct wl_resource *resource;
-	bool debug_enabled =
-		weston_compositor_is_debug_protocol_enabled(shooter->ec);
+	struct weston_client_app_info *app_info =
+		weston_client_app_info(client);
+	bool allowed =
+		weston_compositor_is_debug_protocol_enabled(shooter->ec) ||
+		(app_info && app_info->kind == WESTON_CLIENT_APP_INFO_KIND_HOST);
 
 	resource = wl_resource_create(client,
 				      &weston_screenshooter_interface, 1, id);
 
-	if (!debug_enabled && !shooter->client) {
+	if (!allowed && !shooter->client) {
 		wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
 				       "screenshooter failed: permission denied. "\
 				       "Debug protocol must be enabled");
 		return;
-	} else if (!debug_enabled && client != shooter->client) {
+	} else if (!allowed && client != shooter->client) {
 		wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
 				       "screenshooter failed: permission denied.");
 		return;
