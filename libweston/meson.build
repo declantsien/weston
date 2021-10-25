@@ -10,6 +10,7 @@ deps_libweston = [
 srcs_libweston = [
 	git_version_h,
 	'animation.c',
+	'app-info.c',
 	'bindings.c',
 	'clipboard.c',
 	'color.c',
