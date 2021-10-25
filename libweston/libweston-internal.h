@@ -418,18 +418,6 @@ struct weston_paint_node {
 struct weston_paint_node *
 weston_view_find_paint_node(struct weston_view *view,
 			    struct weston_output *output);
-
-enum weston_client_app_info_kind {
-	WESTON_CLIENT_APP_INFO_KIND_UNKNOWN = 0,
-	WESTON_CLIENT_APP_INFO_KIND_HOST = 1,
-	WESTON_CLIENT_APP_INFO_KIND_FLATPAK = 2,
-};
-
-struct weston_client_app_info {
-	enum weston_client_app_info_kind kind;
-	char *app_id;
-};
-
 /**
  * weston client
  *
@@ -440,9 +428,6 @@ struct weston_client {
 	struct wl_listener destroy_listener;
 	struct weston_client_app_info app_info;
 };
-
-struct weston_client *
-weston_client_get(struct wl_client *client);
 
 /* others */
 int

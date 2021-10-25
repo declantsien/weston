@@ -7619,10 +7619,13 @@ weston_client_destroy(struct wl_listener *listener, void *data)
 	free(wc);
 }
 
-struct weston_client *
-weston_client_get(struct wl_client *client)
+WL_EXPORT struct weston_client_app_info *
+weston_client_app_info(struct wl_client *client)
 {
-	return wl_client_get_user_data(client);
+	struct weston_client *wc = wl_client_get_user_data(client);
+	if (wc)
+		return &wc->app_info;
+	return NULL;
 }
 
 static void
@@ -7650,7 +7653,6 @@ weston_compositor_handle_client_created(struct wl_listener *listener, void *data
 	wl_client_get_pidfd(client, &pidfd);
 
 	weston_app_info_find_flatpak(pid, pidfd, &wc->app_info);
-	weston_log("flatpak app info %d %s\n", wc->app_info.kind, wc->app_info.app_id);
 	if (wc->app_info.kind != WESTON_CLIENT_APP_INFO_KIND_HOST)
 		return;
 

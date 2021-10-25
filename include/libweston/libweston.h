@@ -1603,6 +1603,20 @@ enum weston_activate_flag {
 	WESTON_ACTIVATE_FLAG_CLICKED = 1 << 1,
 };
 
+enum weston_client_app_info_kind {
+	WESTON_CLIENT_APP_INFO_KIND_UNKNOWN = 0,
+	WESTON_CLIENT_APP_INFO_KIND_HOST = 1,
+	WESTON_CLIENT_APP_INFO_KIND_FLATPAK = 2,
+};
+
+struct weston_client_app_info {
+	enum weston_client_app_info_kind kind;
+	char *app_id;
+};
+
+struct weston_client_app_info *
+weston_client_app_info(struct wl_client *client);
+
 void
 weston_version(int *major, int *minor, int *micro);
 
