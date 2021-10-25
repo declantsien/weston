@@ -268,6 +268,7 @@ struct window {
 	struct window *last_parent;
 
 	struct window_frame *frame;
+	bool frame_hidden;
 
 	/* struct surface::link, contains also main_surface */
 	struct wl_list subsurface_list;
@@ -2241,7 +2242,7 @@ frame_resize_handler(struct widget *widget,
 	struct rectangle input;
 	struct rectangle opaque;
 
-	if (widget->window->fullscreen) {
+	if (widget->window->frame_hidden) {
 		interior.x = 0;
 		interior.y = 0;
 		interior.width = width;
@@ -2259,7 +2260,7 @@ frame_resize_handler(struct widget *widget,
 		child->resize_handler(child, interior.width, interior.height,
 				      child->user_data);
 
-		if (widget->window->fullscreen) {
+		if (widget->window->frame_hidden) {
 			width = child->allocation.width;
 			height = child->allocation.height;
 		} else {
@@ -2275,7 +2276,7 @@ frame_resize_handler(struct widget *widget,
 
 	widget->surface->input_region =
 		wl_compositor_create_region(widget->window->display->compositor);
-	if (!widget->window->fullscreen) {
+	if (!widget->window->frame_hidden) {
 		frame_input_rect(frame->frame, &input.x, &input.y,
 				 &input.width, &input.height);
 		wl_region_add(widget->surface->input_region,
@@ -2287,7 +2288,7 @@ frame_resize_handler(struct widget *widget,
 	widget_set_allocation(widget, 0, 0, width, height);
 
 	if (child->opaque) {
-		if (!widget->window->fullscreen) {
+		if (!widget->window->frame_hidden) {
 			frame_opaque_rect(frame->frame, &opaque.x, &opaque.y,
 					  &opaque.width, &opaque.height);
 
@@ -2311,7 +2312,7 @@ frame_redraw_handler(struct widget *widget, void *data)
 	struct window_frame *frame = data;
 	struct window *window = widget->window;
 
-	if (window->fullscreen)
+	if (window->frame_hidden)
 		return;
 
 	cr = widget_cairo_create(widget);
@@ -2610,7 +2611,7 @@ window_frame_set_child_size(struct widget *widget, int child_width,
 	int width, height;
 	int margin = widget->window->maximized ? 0 : t->margin;
 
-	if (!widget->window->fullscreen) {
+	if (!widget->window->frame_hidden) {
 		decoration_width = (t->width + margin) * 2;
 		decoration_height = t->width +
 			t->titlebar_height + margin * 2;
@@ -4306,7 +4307,7 @@ widget_schedule_resize(struct widget *widget, int32_t width, int32_t height)
 static int
 window_get_shadow_margin(struct window *window)
 {
-	if (window->frame && !window->fullscreen)
+	if (window->frame && !window->frame_hidden)
 		return frame_get_shadow_margin(window->frame->frame);
 	else
 		return 0;
@@ -4394,6 +4395,8 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *xdg_toplevel,
 		} else {
 			frame_unset_flag(window->frame->frame, FRAME_FLAG_ACTIVE);
 		}
+
+		window->frame_hidden = window->fullscreen;
 	}
 
 	if (width > 0 && height > 0) {
@@ -4448,7 +4451,7 @@ window_sync_parent(struct window *window)
 static void
 window_get_geometry(struct window *window, struct rectangle *geometry)
 {
-	if (window->frame && !window->fullscreen)
+	if (window->frame && !window->frame_hidden)
 		frame_input_rect(window->frame->frame,
 				 &geometry->x,
 				 &geometry->y,
