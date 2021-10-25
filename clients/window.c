@@ -78,12 +78,14 @@ typedef void *EGLContext;
 #include "text-cursor-position-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
+#include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "shared/os-compatibility.h"
 #include "shared/string-helpers.h"
 
 #include "window.h"
 #include "viewporter-client-protocol.h"
 
+#define ZXDG_DECORATION_MANAGER_V1_VERSION 1
 #define ZWP_RELATIVE_POINTER_MANAGER_V1_VERSION 1
 #define ZWP_POINTER_CONSTRAINTS_V1_VERSION 1
 
@@ -109,6 +111,7 @@ struct display {
 	struct xdg_wm_base *xdg_shell;
 	struct zwp_relative_pointer_manager_v1 *relative_pointer_manager;
 	struct zwp_pointer_constraints_v1 *pointer_constraints;
+	struct zxdg_decoration_manager_v1 *decoration_manager;
 	EGLDisplay dpy;
 	EGLConfig argb_config;
 	EGLContext argb_ctx;
@@ -263,6 +266,8 @@ struct window {
 	struct xdg_surface *xdg_surface;
 	struct xdg_toplevel *xdg_toplevel;
 	struct xdg_popup *xdg_popup;
+	struct zxdg_toplevel_decoration_v1 *xdg_toplevel_decoration;
+	bool using_server_side_decorations;
 
 	struct window *parent;
 	struct window *last_parent;
@@ -1599,6 +1604,8 @@ window_destroy(struct window *window)
 	if (window->frame)
 		window_frame_destroy(window->frame);
 
+	if (window->xdg_toplevel_decoration)
+		zxdg_toplevel_decoration_v1_destroy(window->xdg_toplevel_decoration);
 	if (window->xdg_toplevel)
 		xdg_toplevel_destroy(window->xdg_toplevel);
 	if (window->xdg_popup)
@@ -4396,7 +4403,8 @@ xdg_toplevel_handle_configure(void *data, struct xdg_toplevel *xdg_toplevel,
 			frame_unset_flag(window->frame->frame, FRAME_FLAG_ACTIVE);
 		}
 
-		window->frame_hidden = window->fullscreen;
+		window->frame_hidden = window->using_server_side_decorations ||
+				       window->fullscreen;
 	}
 
 	if (width > 0 && height > 0) {
@@ -4426,6 +4434,24 @@ xdg_toplevel_handle_close(void *data, struct xdg_toplevel *xdg_surface)
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	xdg_toplevel_handle_configure,
 	xdg_toplevel_handle_close,
+};
+
+static void
+xdg_toplevel_decoration_configure(void *data,
+				  struct zxdg_toplevel_decoration_v1 *decoration,
+				  uint32_t mode)
+{
+	struct window *window = data;
+	window->using_server_side_decorations =
+		(mode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+
+	if (window->frame)
+		window->frame_hidden = window->using_server_side_decorations ||
+				       window->fullscreen;
+}
+
+static const struct zxdg_toplevel_decoration_v1_listener xdg_toplevel_decoration_listener = {
+	xdg_toplevel_decoration_configure
 };
 
 static void
@@ -5298,6 +5324,21 @@ window_create(struct display *display)
 
 		xdg_toplevel_add_listener(window->xdg_toplevel,
 					  &xdg_toplevel_listener, window);
+		if (window->display->decoration_manager) {
+			window->xdg_toplevel_decoration =
+				zxdg_decoration_manager_v1_get_toplevel_decoration(
+					window->display->decoration_manager,
+					window->xdg_toplevel);
+			fail_on_null(window->xdg_toplevel_decoration, 0, __FILE__, __LINE__);
+
+			zxdg_toplevel_decoration_v1_set_mode(
+				window->xdg_toplevel_decoration,
+				ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+			zxdg_toplevel_decoration_v1_add_listener(
+				window->xdg_toplevel_decoration,
+				&xdg_toplevel_decoration_listener,
+				window);
+		}
 
 		window_inhibit_redraw(window);
 
@@ -6069,6 +6110,12 @@ registry_handle_global(void *data, struct wl_registry *registry, uint32_t id,
 		d->viewporter =
 			wl_registry_bind(registry, id,
 					&wp_viewporter_interface, 1);
+	} else if (strcmp(interface, "zxdg_decoration_manager_v1") == 0 &&
+		   version >= ZXDG_DECORATION_MANAGER_V1_VERSION) {
+		d->decoration_manager =
+			wl_registry_bind(registry, id,
+					 &zxdg_decoration_manager_v1_interface,
+					 ZXDG_DECORATION_MANAGER_V1_VERSION);
 	}
 
 	if (d->global_handler)
@@ -6363,6 +6410,9 @@ display_destroy(struct display *display)
 	if (display->argb_device)
 		fini_egl(display);
 #endif
+
+	if (display->decoration_manager)
+		zxdg_decoration_manager_v1_destroy(display->decoration_manager);
 
 	if (display->relative_pointer_manager)
 		zwp_relative_pointer_manager_v1_destroy(display->relative_pointer_manager);
