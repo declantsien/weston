@@ -35,6 +35,7 @@
 #include <stdlib.h>
 #include <libweston/zalloc.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 
 #include "os-compatibility.h"
 
@@ -404,4 +405,15 @@ os_ro_anonymous_file_put_fd(int fd)
 
 	close(fd);
 	return 0;
+}
+
+int
+sys_pidfd_send_signal(int pidfd, int sig, siginfo_t *info, unsigned int flags)
+{
+#if defined(__NR_pidfd_send_signal)
+	return syscall(__NR_pidfd_send_signal, pidfd, sig, info, flags);
+#else
+	errno = ENOTSUP;
+	return -1;
+#endif
 }

@@ -7607,11 +7607,13 @@ weston_compositor_get_test_data(struct weston_compositor *ec)
 
 #include <ctype.h>
 #include <sys/vfs.h>
-#include <sys/syscall.h>
 
 static char *
 app_id_from_flatpak_info(int flatpak_info_fd)
 {
+
+	/* would be nice to reuse weston_config_parse */
+
 	FILE *fp;
 	char line[2048], *p;
 	int app_section = 0, i;
@@ -7667,12 +7669,6 @@ app_id_from_flatpak_info(int flatpak_info_fd)
 
 	fclose(fp);
 	return NULL;
-}
-
-static inline int sys_pidfd_send_signal(int pidfd, int sig, siginfo_t *info,
-					unsigned int flags)
-{
-	return syscall(__NR_pidfd_send_signal, pidfd, sig, info, flags);
 }
 
 /* stolen from systemd */
