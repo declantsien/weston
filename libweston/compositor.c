@@ -7605,6 +7605,58 @@ weston_compositor_get_test_data(struct weston_compositor *ec)
 	return ec->test_data.test_private_data;
 }
 
+
+static struct weston_client *
+weston_client_create(struct wl_client *client)
+{
+	struct weston_client *wc;
+
+	wc = zalloc(sizeof *wc);
+	if (!wc)
+		return NULL;
+
+	return wc;
+}
+
+static void
+weston_client_destroy(struct wl_listener *listener, void *data)
+{
+	struct weston_client *wc =
+		container_of(listener, struct weston_client,
+			     destroy_listener);
+
+	wl_list_remove(&wc->destroy_listener.link);
+	wc->destroy_listener.notify = NULL;
+
+	free(wc);
+}
+
+struct weston_client *
+weston_client_get(struct wl_client *client)
+{
+	return wl_client_get_user_data(client);
+}
+
+static void
+weston_compositor_handle_client_created(struct wl_listener *listener, void *data)
+{
+	struct wl_client *client = data;
+	struct weston_client *wc = weston_client_create(client);
+
+	wl_client_set_user_data(client, wc);
+
+	/* wl_client user data can point to NULL but the alternative is to call
+	 * wl_client_destroy and wl_client_create returns a pointer to the
+	 * destroyed object
+	 * FIXME */
+	if (!wc)
+		return;
+
+	wc->destroy_listener.notify = weston_client_destroy;
+	wl_client_add_destroy_listener(client, &wc->destroy_listener);
+	wc->client = client;
+}
+
 /** Create the compositor.
  *
  * This functions creates and initializes a compositor instance.
@@ -7739,6 +7791,10 @@ weston_compositor_create(struct wl_display *display,
 						weston_timeline_create_subscription,
 						weston_timeline_destroy_subscription,
 						ec);
+
+	ec->client_created_listener.notify = weston_compositor_handle_client_created;
+	wl_display_add_client_created_listener(display, &ec->client_created_listener);
+
 	return ec;
 
 fail:
@@ -7788,6 +7844,10 @@ weston_compositor_shutdown(struct weston_compositor *ec)
 
 	if (!wl_list_empty(&ec->layer_list))
 		weston_log("BUG: layer_list is not empty after shutdown. Calls to weston_layer_fini() are missing somwhere.\n");
+
+
+	wl_list_remove(&ec->client_created_listener.link);
+	ec->client_created_listener.notify = NULL;
 }
 
 /** weston_compositor_exit_with_code

@@ -419,6 +419,19 @@ struct weston_paint_node *
 weston_view_find_paint_node(struct weston_view *view,
 			    struct weston_output *output);
 
+/**
+ * weston client
+ *
+ * Weston specific per-client information
+ */
+struct weston_client {
+	struct wl_client *client;
+	struct wl_listener destroy_listener;
+};
+
+struct weston_client *
+weston_client_get(struct wl_client *client);
+
 /* others */
 int
 wl_data_device_manager_init(struct wl_display *display);

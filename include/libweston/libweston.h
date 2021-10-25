@@ -1177,6 +1177,8 @@ struct weston_compositor {
 	struct weston_log_scope *timeline;
 
 	struct content_protection *content_protection;
+
+	struct wl_listener client_created_listener;
 };
 
 struct weston_buffer {
