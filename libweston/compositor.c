@@ -7605,17 +7605,156 @@ weston_compositor_get_test_data(struct weston_compositor *ec)
 	return ec->test_data.test_private_data;
 }
 
+#include <ctype.h>
+#include <sys/vfs.h>
+#include <sys/syscall.h>
 
-static struct weston_client *
-weston_client_create(struct wl_client *client)
+static char *
+app_id_from_flatpak_info(int flatpak_info_fd)
 {
-	struct weston_client *wc;
+	FILE *fp;
+	char line[2048], *p;
+	int app_section = 0, i;
 
-	wc = zalloc(sizeof *wc);
-	if (!wc)
+	fp = fdopen(flatpak_info_fd, "r");
+	if (fp == NULL)
 		return NULL;
 
-	return wc;
+	while (fgets(line, sizeof line, fp)) {
+		switch (line[0]) {
+		case '#':
+		case '\n':
+			continue;
+		case '[':
+			p = strchr(&line[1], ']');
+			if (!p || p[1] != '\n') {
+				fprintf(stderr, "malformed "
+					"section header: %s\n", line);
+				fclose(fp);
+				return NULL;
+			}
+			p[0] = '\0';
+			if (strcmp(&line[1], "Application") == 0)
+				app_section = 1;
+			else
+				app_section = 0;
+			continue;
+		default:
+			p = strchr(line, '=');
+			if (!p || p == line) {
+				fprintf(stderr, "malformed "
+					"config line: %s\n", line);
+				fclose(fp);
+				return NULL;
+			}
+
+			p[0] = '\0';
+			p++;
+			while (isspace(*p))
+				p++;
+			i = strlen(p);
+			while (i > 0 && isspace(p[i - 1])) {
+				p[i - 1] = '\0';
+				i--;
+			}
+			if (app_section && strcmp(line, "name") == 0) {
+				fclose(fp);
+				return strdup(p);
+			}
+			continue;
+		}
+	}
+
+	fclose(fp);
+	return NULL;
+}
+
+static inline int sys_pidfd_send_signal(int pidfd, int sig, siginfo_t *info,
+					unsigned int flags)
+{
+	return syscall(__NR_pidfd_send_signal, pidfd, sig, info, flags);
+}
+
+/* stolen from systemd */
+/* Returns the number of chars needed to format variables of the
+ * specified type as a decimal string. Adds in extra space for a
+ * negative '-' prefix (hence works correctly on signed
+ * types). Includes space for the trailing NUL. */
+#define DECIMAL_STR_MAX(type)                                           \
+        (2U+(sizeof(type) <= 1 ? 3U :                                   \
+             sizeof(type) <= 2 ? 5U :                                   \
+             sizeof(type) <= 4 ? 10U :                                  \
+             sizeof(type) <= 8 ? 20U : sizeof(int[-2*(sizeof(type) > 8)])))
+
+#define STRLEN(x) (sizeof(""x"") - sizeof(typeof(x[0])))
+
+static void
+find_flatpak_app_info(pid_t pid, int pidfd, struct weston_client_app_info *app_info)
+{
+        char root_path[STRLEN("/proc/") + DECIMAL_STR_MAX(int) + STRLEN("/root")];
+        int root_fd = -1;
+        int info_fd = -1;
+        struct stat stat_buf;
+	struct statfs statfs_buf;
+	int ret;
+
+	if (pidfd == -1)
+		goto err;
+
+	/* stolen from xdg-desktop-portal */
+	sprintf(root_path, "/proc/%u/root", pid);
+	root_fd = openat(AT_FDCWD, root_path, O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_CLOEXEC | O_NOCTTY);
+	if (root_fd == -1) {
+		if (errno != EACCES)
+			goto err;
+
+		/* Access to the root dir isn't allowed. This can happen if the root is on a fuse
+		* filesystem, such as in a toolbox container. We will never have a fuse rootfs
+		* in the flatpak case.
+		*/
+		if (statfs (root_path, &statfs_buf) == 0 &&
+		    statfs_buf.f_type == 0x65735546) { /* FUSE_SUPER_MAGIC */
+			app_info->kind = WESTON_CLIENT_APP_INFO_KIND_HOST;
+			goto check_pid;
+		}
+	}
+
+	info_fd = openat(root_fd, ".flatpak-info", O_RDONLY | O_CLOEXEC | O_NOCTTY);
+	close(root_fd);
+
+	if (info_fd == -1) {
+		if (errno != ENOENT)
+			goto err;
+
+		/* No file => on the host */
+		app_info->kind = WESTON_CLIENT_APP_INFO_KIND_HOST;
+		goto check_pid;
+	}
+
+	if (fstat(info_fd, &stat_buf) != 0 || !S_ISREG(stat_buf.st_mode)) {
+		/* Some weird fd => failure */
+		goto err2;
+	}
+
+	app_info->kind = WESTON_CLIENT_APP_INFO_KIND_FLATPAK;
+	app_info->app_id = app_id_from_flatpak_info(info_fd);
+	if (!app_info->app_id)
+		goto err2;
+
+	close(info_fd);
+
+check_pid:
+	ret = sys_pidfd_send_signal(pidfd, 0, NULL, 0);
+	if (ret >= 0 || errno == EPERM)
+		return;
+	goto err;
+
+err2:
+	close(info_fd);
+err:
+	app_info->kind = WESTON_CLIENT_APP_INFO_KIND_UNKNOWN;
+	if (app_info->app_id)
+		free(app_info->app_id);
 }
 
 static void
@@ -7641,10 +7780,11 @@ static void
 weston_compositor_handle_client_created(struct wl_listener *listener, void *data)
 {
 	struct wl_client *client = data;
-	struct weston_client *wc = weston_client_create(client);
+	struct weston_client *wc;
+	pid_t pid;
+	int pidfd;
 
-	wl_client_set_user_data(client, wc);
-
+	wc = zalloc(sizeof *wc);
 	/* wl_client user data can point to NULL but the alternative is to call
 	 * wl_client_destroy and wl_client_create returns a pointer to the
 	 * destroyed object
@@ -7655,6 +7795,21 @@ weston_compositor_handle_client_created(struct wl_listener *listener, void *data
 	wc->destroy_listener.notify = weston_client_destroy;
 	wl_client_add_destroy_listener(client, &wc->destroy_listener);
 	wc->client = client;
+	wl_client_set_user_data(client, wc);
+
+	wl_client_get_credentials(client, &pid, NULL, NULL);
+	wl_client_get_pidfd(client, &pidfd);
+
+	find_flatpak_app_info(pid, pidfd, &wc->app_info);
+	weston_log("flatpak app info %d %s\n", wc->app_info.kind, wc->app_info.app_id);
+	if (wc->app_info.kind != WESTON_CLIENT_APP_INFO_KIND_HOST)
+		return;
+
+	/*
+	find_snap_app_info(...);
+	if (wc->app_info.kind != WESTON_CLIENT_APP_INFO_KIND_HOST)
+		return;
+	*/
 }
 
 /** Create the compositor.
