@@ -526,8 +526,8 @@ drm_fb_get_from_view(struct drm_output_state *state, struct weston_view *ev,
 		}
 	}
 
-	drm_debug(b, "\t\t\t[view] view %p format: %s\n",
-		  ev, fb->format->drm_format_name);
+	drm_debug(b, "\t\t\t[view] view %u format: %s\n",
+		  ev->view_id, fb->format->drm_format_name);
 	drm_fb_set_buffer(fb, buffer,
 			  ev->surface->buffer_release_ref.buffer_release);
 	return fb;

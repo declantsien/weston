@@ -1184,6 +1184,17 @@ struct weston_compositor {
 	struct weston_log_scope *timeline;
 
 	struct content_protection *content_protection;
+
+	/*XXX: should we have a struct instead something like below?
+	 * struct  id_counter{
+	 * uint32_t id;
+	 * bool assigned;
+	 * };
+	 * In case of reuse we can check assigned whether it can be reused.
+	 *
+	 * is there any other way to track for reuse?
+	 */
+	uint32_t id_counter;
 };
 
 struct weston_buffer {
@@ -1367,6 +1378,8 @@ struct weston_view {
 	/* Per-surface Presentation feedback flags, controlled by backend. */
 	uint32_t psf_flags;
 
+	uint32_t view_id;
+
 	bool is_mapped;
 };
 
@@ -1493,6 +1506,8 @@ struct weston_surface {
 	int32_t width_from_buffer; /* before applying viewport */
 	int32_t height_from_buffer;
 	bool keep_buffer; /* for backends to prevent early release */
+
+	uint32_t surface_id;
 
 	/* wp_viewport resource for this surface */
 	struct wl_resource *viewport_resource;
