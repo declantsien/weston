@@ -21,6 +21,7 @@ fragment_glsl = custom_target(
 srcs_renderer_gl = [
 	'egl-glue.c',
 	fragment_glsl,
+	'../../shared/signal.c',
 	'gl-renderer.c',
 	'gl-shaders.c',
 	'gl-shader-config-color-transformation.c',

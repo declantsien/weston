@@ -47,6 +47,7 @@
 #include <libweston/libweston.h>
 #include "weston-launch.h"
 #include "launcher-impl.h"
+#include "shared/signal.h"
 #include "shared/string-helpers.h"
 
 #define DRM_MAJOR 226
@@ -113,8 +114,8 @@ handle_deactivate(struct launcher_weston_launch *launcher)
 	int reply;
 
 	launcher->compositor->session_active = false;
-	wl_signal_emit(&launcher->compositor->session_signal,
-		       launcher->compositor);
+	weston_signal_emit_mutable(&launcher->compositor->session_signal,
+				   launcher->compositor);
 
 	reply = WESTON_LAUNCHER_DEACTIVATE_DONE;
 	launcher_weston_launch_send(launcher->fd, &reply, sizeof reply);
@@ -264,8 +265,8 @@ launcher_weston_launch_data(int fd, uint32_t mask, void *data)
 	switch (ret) {
 	case WESTON_LAUNCHER_ACTIVATE:
 		launcher->compositor->session_active = true;
-		wl_signal_emit(&launcher->compositor->session_signal,
-			       launcher->compositor);
+		weston_signal_emit_mutable(&launcher->compositor->session_signal,
+					   launcher->compositor);
 		break;
 	case WESTON_LAUNCHER_DEACTIVATE:
 		handle_deactivate(launcher);

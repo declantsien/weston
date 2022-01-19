@@ -294,7 +294,7 @@ weston_output_mode_set_native(struct weston_output *output,
 	if (mode_changed || scale_changed) {
 		weston_compositor_reflow_outputs(output->compositor, output, output->width - old_width);
 
-		wl_signal_emit(&output->compositor->output_resized_signal, output);
+		weston_signal_emit_mutable(&output->compositor->output_resized_signal, output);
 	}
 	return 0;
 }
@@ -1644,8 +1644,8 @@ weston_view_update_transform(struct weston_view *view)
 
 	weston_view_assign_output(view);
 
-	wl_signal_emit(&view->surface->compositor->transform_signal,
-		       view->surface);
+	weston_signal_emit_mutable(&view->surface->compositor->transform_signal,
+				   view->surface);
 }
 
 WL_EXPORT void
@@ -3893,7 +3893,7 @@ weston_surface_commit_state(struct weston_surface *surface,
 	/* weston_protected_surface.set_type */
 	weston_surface_set_desired_protection(surface, state->desired_protection);
 
-	wl_signal_emit(&surface->commit_signal, surface);
+	weston_signal_emit_mutable(&surface->commit_signal, surface);
 }
 
 static void
@@ -4095,7 +4095,7 @@ compositor_create_surface(struct wl_client *client,
 	wl_resource_set_implementation(surface->resource, &surface_interface,
 				       surface, destroy_surface);
 
-	wl_signal_emit(&ec->create_surface_signal, surface);
+	weston_signal_emit_mutable(&ec->create_surface_signal, surface);
 
 	return;
 
@@ -5013,7 +5013,7 @@ weston_compositor_wake(struct weston_compositor *compositor)
 	case WESTON_COMPOSITOR_IDLE:
 	case WESTON_COMPOSITOR_OFFSCREEN:
 		weston_compositor_dpms(compositor, WESTON_DPMS_ON);
-		wl_signal_emit(&compositor->wake_signal, compositor);
+		weston_signal_emit_mutable(&compositor->wake_signal, compositor);
 		/* fall through */
 	default:
 		wl_event_source_timer_update(compositor->idle_source,
@@ -5089,7 +5089,7 @@ idle_handler(void *data)
 		return 1;
 
 	compositor->state = WESTON_COMPOSITOR_IDLE;
-	wl_signal_emit(&compositor->idle_signal, compositor);
+	weston_signal_emit_mutable(&compositor->idle_signal, compositor);
 
 	return 1;
 }
@@ -5307,8 +5307,8 @@ weston_head_init(struct weston_head *head, const char *name)
 static void
 weston_output_emit_heads_changed(struct weston_output *output)
 {
-	wl_signal_emit(&output->compositor->output_heads_changed_signal,
-		       output);
+	weston_signal_emit_mutable(&output->compositor->output_heads_changed_signal,
+				   output);
 }
 
 /** Idle task for emitting heads_changed_signal */
@@ -5320,7 +5320,7 @@ weston_compositor_call_heads_changed(void *data)
 
 	compositor->heads_changed_source = NULL;
 
-	wl_signal_emit(&compositor->heads_changed_signal, compositor);
+	weston_signal_emit_mutable(&compositor->heads_changed_signal, compositor);
 
 	wl_list_for_each(head, &compositor->head_list, compositor_link) {
 		if (head->output && head->output->enabled)
@@ -6176,7 +6176,7 @@ weston_output_move(struct weston_output *output, int x, int y)
 	output->dirty = 1;
 
 	/* Move views on this output. */
-	wl_signal_emit(&output->compositor->output_moved_signal, output);
+	weston_signal_emit_mutable(&output->compositor->output_moved_signal, output);
 
 	/* Notify clients of the change for output position. */
 	wl_list_for_each(head, &output->head_list, output_link) {
@@ -6245,7 +6245,7 @@ weston_compositor_add_output(struct weston_compositor *compositor,
 	wl_list_for_each(head, &output->head_list, output_link)
 		weston_head_add_global(head);
 
-	wl_signal_emit(&compositor->output_created_signal, output);
+	weston_signal_emit_mutable(&compositor->output_created_signal, output);
 
 	/*
 	 * Use view_list, as paint nodes have not been created for this

@@ -40,6 +40,7 @@
 #include <errno.h>
 
 #include "shared/helpers.h"
+#include "shared/signal.h"
 #include "shared/os-compatibility.h"
 #include "shared/timespec-util.h"
 #include <libweston/libweston.h>
@@ -178,7 +179,7 @@ WL_EXPORT void
 weston_touch_device_destroy(struct weston_touch_device *device)
 {
 	wl_list_remove(&device->link);
-	wl_signal_emit(&device->destroy_signal, device);
+	weston_signal_emit_mutable(&device->destroy_signal, device);
 	free(device->syspath);
 	free(device);
 }
@@ -1252,7 +1253,7 @@ weston_pointer_destroy(struct weston_pointer *pointer)
 {
 	struct weston_pointer_client *pointer_client, *tmp;
 
-	wl_signal_emit(&pointer->destroy_signal, pointer);
+	weston_signal_emit_mutable(&pointer->destroy_signal, pointer);
 
 	if (pointer->sprite)
 		pointer_unmap_sprite(pointer);
@@ -1404,7 +1405,7 @@ seat_send_updated_caps(struct weston_seat *seat)
 	wl_resource_for_each(resource, &seat->base_resource_list) {
 		wl_seat_send_capabilities(resource, caps);
 	}
-	wl_signal_emit(&seat->updated_caps_signal, seat);
+	weston_signal_emit_mutable(&seat->updated_caps_signal, seat);
 }
 
 
@@ -1506,7 +1507,7 @@ weston_pointer_set_focus(struct weston_pointer *pointer,
 	assert(view || sx == wl_fixed_from_int(-1000000));
 	assert(view || sy == wl_fixed_from_int(-1000000));
 
-	wl_signal_emit(&pointer->focus_signal, pointer);
+	weston_signal_emit_mutable(&pointer->focus_signal, pointer);
 }
 
 static void
@@ -1586,7 +1587,7 @@ weston_keyboard_set_focus(struct weston_keyboard *keyboard,
 						 &keyboard->focus_resource_listener);
 
 	keyboard->focus = surface;
-	wl_signal_emit(&keyboard->focus_signal, keyboard);
+	weston_signal_emit_mutable(&keyboard->focus_signal, keyboard);
 }
 
 /* Users of this function must manually manage the keyboard focus */
@@ -1725,7 +1726,7 @@ weston_pointer_move_to(struct weston_pointer *pointer,
 	}
 
 	pointer->grab->interface->focus(pointer->grab);
-	wl_signal_emit(&pointer->motion_signal, pointer);
+	weston_signal_emit_mutable(&pointer->motion_signal, pointer);
 }
 
 WL_EXPORT void
@@ -3452,7 +3453,7 @@ weston_seat_init(struct weston_seat *seat, struct weston_compositor *ec,
 
 	clipboard_create(seat);
 
-	wl_signal_emit(&ec->seat_created_signal, seat);
+	weston_signal_emit_mutable(&ec->seat_created_signal, seat);
 }
 
 WL_EXPORT void
@@ -3487,7 +3488,7 @@ weston_seat_release(struct weston_seat *seat)
 
 	wl_global_destroy(seat->global);
 
-	wl_signal_emit(&seat->destroy_signal, seat);
+	weston_signal_emit_mutable(&seat->destroy_signal, seat);
 }
 
 /** Get a seat's keyboard pointer
@@ -3644,7 +3645,7 @@ weston_seat_set_keyboard_focus(struct weston_seat *seat,
 		.surface = surface,
 		.seat = seat,
 	};
-	wl_signal_emit(&compositor->activate_signal, &activation_data);
+	weston_signal_emit_mutable(&compositor->activate_signal, &activation_data);
 }
 
 static void

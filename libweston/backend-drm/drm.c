@@ -54,6 +54,7 @@
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "shared/string-helpers.h"
+#include "shared/signal.h"
 #include "shared/weston-drm-fourcc.h"
 #include "pixman-renderer.h"
 #include "pixel-formats.h"
@@ -2665,7 +2666,7 @@ drm_device_changed(struct weston_compositor *compositor,
 		return;
 
 	compositor->session_active = added;
-	wl_signal_emit(&compositor->session_signal, compositor);
+	weston_signal_emit_mutable(&compositor->session_signal, compositor);
 }
 
 /**

@@ -42,6 +42,7 @@
 #include "backend.h"
 #include "dbus.h"
 #include "launcher-impl.h"
+#include "shared/signal.h"
 
 #define DRM_MAJOR 226
 
@@ -290,8 +291,8 @@ launcher_logind_set_active(struct launcher_logind *wl, bool active)
 
 	wl->compositor->session_active = active;
 
-	wl_signal_emit(&wl->compositor->session_signal,
-		       wl->compositor);
+	weston_signal_emit_mutable(&wl->compositor->session_signal,
+				   wl->compositor);
 }
 
 static void

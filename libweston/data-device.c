@@ -36,6 +36,7 @@
 #include "libweston-internal.h"
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
+#include "shared/signal.h"
 
 struct weston_drag {
 	struct wl_client *client;
@@ -1105,7 +1106,7 @@ destroy_selection_data_source(struct wl_listener *listener, void *data)
 			wl_data_device_send_selection(data_device, NULL);
 	}
 
-	wl_signal_emit(&seat->selection_signal, seat);
+	weston_signal_emit_mutable(&seat->selection_signal, seat);
 }
 
 /** \brief Send the selection to the specified client
@@ -1171,7 +1172,7 @@ weston_seat_set_selection(struct weston_seat *seat,
 		weston_seat_send_selection(seat, wl_resource_get_client(focus->resource));
 	}
 
-	wl_signal_emit(&seat->selection_signal, seat);
+	weston_signal_emit_mutable(&seat->selection_signal, seat);
 
 	if (source) {
 		seat->selection_data_source_listener.notify =
@@ -1223,7 +1224,7 @@ destroy_data_source(struct wl_resource *resource)
 		wl_resource_get_user_data(resource);
 	char **p;
 
-	wl_signal_emit(&source->destroy_signal, source);
+	weston_signal_emit_mutable(&source->destroy_signal, source);
 
 	wl_array_for_each(p, &source->mime_types)
 		free(*p);

@@ -24,6 +24,7 @@ srcs_drm = [
 	'fb.c',
 	'modes.c',
 	'kms.c',
+	'../../shared/signal.c',
 	'state-helpers.c',
 	'state-propose.c',
 	linux_dmabuf_unstable_v1_protocol_c,
