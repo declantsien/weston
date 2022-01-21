@@ -8,6 +8,7 @@ install_data(
 	[
 		'weston-debug.xml',
 		'weston-direct-display.xml',
+		'weston-content-protection.xml',
 	],
 	install_dir: join_paths(dir_data, dir_protocol_libweston)
 )

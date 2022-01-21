@@ -70,7 +70,7 @@
     protected content that would otherwise show on non-secure outputs.
   </description>
 
-  <interface name="weston_content_protection" version="1">
+  <interface name="weston_content_protection" version="2">
     <description summary="content protection global interface">
       The global interface weston_content_protection is used for exposing the
       content protection capabilities to a client. It provides a way for clients
@@ -108,7 +108,7 @@
     </request>
   </interface>
 
-  <interface name="weston_protected_surface" version="1">
+  <interface name="weston_protected_surface" version="2">
     <description summary="content protection interface to a wl_surface">
       An additional interface to a wl_surface object, which allows a client to
       request the minimum level of content-protection, request to change the
@@ -162,11 +162,37 @@
         Note that there is no ordering between enum members unless specified.
         Over time, different types of content protection may be added, which
         may be considered less secure than what is already here.
+
+        The 'dc_only' protection type can be used in the situation where
+        the output (a non-secure one)  will be considered as 'trusted' by
+        the compositor, even if it does not have any HDCP support. With it,
+        surfaces using this protection level will only be censored when
+        recording/screenshooting takes place.
+
+        The protection levels currently available will censor out the surface
+        content when the output's current protection level is lower than
+        that of the surface protection level, a situation which can happen even
+        if the output is a non-secure one. Any output which does not have HDCP
+        support will default to 'unprotected' protection level. As such, a
+        client setting the protection to a sufficiently higher level than that
+        of a non-secure output will be censored, when the mode is enforced.
+
+        By using this protection level, the compositor will, on non-secure
+        outputs set with the 'dc_only' protection level, censor out the surface
+        contents only when an active recording process taking place.
+
+        Do note that this level is not part of the HDCP specification level and
+        that this 'dc_only' level of protection assumes to be a lower
+        protection level than that of previous enum levels (hdcp_0, respectively
+        hdcp_1).
       </description>
       <entry name="unprotected" value="0" summary="no protection required"/>
       <entry name="hdcp_0" value="1" summary="HDCP type 0"/>
       <entry name="hdcp_1" value="2"
              summary="HDCP type 1. This is a more secure than HDCP type 0."/>
+      <entry name="dc_only" value="3"
+             summary="A less secure type than HDCP type 0 and implictly HDCP type 1"
+             since="2"/>
     </enum>
 
     <request name="destroy" type="destructor">

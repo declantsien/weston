@@ -965,12 +965,14 @@ maybe_censor_override(struct gl_shader_config *sconf,
 		      struct weston_view *ev)
 {
 	struct gl_surface_state *gs = get_surface_state(ev->surface);
+	enum weston_hdcp_protection desired_protection =
+			ev->surface->desired_protection;
+
 	bool recording_censor =
 		(output->disable_planes > 0) &&
-		(ev->surface->desired_protection > WESTON_HDCP_DISABLE);
+		(desired_protection > WESTON_HDCP_DISABLE);
 
-	bool unprotected_censor =
-		(ev->surface->desired_protection > output->current_protection);
+	bool unprotected_censor = weston_verify_protection_level(ev, output);
 
 	if (gs->direct_display) {
 		censor_override(sconf, output);

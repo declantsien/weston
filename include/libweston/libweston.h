@@ -183,6 +183,11 @@ enum dpms_enum {
 
 enum weston_hdcp_protection {
 	WESTON_HDCP_DISABLE = 0,
+	/**< a new CP-level, to handle 'dc_only' protection type; see
+	 * 'dc_only' in content-protection protocol for a slightly lengthier
+	 * explanation
+	 */
+	WESTON_HDCP_DC_ONLY,
 	WESTON_HDCP_ENABLE_TYPE_0,
 	WESTON_HDCP_ENABLE_TYPE_1
 };
@@ -1597,6 +1602,7 @@ struct content_protection {
 	struct weston_log_scope *debug;
 	struct wl_list protected_list;
 	struct wl_event_source *surface_protection_update;
+	struct wl_event_source *surface_redraw;
 };
 
 

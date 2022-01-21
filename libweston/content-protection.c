@@ -44,7 +44,51 @@ static const char * const content_type_name [] = {
 	[WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED] = "UNPROTECTED",
 	[WESTON_PROTECTED_SURFACE_TYPE_HDCP_0] = "TYPE-0",
 	[WESTON_PROTECTED_SURFACE_TYPE_HDCP_1] = "TYPE-1",
+	[WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY] = "DC-Only",
 };
+
+
+/** translates from weston_hdcp_protection to protocol
+ * weston_protected_surface_type */
+static enum weston_protected_surface_type
+to_weston_protected_surface_levels(enum weston_hdcp_protection protection)
+{
+	switch (protection) {
+	case WESTON_HDCP_DC_ONLY:
+		return WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY;
+	case WESTON_HDCP_DISABLE:
+		return WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED;
+	case WESTON_HDCP_ENABLE_TYPE_0:
+		return WESTON_PROTECTED_SURFACE_TYPE_HDCP_0;
+	case WESTON_HDCP_ENABLE_TYPE_1:
+		return WESTON_PROTECTED_SURFACE_TYPE_HDCP_1;
+	default:
+		assert(!"Invalid converstion type\n");
+	}
+
+	return WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED;
+}
+
+/** translates from protocol weston_protected_surface_type to libweston
+ * weston_hdcp_protection */
+static enum weston_hdcp_protection
+to_weston_hdcp_levels(enum weston_protected_surface_type content_type)
+{
+	switch (content_type) {
+	case WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY:
+		return WESTON_HDCP_DC_ONLY;
+	case WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED:
+		return WESTON_HDCP_DISABLE;
+	case WESTON_PROTECTED_SURFACE_TYPE_HDCP_0:
+		return WESTON_HDCP_ENABLE_TYPE_0;
+	case WESTON_PROTECTED_SURFACE_TYPE_HDCP_1:
+		return WESTON_HDCP_ENABLE_TYPE_1;
+	default:
+		assert(!"Invalid conversion type!\n");
+	}
+
+	return WESTON_HDCP_DISABLE;
+}
 
 void
 weston_protected_surface_send_event(struct protected_surface *psurface,
@@ -61,7 +105,10 @@ weston_protected_surface_send_event(struct protected_surface *psurface,
 	/* No event to be sent to client, in case of enforced mode */
 	if (psurface->surface->protection_mode == WESTON_SURFACE_PROTECTION_MODE_ENFORCED)
 		return;
-	protection_type = (enum weston_protected_surface_type) protection;
+
+	/* adjust to match the libweston */
+	protection_type = to_weston_protected_surface_levels(protection);
+
 	weston_protected_surface_send_status(p_resource, protection_type);
 
 	cp = psurface->cp_backptr;
@@ -87,7 +134,7 @@ set_type(struct wl_client *client, struct wl_resource *resource,
 	surface_resource = psurface->surface->resource;
 
 	if (content_type < WESTON_PROTECTED_SURFACE_TYPE_UNPROTECTED ||
-	    content_type > WESTON_PROTECTED_SURFACE_TYPE_HDCP_1) {
+	    content_type > WESTON_PROTECTED_SURFACE_TYPE_DC_ONLY) {
 		wl_resource_post_error(resource,
 				       WESTON_PROTECTED_SURFACE_ERROR_INVALID_TYPE,
 				       "wl_surface@%"PRIu32" Invalid content-type %d for request:set_type\n",
@@ -102,7 +149,8 @@ set_type(struct wl_client *client, struct wl_resource *resource,
 			       wl_resource_get_id(surface_resource),
 			       content_type_name[content_type]);
 
-	weston_cp = (enum weston_hdcp_protection) content_type;
+	/* adjust to match the protocol */
+	weston_cp = to_weston_hdcp_levels(content_type);
 	psurface->surface->pending.desired_protection = weston_cp;
 }
 
@@ -193,6 +241,7 @@ cp_destroy_listener(struct wl_listener *listener, void *data)
 		wl_event_source_remove(cp->surface_protection_update);
 	cp->surface_protection_update = NULL;
 	cp->compositor->content_protection = NULL;
+	cp->surface_redraw = NULL;
 	free(cp);
 }
 
@@ -236,8 +285,11 @@ get_protection(struct wl_client *client, struct wl_resource *cp_resource,
 	struct content_protection *cp;
 	struct protected_surface *psurface;
 	struct wl_listener *listener;
+	uint32_t version;
 
 	surface = wl_resource_get_user_data(surface_resource);
+	version = wl_resource_get_version(surface_resource);
+
 	assert(surface);
 	cp = wl_resource_get_user_data(cp_resource);
 	assert(cp);
@@ -264,7 +316,7 @@ get_protection(struct wl_client *client, struct wl_resource *cp_resource,
 	}
 	psurface->cp_backptr = cp;
 	resource = wl_resource_create(client, &weston_protected_surface_interface,
-				      1, id);
+				      version, id);
 	if (!resource) {
 		free(psurface);
 		wl_client_post_no_memory(client);
@@ -306,7 +358,7 @@ bind_weston_content_protection(struct wl_client *client, void *data,
 
 	resource = wl_resource_create(client,
 				      &weston_content_protection_interface,
-				      1, id);
+				      version, id);
 	if (!resource) {
 		wl_client_post_no_memory(client);
 		return;
@@ -343,8 +395,9 @@ weston_compositor_enable_content_protection(struct weston_compositor *compositor
 
 	cp->destroy_listener.notify = cp_destroy_listener;
 	wl_signal_add(&compositor->destroy_signal, &cp->destroy_listener);
-	cp->debug = weston_compositor_add_log_scope(compositor, "content-protection-debug",
-						    "debug-logs for content-protection",
+	cp->debug = weston_compositor_add_log_scope(compositor,
+						    "content-protection",
+						    "debug for content-protection\n",
 						    NULL, NULL, NULL);
 	return 0;
 }
