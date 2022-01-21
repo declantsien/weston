@@ -37,7 +37,6 @@
 
 struct input_panel_surface {
 	struct wl_resource *resource;
-	struct wl_signal destroy_signal;
 
 	struct desktop_shell *shell;
 
@@ -204,8 +203,6 @@ input_panel_committed(struct weston_surface *surface, int32_t sx, int32_t sy)
 static void
 destroy_input_panel_surface(struct input_panel_surface *input_panel_surface)
 {
-	weston_signal_emit_mutable(&input_panel_surface->destroy_signal, input_panel_surface);
-
 	wl_list_remove(&input_panel_surface->surface_destroy_listener.link);
 	wl_list_remove(&input_panel_surface->link);
 
@@ -259,7 +256,6 @@ create_input_panel_surface(struct desktop_shell *shell,
 	input_panel_surface->surface = surface;
 	input_panel_surface->view = weston_view_create(surface);
 
-	wl_signal_init(&input_panel_surface->destroy_signal);
 	input_panel_surface->surface_destroy_listener.notify = input_panel_handle_surface_destroy;
 	wl_signal_add(&surface->destroy_signal,
 		      &input_panel_surface->surface_destroy_listener);
