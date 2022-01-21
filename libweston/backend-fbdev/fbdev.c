@@ -960,6 +960,7 @@ out_udev:
 	udev_unref(backend->udev);
 
 out_compositor:
+	wl_list_remove(&backend->session_listener.link);
 	weston_compositor_shutdown(compositor);
 	free(backend);
 

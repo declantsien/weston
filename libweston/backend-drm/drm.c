@@ -3216,6 +3216,7 @@ err_udev:
 err_launcher:
 	weston_launcher_destroy(compositor->launcher);
 err_compositor:
+	wl_list_remove(&b->session_listener.link);
 	weston_compositor_shutdown(compositor);
 #ifdef BUILD_DRM_GBM
 	if (b->gbm)
