@@ -3585,6 +3585,7 @@ out:
 	if (protologger)
 		wl_protocol_logger_destroy(protologger);
 
+	wl_list_remove(&wet.heads_changed_listener.link);
 	weston_compositor_destroy(wet.compositor);
 	weston_log_scope_destroy(protocol_scope);
 	protocol_scope = NULL;
