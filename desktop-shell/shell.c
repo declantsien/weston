@@ -229,6 +229,7 @@ destroy_shell_grab_shsurf(struct wl_listener *listener, void *data)
 	grab = container_of(listener, struct shell_grab,
 			    shsurf_destroy_listener);
 
+	wl_list_remove(&grab->shsurf_destroy_listener.link);
 	grab->shsurf = NULL;
 }
 
@@ -3138,6 +3139,7 @@ handle_lock_surface_destroy(struct wl_listener *listener, void *data)
 	    container_of(listener, struct desktop_shell, lock_surface_listener);
 
 	weston_log("lock surface gone\n");
+	wl_list_remove(&shell->lock_surface_listener.link);
 	shell->lock_surface = NULL;
 }
 
