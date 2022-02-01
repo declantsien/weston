@@ -34,6 +34,7 @@
 #include "compositor/weston.h"
 #include "shared/helpers.h"
 #include "shared/shell-utils.h"
+#include "shared/signal.h"
 
 #include <libweston/xwayland-api.h>
 
@@ -306,7 +307,7 @@ kiosk_shell_surface_reconfigure_for_output(struct kiosk_shell_surface *shsurf)
 static void
 kiosk_shell_surface_destroy(struct kiosk_shell_surface *shsurf)
 {
-	wl_signal_emit(&shsurf->destroy_signal, shsurf);
+	weston_signal_emit_mutable(&shsurf->destroy_signal, shsurf);
 
 	weston_desktop_surface_set_user_data(shsurf->desktop_surface, NULL);
 	shsurf->desktop_surface = NULL;
