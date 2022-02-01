@@ -33,6 +33,7 @@
 #include "shell.h"
 #include "input-method-unstable-v1-server-protocol.h"
 #include "shared/helpers.h"
+#include "shared/signal.h"
 
 struct input_panel_surface {
 	struct wl_resource *resource;
@@ -203,7 +204,7 @@ input_panel_committed(struct weston_surface *surface, int32_t sx, int32_t sy)
 static void
 destroy_input_panel_surface(struct input_panel_surface *input_panel_surface)
 {
-	wl_signal_emit(&input_panel_surface->destroy_signal, input_panel_surface);
+	weston_signal_emit_mutable(&input_panel_surface->destroy_signal, input_panel_surface);
 
 	wl_list_remove(&input_panel_surface->surface_destroy_listener.link);
 	wl_list_remove(&input_panel_surface->link);
