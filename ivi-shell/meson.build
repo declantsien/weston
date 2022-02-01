@@ -2,6 +2,7 @@ if get_option('shell-ivi')
 	srcs_shell_ivi = [
 		'ivi-shell.c',
 		'ivi-layout.c',
+		'../shared/signal.c',
 		'ivi-layout-transition.c',
 		ivi_application_server_protocol_h,
 		ivi_application_protocol_c,
