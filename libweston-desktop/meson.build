@@ -3,6 +3,7 @@ srcs_libdesktop = [
 	'client.c',
 	'seat.c',
 	'surface.c',
+	'../shared/signal.c',
 	'xwayland.c',
 	'wl-shell.c',
 	'xdg-shell.c',

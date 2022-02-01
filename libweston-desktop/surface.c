@@ -32,6 +32,7 @@
 #include <libweston/zalloc.h>
 
 #include <libweston-desktop/libweston-desktop.h>
+#include "shared/signal.h"
 #include "internal.h"
 
 struct weston_desktop_view {
@@ -697,7 +698,7 @@ weston_desktop_surface_set_title(struct weston_desktop_surface *surface,
 
 	old = surface->title;
 	surface->title = tmp;
-	wl_signal_emit(&surface->metadata_signal, surface);
+	weston_signal_emit_mutable(&surface->metadata_signal, surface);
 	free(old);
 }
 
@@ -713,7 +714,7 @@ weston_desktop_surface_set_app_id(struct weston_desktop_surface *surface,
 
 	old = surface->app_id;
 	surface->app_id = tmp;
-	wl_signal_emit(&surface->metadata_signal, surface);
+	weston_signal_emit_mutable(&surface->metadata_signal, surface);
 	free(old);
 }
 
