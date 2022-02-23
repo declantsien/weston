@@ -483,6 +483,8 @@ enum paint_node_status {
  * paint node
  *
  * A generic data structure unique for surface-view-output combination.
+ *
+ * \ingroup compositor-private
  */
 struct weston_paint_node {
 	/* Immutable members: */

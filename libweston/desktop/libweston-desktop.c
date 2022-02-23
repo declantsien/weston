@@ -51,6 +51,17 @@ weston_desktop_destroy_request(struct wl_client *client,
 	wl_resource_destroy(resource);
 }
 
+/**
+ * Creates a weston_desktop entity.
+ *
+ * Installs all the callbacks described in api
+ *
+ * \param compositor the compositor instance
+ * \param api the weston_desktop_api
+ * \param user_data data passed to the interface callbacks described in api
+ * \return a pointer struct weston_desktop
+ * \ingroup libweston-desktop
+ */
 WL_EXPORT struct weston_desktop *
 weston_desktop_create(struct weston_compositor *compositor,
 		      const struct weston_desktop_api *api, void *user_data)
@@ -81,6 +92,16 @@ weston_desktop_create(struct weston_compositor *compositor,
 	return desktop;
 }
 
+/**
+ * Destroy the weston_desktop entity.
+ *
+ * This takes care of destroying any global interfaces created previously and
+ * free'ing any intermediary objects.
+ *
+ * \sa weston_desktop_create
+ * \param desktop the weston_desktop pointer
+ * \ingroup libweston-desktop
+ */
 WL_EXPORT void
 weston_desktop_destroy(struct weston_desktop *desktop)
 {

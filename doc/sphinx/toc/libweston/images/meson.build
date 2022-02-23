@@ -6,6 +6,7 @@ files = [
 	'head-destroyed.png',
 	'initial-heads.png',
 	'react-to-heads-changed.png',
+        'libweston-desktop-view-creation.png',
 ]
 
 foreach file : files

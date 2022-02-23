@@ -34,6 +34,13 @@
 #include <libweston/desktop.h>
 #include "internal.h"
 
+/**
+ * \defgroup libweston-desktop-internal internal private state of libweston-desktop
+ */
+
+/**
+ * \ingroup libweston-desktop-internal
+ */
 struct weston_desktop_view {
 	struct wl_list link;
 	struct weston_view *view;
@@ -42,6 +49,9 @@ struct weston_desktop_view {
 	struct wl_list children_link;
 };
 
+/**
+ * \ingroup libweston-desktop-internal
+ */
 struct weston_desktop_surface {
 	struct weston_desktop *desktop;
 	struct weston_desktop_client *client;

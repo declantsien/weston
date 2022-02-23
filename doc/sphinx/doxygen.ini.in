@@ -788,6 +788,7 @@ WARN_LOGFILE           =
 # Note: If this tag is empty the current directory is searched.
 
 INPUT                  = @SRC_ROOT@/libweston \
+                         @SRC_ROOT@/libweston/desktop \
                          @SRC_ROOT@/include/libweston \
                          @SRC_ROOT@/shared/config-parser.c \
                          @SRC_ROOT@/tests

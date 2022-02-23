@@ -9,6 +9,8 @@ Libweston
    libweston/weston-config.rst
    libweston/shell-utils.rst
    libweston/output-management.rst
+   libweston/views-mgmt.rst
+   libweston/desktop.rst
    libweston/log.rst
 
 `Libweston` is an effort to separate the re-usable parts of Weston into a

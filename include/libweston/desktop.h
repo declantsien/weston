@@ -32,6 +32,10 @@
 extern "C" {
 #endif
 
+/**
+ * \defgroup libweston-desktop abstraction library for shells
+ */
+
 enum weston_desktop_surface_edge {
 	WESTON_DESKTOP_SURFACE_EDGE_NONE = 0,
 	WESTON_DESKTOP_SURFACE_EDGE_TOP = 1,
@@ -56,6 +60,11 @@ struct weston_desktop;
 struct weston_desktop_client;
 struct weston_desktop_surface;
 
+/**
+ * Main interface structure which users need to define
+ *
+ * \ingroup libweston-desktop
+ */
 struct weston_desktop_api {
 	size_t struct_size;
 	void (*ping_timeout)(struct weston_desktop_client *client,

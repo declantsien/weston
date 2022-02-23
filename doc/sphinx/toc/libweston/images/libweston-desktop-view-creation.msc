@@ -1,0 +1,55 @@
+#!/usr/bin/mscgen -Tpng
+
+msc {
+	hscale="1.5";
+
+	c [label = "client" ],
+	w [label = "libweston" ],
+	x [label = "libweston-desktop shell"],
+	d [label = "libweston-desktop internal"],
+	s [label = "shell"];
+
+	|||;
+
+	--- [label = "weston_surface, xdg-surface and weston_desktop_surface creation" ];
+
+	c => w [label = "wl_compositor_create_surface" ];
+	w => w [label = "wl_compositor_interface::compositor_create_surface"];
+	w >> c [label = "surface"];
+	c => x [label = "get_xdg_surface" ];
+	x => x [label = "weston_desktop_xdg_shell_protocol_get_xdg_surface(surface)"];
+	x => d [label = "weston_desktop_surface_create(surface)"];
+	d => d [label = "install weston_desktop_surface_client_destroyed"];
+	d >> d [label = "weston_desktop_surface"];
+
+	--- [label = "libweston-desktop view creation"];
+	s box s [label = "weston_desktop_api interface previously set-up"];
+
+	c => w [label = "wl_surface.commit"];
+	w => w [label = "surface->commited"];
+	w => x [label = "weston_desktop_xdg_surface_committed"];
+	x => x [label = "weston_desktop_xdg_toplevel_committed" ];
+	x => x [label = "weston_desktop_xdg_toplevel_ensure_added" ];
+	x => x [label = "weston_desktop_api_surface_added" ];
+	x => s [label = "surface_added(weston_desktop_surface, user_data)"];
+	s => d [label = "weston_desktop_surface_create_view(weston_desktop_surface)"];
+	d => d [label = "weston_desktop_surface_create_desktop_view()"];
+	d << d [label = "weston_desktop_view"];
+	d << s [label = "view"];
+
+	--- [label = "libweston-desktop view destruction"];
+	s box s [label = "weston_desktop_api interface previously set-up"];
+
+	c => w [label = "xdg_surface_destroy"];
+	w => d [label = "signal emission client destroy"];
+	d => d [label = "weston_desktop_client_handle_destroy"];
+	d => d [label = "weston_desktop_client_destroy"];
+	d => d [label = "weston_desktop_surface_client_destroyed" ];
+	d => d [label = "weston_desktop_surface_destroy" ];
+	d => d [label = "surface->implementation->destroy" ];
+	d => s [label = "surface_removed(weston_desktop_surface, user_data)"];
+	s => d [label = "weston_desktop_surface_unlink_view(view)"];
+	d => d [label = "weston_desktop_view_destroy()"];
+	s => w [label = "weston_view_destroy(view)"];
+
+}
