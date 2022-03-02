@@ -43,6 +43,7 @@
 #include "backend.h"
 #include "dbus.h"
 #include "launcher-impl.h"
+#include "shared/signal.h"
 
 struct launcher_libseat_device {
 	struct wl_list link;
@@ -81,8 +82,8 @@ handle_enable_seat(struct libseat *seat, void *data)
 
 	wl->compositor->session_active = true;
 
-	wl_signal_emit(&wl->compositor->session_signal,
-		       wl->compositor);
+	weston_signal_emit_mutable(&wl->compositor->session_signal,
+				   wl->compositor);
 }
 
 static void
@@ -94,8 +95,8 @@ handle_disable_seat(struct libseat *seat, void *data)
 
 	wl->compositor->session_active = false;
 
-	wl_signal_emit(&wl->compositor->session_signal,
-		       wl->compositor);
+	weston_signal_emit_mutable(&wl->compositor->session_signal,
+				   wl->compositor);
 	libseat_disable_seat(wl->seat);
 }
 

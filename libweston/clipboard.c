@@ -36,6 +36,7 @@
 #include <libweston/libweston.h>
 #include "libweston-internal.h"
 #include "shared/helpers.h"
+#include "shared/signal.h"
 
 struct clipboard_source {
 	struct weston_data_source base;
@@ -69,8 +70,8 @@ clipboard_source_unref(struct clipboard_source *source)
 		wl_event_source_remove(source->event_source);
 		close(source->fd);
 	}
-	wl_signal_emit(&source->base.destroy_signal,
-		       &source->base);
+	weston_signal_emit_mutable(&source->base.destroy_signal,
+				   &source->base);
 	s = source->base.mime_types.data;
 	free(*s);
 	wl_array_release(&source->base.mime_types);

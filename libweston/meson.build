@@ -145,6 +145,7 @@ pkgconfig.generate(
 srcs_session_helper = [
 	'launcher-direct.c',
 	'launcher-util.c',
+	'../shared/signal.c',
 	'launcher-weston-launch.c',
 ]
 deps_session_helper = [ dep_libweston_private_h ]

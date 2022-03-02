@@ -60,6 +60,7 @@
 #include "shared/timespec-util.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/weston-egl-ext.h"
+#include "shared/signal.h"
 
 #define BUFFER_DAMAGE_COUNT 2
 
@@ -1739,7 +1740,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 
 	draw_output_borders(output, border_status);
 
-	wl_signal_emit(&output->frame_signal, output_damage);
+	weston_signal_emit_mutable(&output->frame_signal, output_damage);
 
 	go->end_render_sync = create_render_sync(gr);
 
@@ -3558,7 +3559,7 @@ gl_renderer_destroy(struct weston_compositor *ec)
 	struct dmabuf_image *image, *next;
 	struct dmabuf_format *format, *next_format;
 
-	wl_signal_emit(&gr->destroy_signal, gr);
+	weston_signal_emit_mutable(&gr->destroy_signal, gr);
 
 	if (gr->has_bind_display)
 		gr->unbind_display(gr->egl_display, ec->wl_display);

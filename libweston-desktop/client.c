@@ -30,6 +30,7 @@
 #include <libweston/zalloc.h>
 
 #include <libweston-desktop/libweston-desktop.h>
+#include "shared/signal.h"
 #include "internal.h"
 
 struct weston_desktop_client {
@@ -57,7 +58,7 @@ weston_desktop_client_destroy(struct weston_desktop_client *client)
 
 	assert(client->resource == NULL);
 
-	wl_signal_emit(&client->destroy_signal, client);
+	weston_signal_emit_mutable(&client->destroy_signal, client);
 
 	for (link = list->next, tmp = link->next;
 	     link != list;

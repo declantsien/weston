@@ -40,6 +40,7 @@
 #include <linux/major.h>
 
 #include "launcher-impl.h"
+#include "shared/signal.h"
 
 #define DRM_MAJOR 226
 
@@ -105,14 +106,14 @@ vt_handler(int signal_number, void *data)
 
 	if (compositor->session_active) {
 		compositor->session_active = false;
-		wl_signal_emit(&compositor->session_signal, compositor);
+		weston_signal_emit_mutable(&compositor->session_signal, compositor);
 		drmDropMaster(launcher->drm_fd);
 		ioctl(launcher->tty, VT_RELDISP, 1);
 	} else {
 		ioctl(launcher->tty, VT_RELDISP, VT_ACKACQ);
 		drmSetMaster(launcher->drm_fd);
 		compositor->session_active = true;
-		wl_signal_emit(&compositor->session_signal, compositor);
+		weston_signal_emit_mutable(&compositor->session_signal, compositor);
 	}
 
 	return 1;

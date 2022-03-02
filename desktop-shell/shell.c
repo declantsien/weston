@@ -43,6 +43,7 @@
 #include "shared/helpers.h"
 #include "shared/shell-utils.h"
 #include "shared/timespec-util.h"
+#include "shared/signal.h"
 #include <libweston-desktop/libweston-desktop.h>
 
 #define DEFAULT_NUM_WORKSPACES 1
@@ -228,6 +229,7 @@ destroy_shell_grab_shsurf(struct wl_listener *listener, void *data)
 	grab = container_of(listener, struct shell_grab,
 			    shsurf_destroy_listener);
 
+	wl_list_remove(&grab->shsurf_destroy_listener.link);
 	grab->shsurf = NULL;
 }
 
@@ -262,7 +264,7 @@ desktop_shell_destroy_surface(struct shell_surface *shsurf)
 	}
 	wl_list_remove(&shsurf->children_link);
 
-	wl_signal_emit(&shsurf->destroy_signal, shsurf);
+	weston_signal_emit_mutable(&shsurf->destroy_signal, shsurf);
 
 	weston_view_destroy(shsurf->view);
 	if (shsurf->output_destroy_listener.notify) {
@@ -3137,6 +3139,7 @@ handle_lock_surface_destroy(struct wl_listener *listener, void *data)
 	    container_of(listener, struct desktop_shell, lock_surface_listener);
 
 	weston_log("lock surface gone\n");
+	wl_list_remove(&shell->lock_surface_listener.link);
 	shell->lock_surface = NULL;
 }
 
@@ -4525,7 +4528,7 @@ force_kill_binding(struct weston_keyboard *keyboard,
 	if (!focus_surface)
 		return;
 
-	wl_signal_emit(&compositor->kill_signal, focus_surface);
+	weston_signal_emit_mutable(&compositor->kill_signal, focus_surface);
 
 	client = wl_resource_get_client(focus_surface->resource);
 	wl_client_get_credentials(client, &pid, NULL, NULL);

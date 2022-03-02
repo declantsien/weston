@@ -36,6 +36,7 @@
 #include "color.h"
 #include "pixel-formats.h"
 #include "shared/helpers.h"
+#include "shared/signal.h"
 
 #include <linux/input.h>
 
@@ -592,7 +593,7 @@ pixman_renderer_repaint_output(struct weston_output *output,
 	}
 	pixman_region32_fini(&hw_damage);
 
-	wl_signal_emit(&output->frame_signal, output_damage);
+	weston_signal_emit_mutable(&output->frame_signal, output_damage);
 
 	/* Actual flip should be done by caller */
 }
@@ -775,7 +776,7 @@ pixman_renderer_destroy(struct weston_compositor *ec)
 {
 	struct pixman_renderer *pr = get_renderer(ec);
 
-	wl_signal_emit(&pr->destroy_signal, pr);
+	weston_signal_emit_mutable(&pr->destroy_signal, pr);
 	weston_binding_destroy(pr->debug_binding);
 	free(pr);
 

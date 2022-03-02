@@ -38,6 +38,7 @@
 
 #include "color.h"
 #include "libweston-internal.h"
+#include "shared/signal.h"
 
 /**
  * Increase reference count of the color profile object
@@ -143,7 +144,7 @@ weston_color_transform_unref(struct weston_color_transform *xform)
 	if (--xform->ref_count > 0)
 		return;
 
-	wl_signal_emit(&xform->destroy_signal, xform);
+	weston_signal_emit_mutable(&xform->destroy_signal, xform);
 	xform->cm->destroy_color_transform(xform);
 }
 

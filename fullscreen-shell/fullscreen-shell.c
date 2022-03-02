@@ -196,6 +196,9 @@ seat_destroyed(struct wl_listener *l, void *data)
 	listener = container_of(l, struct pointer_focus_listener,
 				seat_destroyed);
 
+	wl_list_remove(&listener->seat_caps.link);
+	wl_list_remove(&listener->seat_destroyed.link);
+
 	free(listener);
 }
 

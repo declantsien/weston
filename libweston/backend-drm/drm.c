@@ -54,6 +54,7 @@
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "shared/string-helpers.h"
+#include "shared/signal.h"
 #include "shared/weston-drm-fourcc.h"
 #include "pixman-renderer.h"
 #include "pixel-formats.h"
@@ -2665,7 +2666,7 @@ drm_device_changed(struct weston_compositor *compositor,
 		return;
 
 	compositor->session_active = added;
-	wl_signal_emit(&compositor->session_signal, compositor);
+	weston_signal_emit_mutable(&compositor->session_signal, compositor);
 }
 
 /**
@@ -3215,6 +3216,7 @@ err_udev:
 err_launcher:
 	weston_launcher_destroy(compositor->launcher);
 err_compositor:
+	wl_list_remove(&b->session_listener.link);
 	weston_compositor_shutdown(compositor);
 #ifdef BUILD_DRM_GBM
 	if (b->gbm)

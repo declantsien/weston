@@ -233,6 +233,8 @@ weston_desktop_seat_destroy(struct wl_listener *listener, void *data)
 	struct weston_desktop_seat *seat =
 		wl_container_of(listener, seat, seat_destroy_listener);
 
+	wl_list_remove(&seat->seat_destroy_listener.link);
+
 	free(seat);
 }
 
