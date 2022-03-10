@@ -136,10 +136,12 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 		snprintf(s, sizeof s, "%d", fd);
 		setenv("WAYLAND_SOCKET", s, 1);
 
-		fd = dup(abstract_fd);
-		if (fd < 0)
-			goto fail;
-		snprintf(abstract_fd_str, sizeof abstract_fd_str, "%d", fd);
+		if (abstract_fd >= 0) {
+			fd = dup(abstract_fd);
+			if (fd < 0)
+				goto fail;
+			snprintf(abstract_fd_str, sizeof abstract_fd_str, "%d", fd);
+		}
 		fd = dup(unix_fd);
 		if (fd < 0)
 			goto fail;
@@ -163,13 +165,20 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 		argv[argc++] = "-core";
 		argv[argc++] = LISTEN_STR;
 		argv[argc++] = unix_fd_str;
-		argv[argc++] = LISTEN_STR;
-		argv[argc++] = abstract_fd_str;
 		argv[argc++] = "-displayfd";
 		argv[argc++] = display_fd_str;
 		argv[argc++] = "-wm";
 		argv[argc++] = wm_fd_str;
 		argv[argc++] = "-terminate";
+
+		if (abstract_fd >= 0) {
+			argv[argc++] = LISTEN_STR;
+			argv[argc++] = abstract_fd_str;
+		} else {
+			argv[argc++] = "-nolisten";
+			argv[argc++] = "local";
+		}
+
 		if (disable_ac) {
 			argv[argc++] = "-ac";
 		}
@@ -231,6 +240,9 @@ wet_load_xwayland(struct weston_compositor *comp)
 	const struct weston_xwayland_api *api;
 	struct weston_xwayland *xwayland;
 	struct wet_xwayland *wxw;
+	struct weston_config *config = wet_get_config(comp);
+	struct weston_config_section *section;
+	bool disable_abstract_fd;
 
 	if (weston_compositor_load_xwayland(comp) < 0)
 		return -1;
@@ -251,11 +263,15 @@ wet_load_xwayland(struct weston_compositor *comp)
 	if (!wxw)
 		return -1;
 
+	section = weston_config_get_section(config,
+					    "xwayland", NULL, NULL);
+	weston_config_section_get_bool(section, "disable-abstract-fd",
+					&disable_abstract_fd, false);
 	wxw->compositor = comp;
 	wxw->api = api;
 	wxw->xwayland = xwayland;
 	wxw->process.cleanup = xserver_cleanup;
-	if (api->listen(xwayland, wxw, spawn_xserver) < 0)
+	if (api->listen(xwayland, disable_abstract_fd, wxw, spawn_xserver) < 0)
 		return -1;
 
 	return 0;

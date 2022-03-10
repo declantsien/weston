@@ -624,6 +624,11 @@ command line. This is not generally recommended, as it may have serious
 security ramifications.
 .RE
 .RE
+.TP 7
+.BI "disable-abstract-socket=" "false"
+Xwayland won't listen on an abstract socket.
+.RE
+.RE
 .SH "SCREEN-SHARE SECTION"
 .TP 7
 .BI "command=" "@weston_bindir@/weston --backend=rdp-backend.so \
