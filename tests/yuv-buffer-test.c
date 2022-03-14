@@ -33,6 +33,9 @@
 
 #include "weston-test-client-helper.h"
 #include "weston-test-fixture-compositor.h"
+#include "weston-test-client-protocol.h"
+#include "weston-screenshooter-client-protocol.h"
+#include "viewporter-client-protocol.h"
 #include "shared/os-compatibility.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/xalloc.h"

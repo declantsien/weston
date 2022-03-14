@@ -8,23 +8,33 @@ plugin_test_shell_desktop = shared_library(
 )
 env_modmap += 'weston-test-desktop-shell.so=@0@;'.format(plugin_test_shell_desktop.full_path())
 
-lib_test_runner = static_library(
-	'test-runner',
+libweston_test_runner = static_library(
+	'weston-test-runner',
 	'weston-test-runner.c',
 	dependencies: [
 		dep_libweston_private_h_deps,
 		dep_wayland_client,
 	],
 	include_directories: common_inc,
-	install: false,
+	install: get_option('test-dev-install'),
 )
 dep_test_runner = declare_dependency(
 	dependencies: dep_wayland_client,
-	link_with: lib_test_runner
+	link_with: libweston_test_runner
 )
 
-lib_test_client = static_library(
-	'test-client',
+if get_option('test-dev-install')
+	pkgconfig.generate(
+	       libweston_test_runner,
+	       filebase: 'libweston-test-runner-@0@'.format(libweston_major),
+	       name: 'libweston test-runner API',
+	       version: version_weston,
+	       description: 'Header files for libweston-test-runner',
+	)
+endif
+
+libweston_test = static_library(
+	'weston-test',
 	[
 		'weston-test-client-helper.c',
 		'weston-test-fixture-compositor.c',
@@ -37,18 +47,17 @@ lib_test_client = static_library(
 		'color_util.h',
 		'color_util.c',
 	],
-	include_directories: common_inc,
+	include_directories: [ common_inc, include_directories('../compositor') ],
 	dependencies: [
 		dep_libshared,
 		dep_wayland_client,
-		dep_libexec_weston,
 		dep_pixman,
 		dependency('cairo'),
 	],
-	install: false,
+	install: get_option('test-dev-install'),
 )
 dep_test_client = declare_dependency(
-	link_with: lib_test_client,
+	link_with: libweston_test,
 	sources: [
 		viewporter_client_protocol_h,
 	],
@@ -60,19 +69,38 @@ dep_test_client = declare_dependency(
 	]
 )
 
+if get_option('test-dev-install')
+	pkgconfig.generate(
+	       libweston_test,
+	       filebase: 'libweston-test-@0@'.format(libweston_major),
+	       name: 'libweston test API',
+	       version: version_weston,
+	       description: 'Header files for libweston-test',
+	)
+endif
+
+if get_option('test-dev-install')
+	install_headers(
+	'weston-test-client-helper.h',
+	'weston-test-fixture-compositor.h',
+	'weston-testsuite-data.h',
+	'weston-test-runner.h',
+	subdir: join_paths(dir_include_libweston, 'libweston-test')
+	)
+endif
+
 exe_plugin_test = shared_library(
 	'test-plugin',
 	'weston-test.c',
 	weston_test_server_protocol_h,
 	weston_test_protocol_c,
-	include_directories: common_inc,
+	include_directories: [ common_inc, include_directories('../libweston') ],
 	dependencies: [
 		dep_libexec_weston,
-		dep_libweston_private,
 		dep_threads
 	],
 	name_prefix: '',
-	install: false,
+	install: get_option('test-dev-install'),
 )
 
 deps_zuc = [ dep_libshared ]
@@ -327,7 +355,7 @@ foreach t : tests
 	t_sources = t.get('sources', [t.get('name') + '-test.c'])
 	t_sources += weston_test_client_protocol_h
 
-	t_deps = [ dep_test_client, dep_libweston_private_h ]
+	t_deps = [ dep_test_client, dep_libweston_private_h, dep_libexec_weston ]
 	t_deps += t.get('dep_objs', [])
 
 	run_exclusive = t.get('run_exclusive', false)

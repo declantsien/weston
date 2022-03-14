@@ -36,9 +36,6 @@
 
 #include <wayland-client-protocol.h>
 #include "weston-test-runner.h"
-#include "weston-test-client-protocol.h"
-#include "weston-screenshooter-client-protocol.h"
-#include "viewporter-client-protocol.h"
 
 struct client {
 	struct wl_display *wl_display;
@@ -67,6 +64,9 @@ struct client {
 	struct wl_list global_list;
 	struct wl_list output_list; /* struct output::link */
 	struct weston_screenshooter *screenshooter;
+	/** alternative method for taking a screenshot */
+	struct buffer *(*take_shot)(void *data);
+	void *take_shot_data;
 	bool buffer_copy_done;
 };
 
@@ -286,6 +286,10 @@ client_buffer_from_image_file(struct client *client,
 			      const char *basename,
 			      int scale);
 
+void
+client_set_screenshoot(struct client *client,
+		       struct buffer *(*take_shot)(void *data),
+		       void *take_shot_data);
 void *
 bind_to_singleton_global(struct client *client,
 			 const struct wl_interface *iface,

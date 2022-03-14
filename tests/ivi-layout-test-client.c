@@ -31,6 +31,9 @@
 
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
+#include "weston-test-client-protocol.h"
+#include "weston-screenshooter-client-protocol.h"
+#include "viewporter-client-protocol.h"
 #include "weston-test-client-helper.h"
 #include "ivi-application-client-protocol.h"
 #include "ivi-test.h"

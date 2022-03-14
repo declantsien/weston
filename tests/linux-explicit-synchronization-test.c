@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "linux-explicit-synchronization-unstable-v1-client-protocol.h"
+#include "weston-test-client-protocol.h"
 #include "weston-test-client-helper.h"
 #include "wayland-server-protocol.h"
 #include "weston-test-fixture-compositor.h"

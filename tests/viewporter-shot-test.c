@@ -30,6 +30,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include "viewporter-client-protocol.h"
 #include "weston-test-client-helper.h"
 #include "weston-test-fixture-compositor.h"
 

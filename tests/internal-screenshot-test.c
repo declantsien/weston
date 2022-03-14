@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "weston-test-client-protocol.h"
 #include "weston-test-client-helper.h"
 #include "weston-test-fixture-compositor.h"
 #include "test-config.h"

@@ -59,7 +59,9 @@ enum shell_type {
 	/** The ivi-shell. */
 	SHELL_IVI,
 	/** The fullscreen-shell. */
-	SHELL_FULLSCREEN
+	SHELL_FULLSCREEN,
+	/** a shell that doesn't need loading a module for it */
+	SHELL_EMBEDDED,
 };
 
 /** Weston compositor configuration
@@ -100,6 +102,8 @@ struct compositor_setup {
 	const char *logging_scopes;
 	/** The name of this test program, used as a unique identifier. */
 	const char *testset_name;
+	/** extra arguments that we might want to pass */
+	const char *extra_args;
 };
 
 void
