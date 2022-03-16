@@ -373,53 +373,14 @@ restore_output_mode(struct weston_output *output)
 		weston_output_mode_switch_to_native(output);
 }
 
-/*
- * Returns the bounding box of a surface and all its sub-surfaces,
- * in surface-local coordinates. */
-static void
-surface_subsurfaces_boundingbox(struct weston_surface *surface, int32_t *x,
-				int32_t *y, int32_t *w, int32_t *h) {
-	pixman_region32_t region;
-	pixman_box32_t *box;
-	struct weston_subsurface *subsurface;
-
-	pixman_region32_init_rect(&region, 0, 0,
-	                          surface->width,
-	                          surface->height);
-
-	wl_list_for_each(subsurface, &surface->subsurface_list, parent_link) {
-		pixman_region32_union_rect(&region, &region,
-		                           subsurface->position.x,
-		                           subsurface->position.y,
-		                           subsurface->surface->width,
-		                           subsurface->surface->height);
-	}
-
-	box = pixman_region32_extents(&region);
-	if (x)
-		*x = box->x1;
-	if (y)
-		*y = box->y1;
-	if (w)
-		*w = box->x2 - box->x1;
-	if (h)
-		*h = box->y2 - box->y1;
-
-	pixman_region32_fini(&region);
-}
-
 static void
 fs_output_center_view(struct fs_output *fsout)
 {
-	int32_t surf_x, surf_y, surf_width, surf_height;
 	float x, y;
 	struct weston_output *output = fsout->output;
 
-	surface_subsurfaces_boundingbox(fsout->view->surface, &surf_x, &surf_y,
-					&surf_width, &surf_height);
-
-	x = output->x + (output->width - surf_width) / 2 - surf_x / 2;
-	y = output->y + (output->height - surf_height) / 2 - surf_y / 2;
+	x = output->x + (output->width - fsout->view->surface->width) / 2;
+	y = output->y + (output->height - fsout->view->surface->height) / 2;
 
 	weston_view_set_position(fsout->view, x, y);
 }
@@ -428,30 +389,24 @@ static void
 fs_output_scale_view(struct fs_output *fsout, float width, float height)
 {
 	float x, y;
-	int32_t surf_x, surf_y, surf_width, surf_height;
 	struct weston_matrix *matrix;
 	struct weston_view *view = fsout->view;
 	struct weston_output *output = fsout->output;
 
-	surface_subsurfaces_boundingbox(view->surface, &surf_x, &surf_y,
-					&surf_width, &surf_height);
-
-	if (output->width == surf_width && output->height == surf_height) {
-		weston_view_set_position(view,
-					 fsout->output->x - surf_x,
-					 fsout->output->y - surf_y);
+	if (output->width == view->surface->width && output->height == view->surface->height) {
+		weston_view_set_position(view, fsout->output->x, fsout->output->y);
 	} else {
 		matrix = &fsout->transform.matrix;
 		weston_matrix_init(matrix);
 
-		weston_matrix_scale(matrix, width / surf_width,
-				    height / surf_height, 1);
+		weston_matrix_scale(matrix, width / view->surface->width,
+				    height / view->surface->height, 1);
 		wl_list_remove(&fsout->transform.link);
 		wl_list_insert(&fsout->view->geometry.transformation_list,
 			       &fsout->transform.link);
 
-		x = output->x + (output->width - width) / 2 - surf_x;
-		y = output->y + (output->height - height) / 2 - surf_y;
+		x = output->x + (output->width - width) / 2;
+		y = output->y + (output->height - height) / 2;
 
 		weston_view_set_position(view, x, y);
 	}
@@ -466,7 +421,6 @@ fs_output_configure_simple(struct fs_output *fsout,
 {
 	struct weston_output *output = fsout->output;
 	float output_aspect, surface_aspect;
-	int32_t surf_x, surf_y, surf_width, surf_height;
 
 	if (fsout->pending.surface == configured_surface)
 		fs_output_apply_pending(fsout);
@@ -478,12 +432,8 @@ fs_output_configure_simple(struct fs_output *fsout,
 	wl_list_remove(&fsout->transform.link);
 	wl_list_init(&fsout->transform.link);
 
-	surface_subsurfaces_boundingbox(fsout->view->surface,
-					&surf_x, &surf_y,
-					&surf_width, &surf_height);
-
 	output_aspect = (float) output->width / (float) output->height;
-	surface_aspect = (float) surf_width / (float) surf_height;
+	surface_aspect = (float) fsout->view->surface->width / (float) fsout->view->surface->height;
 
 	switch (fsout->method) {
 	case ZWP_FULLSCREEN_SHELL_V1_PRESENT_METHOD_DEFAULT:
@@ -521,8 +471,8 @@ fs_output_configure_simple(struct fs_output *fsout,
 	}
 
 	weston_view_set_position(fsout->black_view,
-				 fsout->output->x - surf_x,
-				 fsout->output->y - surf_y);
+				 fsout->output->x,
+				 fsout->output->y);
 	weston_surface_set_size(fsout->black_view->surface,
 				fsout->output->width,
 				fsout->output->height);
@@ -532,7 +482,6 @@ static void
 fs_output_configure_for_mode(struct fs_output *fsout,
 			     struct weston_surface *configured_surface)
 {
-	int32_t surf_x, surf_y, surf_width, surf_height;
 	struct weston_mode mode;
 	int ret;
 
@@ -543,12 +492,8 @@ fs_output_configure_for_mode(struct fs_output *fsout,
 		return;
 	}
 
-	/* We have a pending surface */
-	surface_subsurfaces_boundingbox(fsout->pending.surface,
-					&surf_x, &surf_y,
-					&surf_width, &surf_height);
-
-	/* The actual output mode is in physical units.  We need to
+	/* We have a pending surface.
+	 * The actual output mode is in physical units.  We need to
 	 * transform the surface size to physical unit size by flipping and
 	 * possibly scaling it.
 	 */
@@ -557,8 +502,8 @@ fs_output_configure_for_mode(struct fs_output *fsout,
 	case WL_OUTPUT_TRANSFORM_FLIPPED_90:
 	case WL_OUTPUT_TRANSFORM_270:
 	case WL_OUTPUT_TRANSFORM_FLIPPED_270:
-		mode.width = surf_height * fsout->output->native_scale;
-		mode.height = surf_width * fsout->output->native_scale;
+		mode.width = fsout->pending.surface->height * fsout->output->native_scale;
+		mode.height = fsout->pending.surface->width * fsout->output->native_scale;
 		break;
 
 	case WL_OUTPUT_TRANSFORM_NORMAL:
@@ -566,8 +511,8 @@ fs_output_configure_for_mode(struct fs_output *fsout,
 	case WL_OUTPUT_TRANSFORM_180:
 	case WL_OUTPUT_TRANSFORM_FLIPPED_180:
 	default:
-		mode.width = surf_width * fsout->output->native_scale;
-		mode.height = surf_height * fsout->output->native_scale;
+		mode.width = fsout->pending.surface->width * fsout->output->native_scale;
+		mode.height = fsout->pending.surface->height * fsout->output->native_scale;
 	}
 	mode.flags = 0;
 	mode.refresh = fsout->pending.framerate;
@@ -599,8 +544,8 @@ fs_output_configure_for_mode(struct fs_output *fsout,
 	fs_output_apply_pending(fsout);
 
 	weston_view_set_position(fsout->view,
-				 fsout->output->x - surf_x,
-				 fsout->output->y - surf_y);
+				 fsout->output->x,
+				 fsout->output->y);
 }
 
 static void
