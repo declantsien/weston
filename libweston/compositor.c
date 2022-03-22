@@ -4513,6 +4513,7 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * \param width Width in pixels of the area to copy.
  * \param height Height in pixels of the area to copy.
  * \param y_flip Flip the image vertically.
+ * \param is_argb Target image should be stored as ARGB.
  * \return 0 for success, -1 for failure.
  *
  * Surface contents are maintained by the renderer. They can be in a
@@ -4527,8 +4528,8 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  *
  * The image in the target memory will be arranged in rows from
  * top to bottom, and pixels on a row from left to right. The pixel
- * format is PIXMAN_a8b8g8r8, 4 bytes per pixel, and stride is exactly
- * width * 4.
+ * format is PIXMAN_a8b8g8r8, 4 bytes per pixel, unless is_argb is true,
+ * in which case it will be PIXMAN_a8r8b8g8. Stride is exactly width * 4.
  *
  * Parameters src_x and src_y define the upper-left corner in buffer
  * coordinates (pixels) to copy from. Parameters width and height
@@ -4552,7 +4553,7 @@ weston_surface_copy_content(struct weston_surface *surface,
 			    void *target, size_t size,
 			    int src_x, int src_y,
 			    int width, int height,
-			    bool y_flip)
+			    bool y_flip, bool is_argb)
 {
 	struct weston_renderer *rer = surface->compositor->renderer;
 	int cw, ch;
@@ -4576,7 +4577,7 @@ weston_surface_copy_content(struct weston_surface *surface,
 		return -1;
 
 	return rer->surface_copy_content(surface, target, size,
-					 src_x, src_y, width, height, y_flip);
+					 src_x, src_y, width, height, y_flip, is_argb);
 }
 
 static void

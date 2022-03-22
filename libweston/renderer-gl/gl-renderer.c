@@ -3052,7 +3052,8 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 				 void *target, size_t size,
 				 int src_x, int src_y,
 				 int width, int height,
-				 bool y_flip)
+				 bool y_flip, bool is_argb)
+
 {
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
@@ -3076,9 +3077,9 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		.view_alpha = 1.0f,
 		.input_tex_filter = GL_NEAREST,
 	};
-	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
+	const pixman_format_code_t format = is_argb ? PIXMAN_a8r8g8b8 : PIXMAN_a8b8g8r8;
 	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
+	const GLenum gl_format = is_argb ? GL_BGRA_EXT : GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs = get_surface_state(surface);
 	int cw, ch;

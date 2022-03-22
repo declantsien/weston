@@ -802,9 +802,9 @@ pixman_renderer_surface_copy_content(struct weston_surface *surface,
 				     void *target, size_t size,
 				     int src_x, int src_y,
 				     int width, int height,
-				     bool y_flip)
+				     bool y_flip, bool is_argb)
 {
-	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
+	const pixman_format_code_t format = is_argb ? PIXMAN_a8r8g8b8 : PIXMAN_a8b8g8r8;
 	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
 	struct pixman_surface_state *ps = get_surface_state(surface);
 	pixman_image_t *out_buf;

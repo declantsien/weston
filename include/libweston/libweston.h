@@ -943,7 +943,7 @@ struct weston_renderer {
 				    void *target, size_t size,
 				    int src_x, int src_y,
 				    int width, int height,
-				    bool y_flip);
+				    bool y_flip, bool is_argb);
 
 	/** See weston_compositor_import_dmabuf() */
 	bool (*import_dmabuf)(struct weston_compositor *ec,
@@ -1816,7 +1816,7 @@ weston_surface_copy_content(struct weston_surface *surface,
 			    void *target, size_t size,
 			    int src_x, int src_y,
 			    int width, int height,
-			    bool y_flip);
+			    bool y_flip, bool is_argb);
 
 struct weston_buffer *
 weston_buffer_from_resource(struct wl_resource *resource);
