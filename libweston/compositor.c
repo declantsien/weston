@@ -4509,10 +4509,12 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * \param target Pointer to the target memory buffer.
  * \param size Size of the target buffer in bytes.
  * \param target_stride Stride of the target buffer in bytes.
+ * \param target_width Width in pixels of the target image.
+ * \param target_height Height in pixels of the target image.
  * \param src_x X location on contents to copy from.
  * \param src_y Y location on contents to copy from.
- * \param width Width in pixels of the area to copy.
- * \param height Height in pixels of the area to copy.
+ * \param src_width Width in pixels of the area to copy.
+ * \param src_height Height in pixels of the area to copy.
  * \param y_flip Flip the image vertically.
  * \param is_argb Target image should be stored as ARGB.
  * \return 0 for success, -1 for failure.
@@ -4530,16 +4532,18 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * The image in the target memory will be arranged in rows from
  * top to bottom, and pixels on a row from left to right. The pixel
  * format is PIXMAN_a8b8g8r8, 4 bytes per pixel, unless is_argb is true,
- * in which case it will be PIXMAN_a8r8b8g8. If target_stride is passed
- * as 0, it will automatically be set to exactly width * 4. Otherwise, the
- * passed stride value will be used.
+ * in which case it will be PIXMAN_a8r8b8g8. If target_width is 0, the
+ * target width will be src_width. Similarly, if target_height is 0, the
+ * target height will be src_height. Otherwise the passed values are used.
+ * If target_stride is passed as 0, it will automatically be set to exactly
+ * the target width * 4. Otherwise, the passed stride value will be used.
  *
  * Parameters src_x and src_y define the upper-left corner in buffer
- * coordinates (pixels) to copy from. Parameters width and height
+ * coordinates (pixels) to copy from. Parameters src_width and src_height
  * define the size of the area to copy in pixels.
  *
- * The rectangle defined by src_x, src_y, width, height must fit in
- * the surface contents. Otherwise an error is returned.
+ * The rectangle defined by src_x, src_y, src_width, src_height must
+ * fit in the surface contents. Otherwise an error is returned.
  *
  * The image may be inverted by passing true in y_flip.
  *
@@ -4554,16 +4558,23 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
 WL_EXPORT int
 weston_surface_copy_content(struct weston_surface *surface,
 			    void *target, size_t size, size_t target_stride,
+			    int target_width, int target_height,
 			    int src_x, int src_y,
-			    int width, int height,
+			    int src_width, int src_height,
 			    bool y_flip, bool is_argb)
 {
 	struct weston_renderer *rer = surface->compositor->renderer;
 	int cw, ch;
 	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
 
+	if (!target_width)
+		target_width = src_width;
+
+	if (!target_height)
+		target_height = src_height;
+
 	if (!target_stride)
-		target_stride = width * bytespp;
+		target_stride = target_width * bytespp;
 
 	if (!rer->surface_copy_content)
 		return -1;
@@ -4573,17 +4584,17 @@ weston_surface_copy_content(struct weston_surface *surface,
 	if (src_x < 0 || src_y < 0)
 		return -1;
 
-	if (width <= 0 || height <= 0)
+	if (src_width <= 0 || src_height <= 0)
 		return -1;
 
-	if (src_x + width > cw || src_y + height > ch)
+	if (src_x + src_width > cw || src_y + src_height > ch)
 		return -1;
 
-	if (target_stride * height > size)
+	if (target_stride * target_height > size)
 		return -1;
 
-	return rer->surface_copy_content(surface, target, size, target_stride,
-					 src_x, src_y, width, height, y_flip, is_argb);
+	return rer->surface_copy_content(surface, target, size, target_stride, target_width, target_height,
+					 src_x, src_y, src_width, src_height, y_flip, is_argb);
 }
 
 static void

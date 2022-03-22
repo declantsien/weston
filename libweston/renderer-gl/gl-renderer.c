@@ -3050,11 +3050,16 @@ pack_color(pixman_format_code_t format, float *c)
 static int
 gl_renderer_surface_copy_content(struct weston_surface *surface,
 				 void *target, size_t size, size_t stride,
+				 int target_width, int target_height,
 				 int src_x, int src_y,
 				 int width, int height,
 				 bool y_flip, bool is_argb)
 
 {
+	/*TODO:add scaling support*/
+	assert(target_width == width);
+	assert(target_height == height);
+
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
 		1.0f, 0.0f,
