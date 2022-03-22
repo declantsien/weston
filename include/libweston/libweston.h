@@ -940,7 +940,7 @@ struct weston_renderer {
 
 	/** See weston_surface_copy_content() */
 	int (*surface_copy_content)(struct weston_surface *surface,
-				    void *target, size_t size,
+				    void *target, size_t size, size_t stride,
 				    int src_x, int src_y,
 				    int width, int height,
 				    bool y_flip, bool is_argb);
@@ -1813,7 +1813,7 @@ weston_surface_get_bounding_box(struct weston_surface *surface);
 
 int
 weston_surface_copy_content(struct weston_surface *surface,
-			    void *target, size_t size,
+			    void *target, size_t size, size_t stride,
 			    int src_x, int src_y,
 			    int width, int height,
 			    bool y_flip, bool is_argb);

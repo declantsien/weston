@@ -3049,7 +3049,7 @@ pack_color(pixman_format_code_t format, float *c)
 
 static int
 gl_renderer_surface_copy_content(struct weston_surface *surface,
-				 void *target, size_t size,
+				 void *target, size_t size, size_t stride,
 				 int src_x, int src_y,
 				 int width, int height,
 				 bool y_flip, bool is_argb)
@@ -3149,8 +3149,19 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	glDisableVertexAttribArray(0);
 
 	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
-	glReadPixels(src_x, src_y, width, height, gl_format,
-		     GL_UNSIGNED_BYTE, target);
+	if (stride) {
+		/* GL_PACK_ROW_LENGTH can be used when supported,
+		   but it's not supported with EGL2, thus copy row by row. */
+		char *dst = (char *)target;
+		for (int i = 0; i < height; i++, dst += stride) {
+			glReadPixels(src_x, src_y+i, width, 1, gl_format,
+				     GL_UNSIGNED_BYTE, dst);
+		}
+	} else {
+		glReadPixels(src_x, src_y, width, height, gl_format,
+			     GL_UNSIGNED_BYTE, target);
+	}
+
 	ret = 0;
 
 out:

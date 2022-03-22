@@ -1920,7 +1920,7 @@ ivi_layout_surface_dump(struct weston_surface *surface,
 	}
 
 	result = weston_surface_copy_content(
-		surface, target, size,
+		surface, target, size, 0,
 		x, y, width, height, false, false);
 
 	return result == 0 ? IVI_SUCCEEDED : IVI_FAILED;

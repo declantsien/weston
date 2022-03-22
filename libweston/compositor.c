@@ -4508,6 +4508,7 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * \param surface The surface to copy from.
  * \param target Pointer to the target memory buffer.
  * \param size Size of the target buffer in bytes.
+ * \param target_stride Stride of the target buffer in bytes.
  * \param src_x X location on contents to copy from.
  * \param src_y Y location on contents to copy from.
  * \param width Width in pixels of the area to copy.
@@ -4529,7 +4530,9 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * The image in the target memory will be arranged in rows from
  * top to bottom, and pixels on a row from left to right. The pixel
  * format is PIXMAN_a8b8g8r8, 4 bytes per pixel, unless is_argb is true,
- * in which case it will be PIXMAN_a8r8b8g8. Stride is exactly width * 4.
+ * in which case it will be PIXMAN_a8r8b8g8. If target_stride is passed
+ * as 0, it will automatically be set to exactly width * 4. Otherwise, the
+ * passed stride value will be used.
  *
  * Parameters src_x and src_y define the upper-left corner in buffer
  * coordinates (pixels) to copy from. Parameters width and height
@@ -4550,7 +4553,7 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  */
 WL_EXPORT int
 weston_surface_copy_content(struct weston_surface *surface,
-			    void *target, size_t size,
+			    void *target, size_t size, size_t target_stride,
 			    int src_x, int src_y,
 			    int width, int height,
 			    bool y_flip, bool is_argb)
@@ -4558,6 +4561,9 @@ weston_surface_copy_content(struct weston_surface *surface,
 	struct weston_renderer *rer = surface->compositor->renderer;
 	int cw, ch;
 	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
+
+	if (!target_stride)
+		target_stride = width * bytespp;
 
 	if (!rer->surface_copy_content)
 		return -1;
@@ -4573,10 +4579,10 @@ weston_surface_copy_content(struct weston_surface *surface,
 	if (src_x + width > cw || src_y + height > ch)
 		return -1;
 
-	if (width * bytespp * height > size)
+	if (target_stride * height > size)
 		return -1;
 
-	return rer->surface_copy_content(surface, target, size,
+	return rer->surface_copy_content(surface, target, size, target_stride,
 					 src_x, src_y, width, height, y_flip, is_argb);
 }
 

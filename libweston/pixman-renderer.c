@@ -799,13 +799,12 @@ pixman_renderer_surface_get_content_size(struct weston_surface *surface,
 
 static int
 pixman_renderer_surface_copy_content(struct weston_surface *surface,
-				     void *target, size_t size,
+				     void *target, size_t size, size_t target_stride,
 				     int src_x, int src_y,
 				     int width, int height,
 				     bool y_flip, bool is_argb)
 {
 	const pixman_format_code_t format = is_argb ? PIXMAN_a8r8g8b8 : PIXMAN_a8b8g8r8;
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
 	struct pixman_surface_state *ps = get_surface_state(surface);
 	pixman_image_t *out_buf;
 	pixman_transform_t transform;
@@ -814,7 +813,8 @@ pixman_renderer_surface_copy_content(struct weston_surface *surface,
 		return -1;
 
 	out_buf = pixman_image_create_bits(format, width, height,
-					   target, width * bytespp);
+					   target, target_stride);
+
 
 	if (y_flip) {
 		pixman_transform_init_scale(&transform,
