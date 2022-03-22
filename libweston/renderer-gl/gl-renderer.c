@@ -3051,7 +3051,8 @@ static int
 gl_renderer_surface_copy_content(struct weston_surface *surface,
 				 void *target, size_t size,
 				 int src_x, int src_y,
-				 int width, int height)
+				 int width, int height,
+				 bool y_flip)
 {
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
@@ -3123,7 +3124,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	glViewport(0, 0, cw, ch);
 	glDisable(GL_BLEND);
-	if (gs->y_inverted)
+	if (gs->y_inverted ^ y_flip)
 		ARRAY_COPY(sconf.projection.d, projmat_normal);
 	else
 		ARRAY_COPY(sconf.projection.d, projmat_yinvert);

@@ -4512,6 +4512,7 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * \param src_y Y location on contents to copy from.
  * \param width Width in pixels of the area to copy.
  * \param height Height in pixels of the area to copy.
+ * \param y_flip Flip the image vertically.
  * \return 0 for success, -1 for failure.
  *
  * Surface contents are maintained by the renderer. They can be in a
@@ -4536,6 +4537,8 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  * The rectangle defined by src_x, src_y, width, height must fit in
  * the surface contents. Otherwise an error is returned.
  *
+ * The image may be inverted by passing true in y_flip.
+ *
  * Use weston_surface_get_content_size to determine the content size; the
  * needed target buffer size and rectangle limits.
  *
@@ -4548,7 +4551,8 @@ WL_EXPORT int
 weston_surface_copy_content(struct weston_surface *surface,
 			    void *target, size_t size,
 			    int src_x, int src_y,
-			    int width, int height)
+			    int width, int height,
+			    bool y_flip)
 {
 	struct weston_renderer *rer = surface->compositor->renderer;
 	int cw, ch;
@@ -4572,7 +4576,7 @@ weston_surface_copy_content(struct weston_surface *surface,
 		return -1;
 
 	return rer->surface_copy_content(surface, target, size,
-					 src_x, src_y, width, height);
+					 src_x, src_y, width, height, y_flip);
 }
 
 static void

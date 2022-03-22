@@ -801,12 +801,14 @@ static int
 pixman_renderer_surface_copy_content(struct weston_surface *surface,
 				     void *target, size_t size,
 				     int src_x, int src_y,
-				     int width, int height)
+				     int width, int height,
+				     bool y_flip)
 {
 	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
 	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
 	struct pixman_surface_state *ps = get_surface_state(surface);
 	pixman_image_t *out_buf;
+	pixman_transform_t transform;
 
 	if (!ps->image)
 		return -1;
@@ -814,7 +816,19 @@ pixman_renderer_surface_copy_content(struct weston_surface *surface,
 	out_buf = pixman_image_create_bits(format, width, height,
 					   target, width * bytespp);
 
-	pixman_image_set_transform(ps->image, NULL);
+	if (y_flip) {
+		pixman_transform_init_scale(&transform,
+					    pixman_double_to_fixed(1.0),
+					    pixman_double_to_fixed(-1.0));
+		pixman_transform_translate(&transform, NULL,
+					   0,
+					   pixman_int_to_fixed(height));
+	} else {
+		pixman_transform_init_scale(&transform,
+					    pixman_double_to_fixed(1.0),
+					    pixman_double_to_fixed(1.0));
+	}
+	pixman_image_set_transform(ps->image, &transform);
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 ps->image,    /* src */
 				 NULL,         /* mask */
@@ -824,6 +838,7 @@ pixman_renderer_surface_copy_content(struct weston_surface *surface,
 				 0, 0,         /* dest_x, dest_y */
 				 width, height);
 
+	pixman_image_set_transform(ps->image, NULL);
 	pixman_image_unref(out_buf);
 
 	return 0;
