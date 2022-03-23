@@ -37,6 +37,8 @@
 #include "shared/helpers.h"
 #include "shared/os-compatibility.h"
 
+#define MAX_XWAYLAND_ARGS_COUNT 15
+
 #ifdef HAVE_XWAYLAND_LISTENFD
 #  define LISTEN_STR "-listenfd"
 #else
@@ -99,6 +101,8 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 	struct weston_config *config = wet_get_config(wxw->compositor);
 	struct weston_config_section *section;
 	struct wl_event_loop *loop;
+	const char *argv[MAX_XWAYLAND_ARGS_COUNT];
+	int argc = 0;
 
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) < 0) {
 		weston_log("wl connection socketpair failed\n");
@@ -150,22 +154,29 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 		weston_config_section_get_string(section, "path",
 						 &xserver, XSERVER_PATH);
 
-		if (execl(xserver,
-			  xserver,
-			  display,
-			  "-rootless",
-			  LISTEN_STR, abstract_fd_str,
-			  LISTEN_STR, unix_fd_str,
-			  "-displayfd", display_fd_str,
-			  "-wm", wm_fd_str,
-			  "-terminate",
-			  NULL) < 0)
-			weston_log("exec of '%s %s -rootless "
-				   LISTEN_STR " %s " LISTEN_STR " %s "
-				   "-wm %s -terminate' failed: %s\n",
-				   xserver, display,
-				   abstract_fd_str, unix_fd_str, wm_fd_str,
-				   strerror(errno));
+		argv[argc++] = xserver;
+		argv[argc++] = display;
+		argv[argc++] = "-rootless";
+		argv[argc++] = "-core";
+		argv[argc++] = LISTEN_STR;
+		argv[argc++] = unix_fd_str;
+		argv[argc++] = LISTEN_STR;
+		argv[argc++] = abstract_fd_str;
+		argv[argc++] = "-displayfd";
+		argv[argc++] = display_fd_str;
+		argv[argc++] = "-wm";
+		argv[argc++] = wm_fd_str;
+		argv[argc++] = "-terminate";
+		argv[argc] = NULL;
+
+		if (execv(xserver, (char *const *)argv) < 0) {
+			int i, e = errno;
+
+			weston_log("Failed to launch Xwayland(");
+			for (i = 0; i < argc; i++)
+				weston_log_continue("%s ", argv[i]);
+			weston_log_continue(") due to %s\n", strerror(e));
+		}
 	fail:
 		_exit(EXIT_FAILURE);
 
