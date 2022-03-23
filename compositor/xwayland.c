@@ -98,6 +98,7 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 	char display_fd_str[12];
 	int sv[2], wm[2], fd, display_fd[2];
 	char *xserver = NULL;
+	bool disable_ac = false;
 	struct weston_config *config = wet_get_config(wxw->compositor);
 	struct weston_config_section *section;
 	struct wl_event_loop *loop;
@@ -153,6 +154,8 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 						    "xwayland", NULL, NULL);
 		weston_config_section_get_string(section, "path",
 						 &xserver, XSERVER_PATH);
+		weston_config_section_get_bool(section, "disable-access-control",
+						&disable_ac, false);
 
 		argv[argc++] = xserver;
 		argv[argc++] = display;
@@ -167,6 +170,9 @@ spawn_xserver(void *user_data, const char *display, int abstract_fd, int unix_fd
 		argv[argc++] = "-wm";
 		argv[argc++] = wm_fd_str;
 		argv[argc++] = "-terminate";
+		if (disable_ac) {
+			argv[argc++] = "-ac";
+		}
 		argv[argc] = NULL;
 
 		if (execv(xserver, (char *const *)argv) < 0) {

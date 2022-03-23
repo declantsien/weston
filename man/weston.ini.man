@@ -617,6 +617,13 @@ The terminal shell (string). Sets the $TERM variable.
 .BI "path=" "@xserver_path@"
 sets the path to the xserver to run (string).
 .\"---------------------------------------------------------------------
+.TP 7
+.BI "disable-access-control=" "false"
+launches Xwayland with access control disabled by passing "-ac" on the
+command line. This is not generally recommended, as it may have serious
+security ramifications.
+.RE
+.RE
 .SH "SCREEN-SHARE SECTION"
 .TP 7
 .BI "command=" "@weston_bindir@/weston --backend=rdp-backend.so \
