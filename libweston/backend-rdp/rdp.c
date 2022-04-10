@@ -50,6 +50,16 @@
 #include <libweston/backend-rdp.h>
 #include "pixman-renderer.h"
 
+#if HAVE_OPENSSL
+/* for session certificate generation */
+#include <openssl/crypto.h>
+#include <openssl/conf.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/x509v3.h>
+#include <openssl/rand.h>
+#endif
+
 #define MAX_FREERDP_FDS 32
 #define DEFAULT_AXIS_STEP_DISTANCE 10
 #define RDP_MODE_FREQ 60 * 1000
@@ -67,8 +77,9 @@ struct rdp_backend {
 
 	char *server_cert;
 	char *server_key;
+	char *server_cert_content;
+	char *server_key_content;
 	char *rdp_key;
-	int tls_enabled;
 	int no_clients_resize;
 	int force_no_compression;
 };
@@ -445,7 +456,7 @@ rdp_switch_mode(struct weston_output *output, struct weston_mode *target_mode)
 
 static int
 rdp_output_set_size(struct weston_output *base,
-		    int width, int height)
+			int width, int height)
 {
 	struct rdp_output *output = to_rdp_output(base);
 	struct weston_head *head;
@@ -1189,6 +1200,18 @@ xf_suppress_output(rdpContext *context, BYTE allow, const RECTANGLE_16 *area)
 	return TRUE;
 }
 
+static BOOL
+using_session_tls(struct rdp_backend *b)
+{
+	return b->server_cert_content && b->server_key_content;
+}
+
+static BOOL
+is_tls_enabled(struct rdp_backend *b)
+{
+	return (b->server_cert && b->server_key) || using_session_tls(b);
+}
+
 static int
 rdp_peer_init(freerdp_peer *client, struct rdp_backend *b)
 {
@@ -1212,9 +1235,14 @@ rdp_peer_init(freerdp_peer *client, struct rdp_backend *b)
 	/* configure security settings */
 	if (b->rdp_key)
 		settings->RdpKeyFile = strdup(b->rdp_key);
-	if (b->tls_enabled) {
-		settings->CertificateFile = strdup(b->server_cert);
-		settings->PrivateKeyFile = strdup(b->server_key);
+	if (is_tls_enabled(b)) {
+		if (using_session_tls(b)) {
+			settings->CertificateContent = strdup(b->server_cert_content);
+			settings->PrivateKeyContent = strdup(b->server_key_content);
+		} else {
+			settings->CertificateFile = strdup(b->server_cert);
+			settings->PrivateKeyFile = strdup(b->server_key);
+		}
 	} else {
 		settings->TlsSecurity = FALSE;
 	}
@@ -1283,6 +1311,78 @@ rdp_incoming_peer(freerdp_listener *instance, freerdp_peer *client)
 	return TRUE;
 }
 
+#if HAVE_OPENSSL
+static void
+rdp_generate_session_tls(struct rdp_backend *b)
+{
+	EVP_PKEY *pkey;
+	BIGNUM *rsa_bn;
+	RSA *rsa;
+	BIO *bio, *bio_x509;
+	BUF_MEM *mem, *mem_x509;
+	X509 *x509;
+	long serial = 0;
+	ASN1_TIME *before, *after;
+	X509_NAME *name;
+	X509V3_CTX ctx;
+	X509_EXTENSION *ext;
+	const EVP_MD *md;
+	const char session_name[] = "weston";
+
+	pkey = EVP_PKEY_new();
+	assert(pkey != NULL);
+	rsa_bn = BN_new();
+	assert(rsa_bn != NULL);
+	rsa = RSA_new();
+	assert(rsa != NULL);
+	BN_set_word(rsa_bn, RSA_F4);
+	assert(RSA_generate_key_ex(rsa, 2048, rsa_bn, NULL) == 1);
+	BN_clear_free(rsa_bn);
+	EVP_PKEY_assign_RSA(pkey, rsa);
+
+	bio = BIO_new(BIO_s_mem());
+	assert(bio != NULL);
+	assert(PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, NULL, NULL) == 1);
+	BIO_get_mem_ptr(bio, &mem);
+	b->server_key_content = (char *)calloc(mem->length+1, 1);
+	memcpy(b->server_key_content, mem->data, mem->length);
+	BIO_free_all(bio);
+	
+	x509 = X509_new();
+	X509_set_version(x509, 2);
+	RAND_bytes((unsigned char *)&serial, sizeof(serial));
+	ASN1_INTEGER_set(X509_get_serialNumber(x509), serial);
+	before = X509_getm_notBefore(x509);
+	X509_gmtime_adj(before, 0);
+	after = X509_getm_notAfter(x509);
+	X509_gmtime_adj(after, 60);    /* good for a minute */
+	X509_set_pubkey(x509, pkey);
+	name = X509_get_subject_name(x509);
+	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_UTF8, session_name, sizeof(session_name)-1, -1, 0);
+	X509_set_issuer_name(x509, name);
+	X509V3_set_ctx_nodb(&ctx);
+	X509V3_set_ctx(&ctx, x509, x509, NULL, NULL, 0);
+	ext = X509V3_EXT_conf_nid(NULL, &ctx, NID_ext_key_usage, "serverAuth");
+	assert(ext);
+	X509_add_ext(x509, ext, -1);
+	X509_EXTENSION_free(ext);
+	md = EVP_sha256();
+	assert(X509_sign(x509, pkey, md) != 0);
+
+	bio_x509 = BIO_new(BIO_s_mem());
+	assert(bio_x509 != NULL);
+	PEM_write_bio_X509(bio, x509);
+	BIO_get_mem_ptr(bio_x509, &mem_x509);
+	b->server_cert_content = (char *)calloc(mem_x509->length+1, 1);
+	memcpy(b->server_cert_content, mem_x509->data, mem_x509->length);
+	weston_log("%s", b->server_cert_content);
+	BIO_free_all(bio_x509);
+
+	X509_free(x509);
+	EVP_PKEY_free(pkey);
+}
+#endif
+
 static const struct weston_rdp_output_api api = {
 	rdp_output_set_size,
 };
@@ -1306,19 +1406,28 @@ rdp_backend_create(struct weston_compositor *compositor,
 	b->base.destroy = rdp_destroy;
 	b->base.create_output = rdp_output_create;
 	b->rdp_key = config->rdp_key ? strdup(config->rdp_key) : NULL;
+	b->server_cert = config->server_cert ? strdup(config->server_cert) : NULL;
+	b->server_key = config->server_key ? strdup(config->server_key) : NULL;
 	b->no_clients_resize = config->no_clients_resize;
 	b->force_no_compression = config->force_no_compression;
 
 	compositor->backend = &b->base;
 
+	if (!b->rdp_key && (!b->server_cert || !b->server_key)) {
+#if HAVE_OPENSSL
+		rdp_generate_session_tls(b);
+#else
+		weston_log("the RDP compositor requires keys and an optional certificate for RDP or TLS security ("
+				"--rdp4-key or --rdp-tls-cert/--rdp-tls-key)\n");
+		goto err_free_strings;
+#endif
+	}
+
 	/* activate TLS only if certificate/key are available */
-	if (config->server_cert && config->server_key) {
+	if (is_tls_enabled(b)) {
 		weston_log("TLS support activated\n");
-		b->server_cert = strdup(config->server_cert);
-		b->server_key = strdup(config->server_key);
-		if (!b->server_cert || !b->server_key)
-			goto err_free_strings;
-		b->tls_enabled = 1;
+	} else if (!b->rdp_key) {
+		goto err_free_strings;
 	}
 
 	if (weston_compositor_set_presentation_clock_software(compositor) < 0)
@@ -1353,7 +1462,7 @@ rdp_backend_create(struct weston_compositor *compositor,
 
 		fd = strtoul(fd_str, &fd_tail, 10);
 		if (errno != 0 || fd_tail == fd_str || *fd_tail != '\0'
-		    || rdp_peer_init(freerdp_peer_new(fd), b))
+			|| rdp_peer_init(freerdp_peer_new(fd), b))
 			goto err_output;
 	}
 
@@ -1381,6 +1490,8 @@ err_free_strings:
 	free(b->rdp_key);
 	free(b->server_cert);
 	free(b->server_key);
+	free(b->server_cert_content);
+	free(b->server_key_content);
 	free(b);
 	return NULL;
 }
@@ -1400,7 +1511,7 @@ config_init_to_defaults(struct weston_rdp_backend_config *config)
 
 WL_EXPORT int
 weston_backend_init(struct weston_compositor *compositor,
-		    struct weston_backend_config *config_base)
+			struct weston_backend_config *config_base)
 {
 	struct rdp_backend *b;
 	struct weston_rdp_backend_config config = {{ 0, }};
@@ -1413,20 +1524,14 @@ weston_backend_init(struct weston_compositor *compositor,
 	weston_log("using FreeRDP version %d.%d.%d\n", major, minor, revision);
 
 	if (config_base == NULL ||
-	    config_base->struct_version != WESTON_RDP_BACKEND_CONFIG_VERSION ||
-	    config_base->struct_size > sizeof(struct weston_rdp_backend_config)) {
+		config_base->struct_version != WESTON_RDP_BACKEND_CONFIG_VERSION ||
+		config_base->struct_size > sizeof(struct weston_rdp_backend_config)) {
 		weston_log("RDP backend config structure is invalid\n");
 		return -1;
 	}
 
 	config_init_to_defaults(&config);
 	memcpy(&config, config_base, config_base->struct_size);
-
-	if (!config.rdp_key && (!config.server_cert || !config.server_key)) {
-		weston_log("the RDP compositor requires keys and an optional certificate for RDP or TLS security ("
-				"--rdp4-key or --rdp-tls-cert/--rdp-tls-key)\n");
-		return -1;
-	}
 
 	b = rdp_backend_create(compositor, &config);
 	if (b == NULL)
