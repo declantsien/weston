@@ -175,7 +175,8 @@ weston_wm_handle_selection_event(struct weston_wm *wm,
 				 xcb_generic_event_t *event);
 
 struct weston_wm *
-weston_wm_create(struct weston_xserver *wxs, int fd);
+weston_wm_create(struct weston_xserver *wxs, int fd,
+		const struct weston_xwayland_options *options);
 void
 weston_wm_destroy(struct weston_wm *wm);
 

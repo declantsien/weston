@@ -61,6 +61,8 @@ struct theme {
 
 struct theme *
 theme_create(void);
+struct theme *
+null_theme_create(void);
 void
 theme_destroy(struct theme *t);
 
