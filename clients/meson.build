@@ -185,8 +185,10 @@ if simple_build_all or simple_clients_enabled.contains('im')
 	executable(
 		'weston-simple-im', [
 			'simple-im.c',
-			input_method_unstable_v1_client_protocol_h,
-			input_method_unstable_v1_protocol_c,
+			input_method_unstable_v2_client_protocol_h,
+			input_method_unstable_v2_protocol_c,
+			virtual_keyboard_unstable_v1_client_protocol_h,
+			virtual_keyboard_unstable_v1_protocol_c,
 		],
 		include_directories: common_inc,
 		dependencies: [
@@ -264,8 +266,8 @@ demo_clients = [
 	{
 		'basename': 'editor',
 		'add_sources': [
-			text_input_unstable_v1_client_protocol_h,
-			text_input_unstable_v1_protocol_c,
+			text_input_unstable_v3_client_protocol_h,
+			text_input_unstable_v3_protocol_c,
 		],
 		'deps': [ 'pangocairo', 'gobject-2.0' ]
 	},
@@ -338,10 +340,14 @@ if get_option('shell-desktop')
 	exe_keyboard = executable(
 		'weston-keyboard',
 		'keyboard.c',
-		text_input_unstable_v1_client_protocol_h,
-		text_input_unstable_v1_protocol_c,
-		input_method_unstable_v1_client_protocol_h,
-		input_method_unstable_v1_protocol_c,
+		input_method_unstable_v2_client_protocol_h,
+		input_method_unstable_v2_protocol_c,
+		text_input_unstable_v3_client_protocol_h,
+		text_input_unstable_v3_protocol_c,
+		virtual_keyboard_unstable_v1_client_protocol_h,
+		virtual_keyboard_unstable_v1_protocol_c,
+		weston_input_panel_client_protocol_h,
+		weston_input_panel_protocol_c,
 		include_directories: common_inc,
 		dependencies: dep_toytoolkit,
 		install_dir: get_option('libexecdir'),
