@@ -73,11 +73,8 @@ drm_backend_create_faked_zpos(struct drm_backend *b)
 {
 	struct drm_plane *plane;
 	uint64_t zpos = 0ULL;
-	uint64_t zpos_min_primary;
-	uint64_t zpos_min_overlay;
-	uint64_t zpos_min_cursor;
 
-	zpos_min_primary = zpos;
+	uint64_t zpos_min_primary = zpos;
 	wl_list_for_each(plane, &b->plane_list, link) {
 		/* if the property is there, bail out sooner */
 		if (plane->props[WDRM_PLANE_ZPOS].prop_id != 0)
@@ -88,14 +85,14 @@ drm_backend_create_faked_zpos(struct drm_backend *b)
 		zpos++;
 	}
 
-	zpos_min_overlay = zpos;
+	uint64_t zpos_min_overlay = zpos;
 	wl_list_for_each(plane, &b->plane_list, link) {
 		if (plane->type != WDRM_PLANE_TYPE_OVERLAY)
 			continue;
 		zpos++;
 	}
 
-	zpos_min_cursor = zpos;
+	uint64_t zpos_min_cursor = zpos;
 	wl_list_for_each(plane, &b->plane_list, link) {
 		if (plane->type != WDRM_PLANE_TYPE_CURSOR)
 			continue;
@@ -208,11 +205,10 @@ struct drm_head *
 drm_head_find_by_connector(struct drm_backend *backend, uint32_t connector_id)
 {
 	struct weston_head *base;
-	struct drm_head *head;
 
 	wl_list_for_each(base,
 			 &backend->compositor->head_list, compositor_link) {
-		head = to_drm_head(base);
+		struct drm_head *head = to_drm_head(base);
 		if (head->connector.connector_id == connector_id)
 			return head;
 	}
@@ -271,7 +267,6 @@ drm_output_update_complete(struct drm_output *output, uint32_t flags,
 {
 	struct drm_backend *b = to_drm_backend(output->base.compositor);
 	struct drm_plane_state *ps;
-	struct timespec ts;
 
 	/* Stop the pageflip timer instead of rearming it here */
 	if (output->pageflip_timer)
@@ -310,6 +305,7 @@ drm_output_update_complete(struct drm_output *output, uint32_t flags,
 		return;
 	}
 
+	struct timespec ts;
 	ts.tv_sec = sec;
 	ts.tv_nsec = usec * 1000;
 
@@ -357,9 +353,6 @@ drm_output_render(struct drm_output_state *state, pixman_region32_t *damage)
 		&scanout_plane->props[WDRM_PLANE_FB_DAMAGE_CLIPS];
 	struct drm_backend *b = to_drm_backend(c);
 	struct drm_fb *fb;
-	pixman_region32_t scanout_damage;
-	pixman_box32_t *rects;
-	int n_rects;
 
 	/* If we already have a client buffer promoted to scanout, then we don't
 	 * want to render. */
@@ -411,6 +404,7 @@ drm_output_render(struct drm_output_state *state, pixman_region32_t *damage)
 	if (damage_info->prop_id == 0)
 		return;
 
+	pixman_region32_t scanout_damage;
 	pixman_region32_init(&scanout_damage);
 	pixman_region32_copy(&scanout_damage, damage);
 
@@ -425,6 +419,8 @@ drm_output_render(struct drm_output_state *state, pixman_region32_t *damage)
 
 	assert(scanout_state->damage_blob_id == 0);
 
+	pixman_box32_t *rects;
+	int n_rects;
 	rects = pixman_region32_rectangles(&scanout_damage, &n_rects);
 
 	/*
