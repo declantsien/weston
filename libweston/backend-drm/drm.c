@@ -2077,13 +2077,14 @@ drm_head_log_info(struct drm_head *head, const char *msg)
  * Takes ownership of @c connector on success, not on failure.
  */
 static int
-drm_head_update_info(struct drm_head *head, drmModeConnector *conn)
+drm_head_update_info(struct drm_head *head, drmModeConnector *conn,
+        struct udev_device *drm_device)
 {
 	int ret;
 
 	ret = drm_connector_assign_connector_info(&head->connector, conn);
 
-	update_head_from_connector(head);
+	update_head_from_connector(head, drm_device);
 	weston_head_set_content_protection_status(&head->base,
 					drm_head_get_current_protection(head));
 
@@ -2147,7 +2148,7 @@ drm_head_create(struct drm_backend *backend, drmModeConnector *conn,
 	weston_head_init(&head->base, name);
 	free(name);
 
-	ret = drm_head_update_info(head, conn);
+	ret = drm_head_update_info(head, conn, drm_device);
 	if (ret < 0)
 		goto err_update;
 
@@ -2396,7 +2397,7 @@ drm_backend_update_connectors(struct drm_backend *b, struct udev_device *drm_dev
 		assert(head == NULL || writeback == NULL);
 
 		if (head)
-			ret = drm_head_update_info(head, conn);
+			ret = drm_head_update_info(head, conn, drm_device);
 		else if (writeback)
 			ret = drm_writeback_update_info(writeback, conn);
 		else

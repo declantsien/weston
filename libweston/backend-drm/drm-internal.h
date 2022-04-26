@@ -644,7 +644,7 @@ struct drm_mode *
 drm_output_choose_mode(struct drm_output *output,
 		       struct weston_mode *target_mode);
 void
-update_head_from_connector(struct drm_head *head);
+update_head_from_connector(struct drm_head *head, struct udev_device *drm_device);
 
 void
 drm_mode_list_destroy(struct drm_backend *backend, struct wl_list *mode_list);
