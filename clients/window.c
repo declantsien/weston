@@ -148,6 +148,8 @@ struct display {
 
 	int data_device_manager_version;
 	struct wp_viewporter *viewporter;
+
+	int wl_seat_version;
 };
 
 struct window_output {
@@ -312,6 +314,7 @@ struct widget {
 	widget_axis_source_handler_t axis_source_handler;
 	widget_axis_stop_handler_t axis_stop_handler;
 	widget_axis_discrete_handler_t axis_discrete_handler;
+	widget_axis_v120_handler_t axis_v120_handler;
 	void *user_data;
 	int opaque;
 	int tooltip_count;
@@ -2015,12 +2018,14 @@ widget_set_axis_handlers(struct widget *widget,
 			widget_axis_handler_t axis_handler,
 			widget_axis_source_handler_t axis_source_handler,
 			widget_axis_stop_handler_t axis_stop_handler,
-			widget_axis_discrete_handler_t axis_discrete_handler)
+			widget_axis_discrete_handler_t axis_discrete_handler,
+			widget_axis_v120_handler_t axis_v120_handler)
 {
 	widget->axis_handler = axis_handler;
 	widget->axis_source_handler = axis_source_handler;
 	widget->axis_stop_handler = axis_stop_handler;
 	widget->axis_discrete_handler = axis_discrete_handler;
+	widget->axis_v120_handler = axis_v120_handler;
 }
 
 static void
@@ -2958,6 +2963,21 @@ pointer_handle_axis_discrete(void *data, struct wl_pointer *pointer,
 						 widget->user_data);
 }
 
+static void
+pointer_handle_axis_v120(void *data, struct wl_pointer *pointer,
+			 uint32_t axis, int32_t value)
+{
+	struct input *input = data;
+	struct widget *widget;
+
+	widget = input->focus_widget;
+	if (input->grab)
+		widget = input->grab;
+	if (widget && widget->axis_v120_handler)
+		(*widget->axis_v120_handler)(widget, input,
+					     axis, value, widget->user_data);
+}
+
 static const struct wl_pointer_listener pointer_listener = {
 	pointer_handle_enter,
 	pointer_handle_leave,
@@ -2968,6 +2988,7 @@ static const struct wl_pointer_listener pointer_listener = {
 	pointer_handle_axis_source,
 	pointer_handle_axis_stop,
 	pointer_handle_axis_discrete,
+	pointer_handle_axis_v120,
 };
 
 static void
@@ -3567,6 +3588,12 @@ uint32_t
 input_get_modifiers(struct input *input)
 {
 	return input->modifiers;
+}
+
+uint32_t
+input_get_seat_version(struct input *input)
+{
+	return input->seat_version;
 }
 
 struct widget *
@@ -5897,7 +5924,7 @@ static void
 display_add_input(struct display *d, uint32_t id, int display_seat_version)
 {
 	struct input *input;
-	int seat_version = MIN(display_seat_version, 7);
+	int seat_version = MIN(display_seat_version, 8);
 
 	input = xzalloc(sizeof *input);
 	input->display = d;

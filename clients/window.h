@@ -306,6 +306,12 @@ typedef void (*widget_axis_discrete_handler_t)(struct widget *widget,
 					       int32_t discrete,
 					       void *data);
 
+typedef void (*widget_axis_v120_handler_t)(struct widget *widget,
+					   struct input *input,
+					   uint32_t axis,
+					   int32_t v120,
+					   void *data);
+
 struct window *
 window_create(struct display *display);
 struct window *
@@ -597,7 +603,8 @@ widget_set_axis_handlers(struct widget *widget,
 			widget_axis_handler_t axis_handler,
 			widget_axis_source_handler_t axis_source_handler,
 			widget_axis_stop_handler_t axis_stop_handler,
-			widget_axis_discrete_handler_t axis_discrete_handler);
+			widget_axis_discrete_handler_t axis_discrete_handler,
+			widget_axis_v120_handler_t axis_v120_handler);
 
 void
 window_inhibit_redraw(struct window *window);
@@ -638,6 +645,9 @@ input_get_touch(struct input *input, int32_t id, float *x, float *y);
 
 uint32_t
 input_get_modifiers(struct input *input);
+
+uint32_t
+input_get_seat_version(struct input *input);
 
 void
 touch_grab(struct input *input, int32_t touch_id);

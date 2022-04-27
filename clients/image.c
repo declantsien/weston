@@ -62,6 +62,11 @@ struct image {
 
 	bool initialized;
 	cairo_matrix_t matrix;
+
+	struct {
+		double vert, horiz;
+		double vert_v120, horiz_v120;
+	} axis;
 };
 
 static double
@@ -316,18 +321,96 @@ axis_handler(struct widget *widget, struct input *input, uint32_t time,
 {
 	struct image *image = data;
 
-	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL &&
-	    input_get_modifiers(input) == MOD_CONTROL_MASK) {
-		/* set zoom level to 2% per 10 axis units */
-		zoom(image, (1.0 - wl_fixed_to_double(value) / 500.0));
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		image->axis.vert = wl_fixed_to_double(value);
+	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+		image->axis.horiz = wl_fixed_to_double(value);
 
+}
+
+static void
+axis_source_handler(struct widget *widget, struct input *input,
+		    uint32_t source, void *data)
+{
+	/* ignore */
+}
+
+static void
+axis_discrete_handler(struct widget *widget, struct input *input,
+		      uint32_t axis, int32_t discrete, void *data)
+{
+	struct image *image = data;
+
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		image->axis.vert_v120 = discrete * 120;
+	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+		image->axis.horiz_v120 = discrete * 120;
+}
+
+static void
+axis_stop_handler(struct widget *widget, struct input *input,
+		  uint32_t time, uint32_t axis,
+		  void *data)
+{
+	/* ignore */
+}
+
+static void
+axis_v120_handler(struct widget *widget, struct input *input,
+		  uint32_t axis, int32_t v120, void *data)
+{
+	struct image *image = data;
+
+	if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+		image->axis.vert_v120 = v120;
+	if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
+		image->axis.horiz_v120 = v120;
+}
+
+static void
+pointer_frame_handler(struct widget *widget, struct input *input, void *data)
+{
+	struct image *image = data;
+	double vert = image->axis.vert;
+	double horiz = image->axis.horiz;
+
+	/* wl_pointer version < 8: 1 discrete value per wheel click
+	 * which was traditionally 10 axis units.
+	 * wl_pointer version 8+: one wheel click is a value of 120,
+	 * so let's normalize this into the same space.
+	 */
+	if (image->axis.vert_v120) {
+		if (input_get_seat_version(input) <
+		    WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
+			vert = image->axis.vert_v120 * 10;
+		else
+			vert = image->axis.vert_v120 / 12.0;
+	}
+
+	if (image->axis.horiz_v120) {
+		if (input_get_seat_version(input) <
+		    WL_POINTER_AXIS_VALUE120_SINCE_VERSION)
+			horiz = image->axis.horiz_v120 * 10;
+		else
+			horiz = image->axis.horiz_v120 / 12.0;
+	}
+
+	if (vert != 0.0 &&
+	    input_get_modifiers(input) == MOD_CONTROL_MASK) {
+		/* set zoom level to 10% per 10 axis units */
+		zoom(image, (1.0 - vert / 100.0));
 		window_schedule_redraw(image->window);
 	} else if (input_get_modifiers(input) == 0) {
-		if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
-			move_viewport(image, 0, wl_fixed_to_double(value));
-		else if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL)
-			move_viewport(image, wl_fixed_to_double(value), 0);
+		if (vert != 0.0)
+			move_viewport(image, 0, vert);
+		else if (horiz != 0.0)
+			move_viewport(image, horiz, 0);
 	}
+
+	image->axis.vert = 0.0;
+	image->axis.horiz = 0.0;
+	image->axis.vert_v120 = 0;
+	image->axis.horiz_v120 = 0;
 }
 
 static void
@@ -400,7 +483,14 @@ image_create(struct display *display, const char *filename,
 	widget_set_enter_handler(image->widget, enter_handler);
 	widget_set_motion_handler(image->widget, motion_handler);
 	widget_set_button_handler(image->widget, button_handler);
-	widget_set_axis_handler(image->widget, axis_handler);
+	widget_set_axis_handlers(image->widget,
+				 axis_handler,
+				 axis_source_handler,
+				 axis_stop_handler,
+				 axis_discrete_handler,
+				 axis_v120_handler);
+	widget_set_pointer_frame_handler(image->widget,
+					 pointer_frame_handler);
 	window_set_key_handler(image->window, key_handler);
 	widget_schedule_resize(image->widget, 500, 400);
 

@@ -147,6 +147,10 @@ dep_wayland_server = dependency('wayland-server', version: '>= 1.20.0')
 dep_wayland_client = dependency('wayland-client', version: '>= 1.20.0')
 dep_pixman = dependency('pixman-1', version: '>= 0.25.2')
 dep_libinput = dependency('libinput', version: '>= 0.8.0')
+have_libinput_axis_v120 = cc.has_function('libinput_event_pointer_get_scroll_value_v120',
+                                          dependencies: dep_libinput)
+config_h.set10('HAVE_LIBINPUT_AXIS_V120', have_libinput_axis_v120)
+
 dep_libevdev = dependency('libevdev')
 dep_libm = cc.find_library('m')
 dep_libdl = cc.find_library('dl')
