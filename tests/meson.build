@@ -1,6 +1,7 @@
 plugin_test_shell_desktop = shared_library(
 	'weston-test-desktop-shell',
 	'weston-test-desktop-shell.c',
+	c_args: [ '-UNDEBUG' ],
 	include_directories: common_inc,
 	dependencies: [ dep_lib_desktop, dep_libweston_public, dep_libexec_weston, dep_shell_utils ],
 	name_prefix: '',
@@ -11,6 +12,7 @@ env_modmap += 'weston-test-desktop-shell.so=@0@;'.format(plugin_test_shell_deskt
 lib_test_runner = static_library(
 	'test-runner',
 	'weston-test-runner.c',
+	c_args: [ '-UNDEBUG' ],
 	dependencies: [
 		dep_libweston_private_h_deps,
 		dep_wayland_client,
@@ -38,6 +40,7 @@ lib_test_client = static_library(
 		'color_util.c',
 	],
 	include_directories: common_inc,
+	c_args: [ '-UNDEBUG' ],
 	dependencies: [
 		dep_libshared,
 		dep_wayland_client,
@@ -344,6 +347,7 @@ foreach t : tests
 		c_args: [
 			'-DUNIT_TEST',
 			'-DTHIS_TEST_NAME="' + t_name + '"',
+			'-UNDEBUG',
 		],
 		build_by_default: true,
 		include_directories: common_inc,
@@ -386,7 +390,7 @@ foreach t : tests_standalone
 	exe_t = executable(
 		'test-@0@'.format(t.get(0)),
 		srcs_t,
-		c_args: [ '-DUNIT_TEST' ],
+		c_args: [ '-DUNIT_TEST', '-UNDEBUG' ],
 		build_by_default: true,
 		include_directories: common_inc,
 		dependencies: deps_t,
@@ -403,6 +407,7 @@ if get_option('backend-drm')
 	executable(
 		'setbacklight',
 		'setbacklight.c',
+		c_args: [ '-UNDEBUG' ],
 		dependencies: [
 			dep_backlight,
 			dep_libdrm,
