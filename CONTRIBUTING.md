@@ -208,6 +208,8 @@ my_function(void)
                                              parameter3, parameter4);
 ```
 
+- variable declarations may be interspersed with code
+
 Conduct
 =======
 
