@@ -185,6 +185,10 @@ struct weston_testsuite_quirks {
 	bool gl_force_full_upload;
 	/** Ensure GL shadow fb is used, and always repaint it fully. */
 	bool gl_force_full_redraw_of_shadow_fb;
+	/** Use fake time in the compositor. This enables the weston_clock
+	 * protocol which allows clients to advance time on demand.
+	 */
+	bool use_fake_time;
 	/** Required enum weston_capability bit mask, otherwise skip run. */
 	uint32_t required_capabilities;
 };
@@ -1179,6 +1183,7 @@ struct weston_debug_compositor;
 struct weston_color_manager;
 struct weston_dmabuf_feedback;
 struct weston_dmabuf_feedback_format_table;
+struct weston_clock;
 
 /** Main object, container-like structure which aggregates all other objects.
  *
@@ -1308,6 +1313,8 @@ struct weston_compositor {
 	struct weston_log_scope *libseat_debug;
 
 	struct content_protection *content_protection;
+
+	struct weston_clock *clock;
 };
 
 struct weston_buffer {
@@ -2003,6 +2010,20 @@ weston_buffer_from_resource(struct weston_compositor *ec,
 
 void
 weston_compositor_get_time(struct timespec *time);
+
+struct wl_event_source *
+weston_compositor_add_timer(struct weston_compositor *compositor,
+			    wl_event_loop_timer_func_t func,
+			    void *data);
+
+void
+weston_compositor_timer_update(struct weston_compositor *compositor,
+			       struct wl_event_source *timer,
+			       int ms_delay);
+
+void
+weston_compositor_timer_remove(struct weston_compositor *compositor,
+			       struct wl_event_source *timer);
 
 void
 weston_compositor_destroy(struct weston_compositor *ec);

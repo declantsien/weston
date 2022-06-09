@@ -38,6 +38,7 @@
 #include "weston-test-runner.h"
 #include "weston-test-client-protocol.h"
 #include "weston-screenshooter-client-protocol.h"
+#include "weston-clock-client-protocol.h"
 #include "viewporter-client-protocol.h"
 
 struct client {
@@ -53,6 +54,7 @@ struct client {
 	struct wl_compositor *wl_compositor;
 	struct wl_shm *wl_shm;
 	struct test *test;
+	struct clock *clock;
 	/* the seat that is actually used for input events */
 	struct input *input;
 	/* server can have more wl_seats. We need keep them all until we
@@ -82,6 +84,11 @@ struct test {
 	int pointer_x;
 	int pointer_y;
 	uint32_t n_egl_buffers;
+};
+
+struct clock {
+	struct weston_clock *weston_clock;
+	struct timespec time;
 };
 
 struct input {
@@ -219,6 +226,9 @@ surface_contains(struct surface *surface, int x, int y);
 
 void
 move_client(struct client *client, int x, int y);
+
+void
+client_advance_time(struct client *client, const struct timespec *advance);
 
 #define client_roundtrip(c) do { \
 	assert(wl_display_roundtrip((c)->wl_display) >= 0); \

@@ -39,6 +39,7 @@
 #include "test-config.h"
 #include "shared/os-compatibility.h"
 #include "shared/xalloc.h"
+#include "shared/timespec-util.h"
 #include <libweston/zalloc.h>
 #include "weston-test-client-helper.h"
 
@@ -115,7 +116,30 @@ move_client(struct client *client, int x, int y)
 
 	wl_surface_commit(surface->wl_surface);
 
+	/* If we are using fake time, advance the time far enough in the future
+	 * to ensure we get a new frame. */
+	if (client->clock) {
+		struct timespec ts;
+		timespec_from_msec(&ts, 1000);
+		client_advance_time(client, &ts);
+	}
+
 	frame_callback_wait(client, &done);
+}
+
+void
+client_advance_time(struct client *client, const struct timespec *advance)
+{
+	uint32_t tv_sec_hi, tv_sec_lo, tv_nsec;
+
+	assert(client->clock);
+
+	timespec_to_proto(advance, &tv_sec_hi, &tv_sec_lo, &tv_nsec);
+
+	timespec_add(&client->clock->time, &client->clock->time, advance);
+
+	weston_clock_advance_time(client->clock->weston_clock,
+				  tv_sec_hi, tv_sec_lo, tv_nsec);
 }
 
 static void
@@ -804,6 +828,11 @@ handle_global(void *data, struct wl_registry *registry,
 					 &weston_screenshooter_interface, 1);
 		weston_screenshooter_add_listener(client->screenshooter,
 						  &screenshooter_listener, client);
+	} else if (strcmp(interface, "weston_clock") == 0) {
+		client->clock = xzalloc(sizeof *client->clock);
+		client->clock->weston_clock =
+			wl_registry_bind(registry, id,
+					 &weston_clock_interface, version);
 	}
 }
 
@@ -1078,6 +1107,12 @@ client_destroy(struct client *client)
 
 	if (client->screenshooter)
 		weston_screenshooter_destroy(client->screenshooter);
+
+	if (client->clock) {
+		weston_clock_destroy(client->clock->weston_clock);
+		free(client->clock);
+	}
+
 	if (client->wl_shm)
 		wl_shm_destroy(client->wl_shm);
 	if (client->wl_compositor)

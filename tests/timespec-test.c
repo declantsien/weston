@@ -39,6 +39,19 @@
 #include "shared/helpers.h"
 #include "zunitc/zunitc.h"
 
+ZUC_TEST(timespec_test, timespec_add)
+{
+	struct timespec a, b, r;
+
+	a.tv_sec = 1;
+	a.tv_nsec = 2;
+	b.tv_sec = 0;
+	b.tv_nsec = NSEC_PER_SEC - 1;
+	timespec_add(&r, &a, &b);
+	ZUC_ASSERT_EQ(r.tv_sec, 2);
+	ZUC_ASSERT_EQ(r.tv_nsec, 1);
+}
+
 ZUC_TEST(timespec_test, timespec_sub)
 {
 	struct timespec a, b, r;

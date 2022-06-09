@@ -36,6 +36,8 @@ lib_test_client = static_library(
 		viewporter_protocol_c,
 		'color_util.h',
 		'color_util.c',
+		weston_clock_client_protocol_h,
+		weston_clock_protocol_c,
 	],
 	include_directories: common_inc,
 	dependencies: [
@@ -274,6 +276,14 @@ endif
 tests_standalone = [
 	['config-parser', [], [ dep_zucmain ]],
 	['timespec', [], [ dep_zucmain ]],
+	['weston-clock',
+		[
+			'../libweston/weston-clock.c',
+			weston_clock_protocol_c,
+			weston_clock_server_protocol_h,
+		],
+		[ dep_zucmain, dep_libweston_private_h, dep_wayland_server ]
+	],
 	['zuc',
 		[
 			'../tools/zunitc/test/fixtures_test.c',

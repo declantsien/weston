@@ -42,10 +42,12 @@ useful for running the compositor with different settings for the same tests,
 e.g. with Pixman-renderer and GL-renderer.
 
 **A test** in a test program is defined with one of the macros :c:func:`TEST`,
-:c:func:`TEST_P`, or :c:func:`PLUGIN_TEST`. :c:func:`TEST` defines a single
-test with no sub-tests. :c:func:`TEST_P` defines a data-driven array of tests:
-a set of sub-tests. :c:func:`PLUGIN_TEST` is used specifically by *plugin
-tests* that require access to :type:`weston_compositor`.
+:c:func:`TEST_P`, :c:func:`TEST_WITH_COMPOSITOR` or :c:func:`PLUGIN_TEST`.
+:c:func:`TEST` defines a single test with no sub-tests. :c:func:`TEST_P`
+defines a data-driven array of tests: a set of sub-tests.
+:c:func:`TEST_WITH_COMPOSITOR` is used by tests that require access to
+:type:`weston_compositor`. :c:func:`PLUGIN_TEST` is similar to
+:c:func:`TEST_WITH_COMPOSITOR` but used specifically by *plugin tests*.
 
 All tests and sub-tests are executed serially in a test program. The test
 harness does not ``fork()`` which means that any test that crashes or hits an
@@ -147,7 +149,7 @@ Client tests
 
 Plugin tests must have a fixture setup function that calls
 :func:`weston_test_harness_execute_as_client`. All test cases must be
-defined with :c:func:`TEST` or :c:func:`TEST_P`.
+defined with :c:func:`TEST`, :c:func:`TEST_P` or :c:func:`TEST_WITH_COMPOSITOR`.
 
 The compositor fixture manufactures the necessary environment variables and the
 command line argument array to launch Weston, and calls :func:`wet_main`
