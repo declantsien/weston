@@ -23,6 +23,11 @@ which is determined in the file
 Make active window fullscreen
 .P
 .RE
+.B mod + C
+.RS 4
+Close active window
+.P
+.RE
 .B mod + K
 .RS 4
 Kill active window
