@@ -16,6 +16,8 @@ srcs_toytoolkit = [
 	ivi_application_protocol_c,
 	viewporter_client_protocol_h,
 	viewporter_protocol_c,
+	xdg_decoration_unstable_v1_client_protocol_h,
+	xdg_decoration_unstable_v1_protocol_c,
 ]
 deps_toytoolkit = [
 	dep_wayland_client,
