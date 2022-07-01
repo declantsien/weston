@@ -1255,22 +1255,25 @@ setup_output_seat_constraint(struct drm_backend *b,
 			     struct weston_output *output,
 			     const char *s)
 {
-	if (strcmp(s, "") != 0) {
-		struct weston_pointer *pointer;
-		struct udev_seat *seat;
+	struct weston_pointer *pointer;
+	struct udev_seat *seat;
+	const char *seat_name = NULL;
 
-		seat = udev_seat_get_named(&b->input, s);
-		if (!seat)
-			return;
+	seat_name = s;
+	if (strcmp(seat_name, "") == 0)
+		seat_name = "fake-seat";
 
-		seat->base.output = output;
+	seat = udev_seat_get_named(&b->input, seat_name);
+	if (!seat)
+		return;
 
-		pointer = weston_seat_get_pointer(&seat->base);
-		if (pointer)
-			weston_pointer_clamp(pointer,
-					     &pointer->x,
-					     &pointer->y);
-	}
+	seat->base.output = output;
+
+	pointer = weston_seat_get_pointer(&seat->base);
+	if (pointer)
+		weston_pointer_clamp(pointer,
+				&pointer->x,
+				&pointer->y);
 }
 
 static int
