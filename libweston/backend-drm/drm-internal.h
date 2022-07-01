@@ -319,6 +319,7 @@ struct drm_backend {
 
 	bool use_pixman;
 	bool use_pixman_shadow;
+	char *seat_id;
 
 	struct udev_input input;
 

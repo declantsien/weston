@@ -1389,6 +1389,9 @@ drm_output_set_seat(struct weston_output *base,
 	struct drm_output *output = to_drm_output(base);
 	struct drm_backend *b = to_drm_backend(base->compositor);
 
+	if (b->seat_id)
+		seat = b->seat_id;
+
 	setup_output_seat_constraint(b, &output->base,
 				     seat ? seat : "");
 }
@@ -2682,6 +2685,7 @@ drm_destroy(struct weston_compositor *ec)
 
 	free(device->drm.filename);
 	free(device);
+	free(b->seat_id);
 	free(b);
 }
 
@@ -3102,6 +3106,8 @@ drm_backend_create(struct weston_compositor *compositor,
 	b->use_pixman = config->use_pixman;
 	b->pageflip_timeout = config->pageflip_timeout;
 	b->use_pixman_shadow = config->use_pixman_shadow;
+	if (config->seat_id)
+		b->seat_id = strdup(config->seat_id);
 
 	b->debug = weston_compositor_add_log_scope(compositor, "drm-backend",
 						   "Debug messages from DRM/KMS backend\n",
@@ -3314,6 +3320,7 @@ err_compositor:
 	if (b->gbm)
 		gbm_device_destroy(b->gbm);
 #endif
+	free(b->seat_id);
 	free(b);
 	return NULL;
 }
