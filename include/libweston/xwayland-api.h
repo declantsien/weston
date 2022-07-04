@@ -70,6 +70,7 @@ struct weston_xwayland_api {
 	 * the Xwayland process.
 	 *
 	 * \param xwayland The Xwayland context object.
+	 * \param disable_abstract_fd If true, prevent listening on an abstract fd.
 	 * \param user_data The user data pointer to be passed to \a spawn_func.
 	 * \param spawn_func The callback function called to start the Xwayland
 	 *                   server process.
@@ -77,7 +78,8 @@ struct weston_xwayland_api {
 	 * \return 0 on success, a negative number otherwise.
 	 */
 	int
-	(*listen)(struct weston_xwayland *xwayland, void *user_data,
+	(*listen)(struct weston_xwayland *xwayland, bool disable_abstrct_fd,
+		  void *user_data,
 	          weston_xwayland_spawn_xserver_func_t spawn_func);
 
 	/** Notify the Xwayland module that the Xwayland server is loaded.
