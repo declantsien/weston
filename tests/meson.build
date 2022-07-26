@@ -251,6 +251,7 @@ tests = [
 		],
 		'dep_objs': [ dep_shell_utils ]
 	},
+	{	'name': 'invalid-buffer-size', },
 ]
 
 if get_option('renderer-gl')

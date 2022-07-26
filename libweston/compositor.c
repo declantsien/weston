@@ -3787,6 +3787,7 @@ surface_attach(struct wl_client *client,
 	struct weston_surface *surface = wl_resource_get_user_data(resource);
 	struct weston_compositor *ec = surface->compositor;
 	struct weston_buffer *buffer = NULL;
+	int32_t buffer_scale = surface->pending.buffer_viewport.buffer.scale;
 
 	if (buffer_resource) {
 		buffer = weston_buffer_from_resource(ec, buffer_resource);
@@ -3794,6 +3795,15 @@ surface_attach(struct wl_client *client,
 			wl_client_post_no_memory(client);
 			return;
 		}
+	}
+
+	if (buffer && (buffer->width % buffer_scale != 0 ||
+	    buffer->height % buffer_scale != 0) &&
+	    surface->pending.buffer_viewport.surface.width == -1) {
+		wl_resource_post_error(surface->resource,
+				       WL_SURFACE_ERROR_INVALID_SIZE,
+				       "Buffer size not divisible by scale");
+		return;
 	}
 
 	/* Attach, attach, without commit in between does not send
