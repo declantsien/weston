@@ -7320,7 +7320,9 @@ weston_output_enable(struct weston_output *output)
 	weston_output_transform_scale_init(output, output->transform, output->scale);
 
 	weston_output_init_geometry(output, x, y);
-	weston_output_damage(output);
+	pixman_region32_union(&c->primary_plane.damage,
+			      &c->primary_plane.damage,
+			      &output->region);
 
 	wl_list_init(&output->animation_list);
 	wl_list_init(&output->feedback_list);

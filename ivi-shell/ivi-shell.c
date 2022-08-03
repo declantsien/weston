@@ -650,6 +650,7 @@ wet_shell_init(struct weston_compositor *compositor,
 
 	ivi_layout_init_with_compositor(compositor);
 	shell_add_bindings(compositor, shell);
+	weston_compositor_damage_all(compositor);
 
 	return IVI_SUCCEEDED;
 
