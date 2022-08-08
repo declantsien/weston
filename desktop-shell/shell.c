@@ -3910,12 +3910,18 @@ struct switcher {
 };
 
 static void
-switcher_next(struct switcher *switcher)
+switcher_func(struct switcher *switcher, uint32_t key, uint32_t modifier)
 {
 	struct weston_view *view;
 	struct weston_view *first = NULL, *prev = NULL, *next = NULL;
 	struct shell_surface *shsurf;
 	struct workspace *ws = get_current_workspace(switcher->shell);
+	uint32_t mod = switcher->shell->binding_modifier;
+	mod = mod | MODIFIER_SHIFT;
+	bool tab_with_shift = false;
+
+	if(mod == modifier)
+		tab_with_shift = true;
 
 	 /* temporary re-display minimized surfaces */
 	struct weston_view *tmp;
@@ -3927,23 +3933,45 @@ switcher_next(struct switcher *switcher)
 		*minimized = view;
 	}
 
-	wl_list_for_each(view, &ws->layer.view_list.link, layer_link.link) {
-		shsurf = get_shell_surface(view->surface);
-		if (shsurf) {
-			if (first == NULL)
-				first = view;
-			if (prev == switcher->current)
-				next = view;
-			prev = view;
-			view->alpha = 0.25;
-			weston_view_geometry_dirty(view);
-			weston_surface_damage(view->surface);
-		}
+	if ((key == KEY_TAB && !tab_with_shift) || key == KEY_RIGHT) {
+		wl_list_for_each(view, &ws->layer.view_list.link, layer_link.link) {
+			shsurf = get_shell_surface(view->surface);
+			if (shsurf) {
+				if (first == NULL)
+					first = view;
+				if (prev == switcher->current)
+					next = view;
+				prev = view;
+				view->alpha = 0.25;
+				weston_view_geometry_dirty(view);
+				weston_surface_damage(view->surface);
+			}
 
-		if (is_black_surface_view(view, NULL)) {
-			view->alpha = 0.25;
-			weston_view_geometry_dirty(view);
-			weston_surface_damage(view->surface);
+			if (is_black_surface_view(view, NULL)) {
+				view->alpha = 0.25;
+				weston_view_geometry_dirty(view);
+				weston_surface_damage(view->surface);
+			}
+		}
+	} else if(key == KEY_LEFT || (key == KEY_TAB && tab_with_shift)) {
+		wl_list_for_each_reverse(view, &ws->layer.view_list.link, layer_link.link) {
+			shsurf = get_shell_surface(view->surface);
+			if (shsurf) {
+				if (first == NULL)
+					first = view;
+				if (prev == switcher->current)
+					next = view;
+				prev = view;
+				view->alpha = 0.25;
+				weston_view_geometry_dirty(view);
+				weston_surface_damage(view->surface);
+			}
+
+			if (is_black_surface_view(view, NULL)) {
+				view->alpha = 0.25;
+				weston_view_geometry_dirty(view);
+				weston_surface_damage(view->surface);
+			}
 		}
 	}
 
@@ -3971,7 +3999,7 @@ switcher_handle_view_destroy(struct wl_listener *listener, void *data)
 	struct switcher *switcher =
 		container_of(listener, struct switcher, listener);
 
-	switcher_next(switcher);
+	switcher_func(switcher, KEY_RIGHT, 0);
 }
 
 static void
@@ -4021,9 +4049,10 @@ switcher_key(struct weston_keyboard_grab *grab,
 {
 	struct switcher *switcher = container_of(grab, struct switcher, grab);
 	enum wl_keyboard_key_state state = state_w;
+	struct weston_seat *seat = grab->keyboard->seat;
 
-	if (key == KEY_TAB && state == WL_KEYBOARD_KEY_STATE_PRESSED)
-		switcher_next(switcher);
+	if(state == WL_KEYBOARD_KEY_STATE_PRESSED)
+		switcher_func(switcher, key, seat->modifier_state);
 }
 
 static void
@@ -4073,7 +4102,7 @@ switcher_binding(struct weston_keyboard *keyboard, const struct timespec *time,
 	switcher->grab.interface = &switcher_grab;
 	weston_keyboard_start_grab(keyboard, &switcher->grab);
 	weston_keyboard_set_focus(keyboard, NULL);
-	switcher_next(switcher);
+	switcher_func(switcher, key, keyboard->seat->modifier_state);
 }
 
 static void
@@ -4497,6 +4526,13 @@ shell_add_bindings(struct weston_compositor *ec, struct desktop_shell *shell)
 						     rotate_binding, NULL);
 
 	weston_compositor_add_key_binding(ec, KEY_TAB, mod, switcher_binding,
+					  shell);
+	weston_compositor_add_key_binding(ec, KEY_RIGHT, mod, switcher_binding,
+					  shell);
+	weston_compositor_add_key_binding(ec, KEY_LEFT, mod, switcher_binding,
+					  shell);
+	weston_compositor_add_key_binding(ec, KEY_TAB, mod | MODIFIER_SHIFT,
+					  switcher_binding,
 					  shell);
 	weston_compositor_add_key_binding(ec, KEY_F9, mod, backlight_binding,
 					  ec);
