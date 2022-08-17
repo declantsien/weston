@@ -402,6 +402,7 @@ button_handler(struct widget *widget,
 {
 	struct fullscreen *fullscreen = data;
 
+	fullscreen->fullscreen = window_is_fullscreen(fullscreen->window);
 	switch (button) {
 	case BTN_LEFT:
 		if (state == WL_POINTER_BUTTON_STATE_PRESSED)
