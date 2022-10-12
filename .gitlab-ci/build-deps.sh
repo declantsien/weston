@@ -26,6 +26,9 @@ pip3 install sphinx==4.2.0 --user
 pip3 install breathe==4.31.0 --user
 pip3 install sphinx_rtd_theme==1.0.0 --user
 
+# pycobertura is used for creating a difference report of test coverage
+pip3 install pycobertura==3.0.0 --user
+
 # Build a Linux kernel for use in testing. We enable the VKMS module so we can
 # predictably test the DRM backend in the absence of real hardware. We lock the
 # version here so we see predictable results.
