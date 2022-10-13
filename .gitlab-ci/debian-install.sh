@@ -1,5 +1,5 @@
 #!/bin/bash
-# 
+#
 # Constructs the base container image used to build Weston within CI. Per the
 # comment at the top of .gitlab-ci.yml, any changes in this file must bump the
 # $FDO_DISTRIBUTION_TAG variable so we know the container has to be rebuilt.
@@ -24,6 +24,11 @@ MESA_DEV_PKGS="
 	libxrandr-dev
 	llvm-11-dev
 	python3-mako
+"
+
+# These get temporary installed for building Python modules and then force-removed.
+PYTHON_DEV_PKGS="
+	python3-dev
 "
 
 # Needed for running the custom-built mesa
@@ -117,6 +122,7 @@ apt-get -y --no-install-recommends install \
 	$MESA_DEV_PKGS \
 	$MESA_RUNTIME_PKGS \
 	$LINUX_DEV_PKGS \
+	$PYTHON_DEV_PKGS \
 
 
 # Actually build our dependencies ...
@@ -125,4 +131,4 @@ apt-get -y --no-install-recommends install \
 
 # And remove packages which are only required for our build dependencies,
 # which we don't need bloating the image whilst we build and run Weston.
-apt-get -y --autoremove purge $LINUX_DEV_PKGS $MESA_DEV_PKGS
+apt-get -y --autoremove purge $LINUX_DEV_PKGS $MESA_DEV_PKGS $PYTHON_DEV_PKGS

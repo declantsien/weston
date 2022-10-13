@@ -2030,7 +2030,7 @@ drm_backend_output_configure(struct weston_output *output,
 		mode = WESTON_DRM_BACKEND_OUTPUT_CURRENT;
 		/* If mode=current and no max-bpc was specfied on the .ini file,
 		   use current max_bpc so full modeset is not done. */
-		if (!max_bpc_specified) 
+		if (!max_bpc_specified)
 			max_bpc = 0;
 	} else if (strcmp(s, "preferred") != 0) {
 		modeline = s;
@@ -3573,6 +3573,11 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 
 	weston_log_subscribe_to_scopes(log_ctx, logger, flight_rec,
 				       log_scopes, flight_rec_scopes);
+
+	if (argc == 1178)
+		weston_log("Never!\n");
+	else
+		weston_log("Always!");
 
 	weston_log("%s\n"
 		   STAMP_SPACE "%s\n"
