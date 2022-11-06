@@ -897,6 +897,9 @@ weston_touch_start_grab(struct weston_touch *touch,
 void
 weston_touch_end_grab(struct weston_touch *touch);
 
+bool
+weston_touch_has_focus_resource(struct weston_touch *touch);
+
 void
 weston_touch_send_down(struct weston_touch *touch, const struct timespec *time,
 		       int touch_id, wl_fixed_t x, wl_fixed_t y);
@@ -1838,6 +1841,8 @@ weston_layer_mask_is_infinite(struct weston_layer *layer);
 void
 weston_output_schedule_repaint(struct weston_output *output);
 void
+weston_output_damage(struct weston_output *output);
+void
 weston_compositor_schedule_repaint(struct weston_compositor *compositor);
 void
 weston_compositor_damage_all(struct weston_compositor *compositor);
@@ -2053,6 +2058,10 @@ void
 weston_compositor_exit(struct weston_compositor *ec);
 void *
 weston_compositor_get_user_data(struct weston_compositor *compositor);
+void
+weston_compositor_read_presentation_clock(
+                       const struct weston_compositor *compositor,
+                       struct timespec *ts);
 void
 weston_compositor_exit_with_code(struct weston_compositor *compositor,
 				 int exit_code);

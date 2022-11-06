@@ -154,11 +154,6 @@ weston_compositor_offscreen(struct weston_compositor *compositor);
 char *
 weston_compositor_print_scene_graph(struct weston_compositor *ec);
 
-void
-weston_compositor_read_presentation_clock(
-			const struct weston_compositor *compositor,
-			struct timespec *ts);
-
 int
 weston_compositor_run_axis_binding(struct weston_compositor *compositor,
 				   struct weston_pointer *pointer,
@@ -301,9 +296,6 @@ weston_touch_create_touch_device(struct weston_touch *touch,
 
 void
 weston_touch_device_destroy(struct weston_touch_device *device);
-
-bool
-weston_touch_has_focus_resource(struct weston_touch *touch);
 
 int
 weston_touch_start_drag(struct weston_touch *touch,
