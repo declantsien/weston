@@ -722,6 +722,7 @@ drm_output_propose_state(struct weston_output *output_base,
 		pixman_region32_t clipped_view;
 		pixman_region32_t surface_overlap;
 		bool totally_occluded = false;
+		ev->transform.totally_occluded = totally_occluded;
 
 		drm_debug(b, "\t\t\t[view] evaluating view %p for "
 		             "output %s (%lu)\n",
@@ -757,6 +758,7 @@ drm_output_propose_state(struct weston_output *output_base,
 		 * view; includes the case where occluded_region covers
 		 * the entire output */
 		totally_occluded = !pixman_region32_not_empty(&surface_overlap);
+		ev->transform.totally_occluded = totally_occluded;
 		if (totally_occluded) {
 			drm_debug(b, "\t\t\t\t[view] ignoring view %p "
 			             "(occluded on our output)\n", ev);
@@ -1012,8 +1014,12 @@ drm_assign_planes(struct weston_output *output_base)
 				  (unsigned long) target_plane->plane_id);
 			weston_view_move_to_plane(ev, &target_plane->base);
 		} else {
-			drm_debug(b, "\t[repaint] view %p using renderer "
-				     "composition\n", ev);
+			if (ev->transform.totally_occluded)
+				drm_debug(b, "\t[repaint] view %p not placed "
+					     "on a HW plane (occluded)\n", ev);
+			else
+				drm_debug(b, "\t[repaint] view %p using renderer "
+					     "composition\n", ev);
 			weston_view_move_to_plane(ev, primary);
 		}
 

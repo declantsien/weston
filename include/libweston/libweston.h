@@ -1514,6 +1514,7 @@ struct weston_view {
 		 */
 		pixman_region32_t boundingbox;
 		pixman_region32_t opaque;
+		bool totally_occluded;
 
 		/* matrix and inverse are used only if enabled = 1.
 		 * If enabled = 0, use x, y, width, height directly.
