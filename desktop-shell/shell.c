@@ -1009,7 +1009,7 @@ constrain_position(struct weston_move_grab *move, int *cx, int *cy)
 	struct weston_surface *surface =
 		weston_desktop_surface_get_surface(shsurf->desktop_surface);
 	struct weston_pointer *pointer = move->base.grab.pointer;
-	int x, y, bottom;
+	int x, y, bottom, maxbottom;
 	const int safety = 50;
 	pixman_rectangle32_t area;
 	struct weston_geometry geometry;
@@ -1024,9 +1024,12 @@ constrain_position(struct weston_move_grab *move, int *cx, int *cy)
 			weston_desktop_surface_get_geometry(shsurf->desktop_surface);
 
 		bottom = y + geometry.height + geometry.y;
+		maxbottom = area.height + geometry.height;
 		if (bottom - safety < area.y)
 			y = area.y + safety - geometry.height
 			  - geometry.y;
+		if (bottom > maxbottom)
+			y = area.height - geometry.y;
 
 		if (move->client_initiated &&
 		    y + geometry.y < area.y)
@@ -1148,11 +1151,22 @@ resize_grab_motion(struct weston_pointer_grab *grab,
 	struct weston_size min_size, max_size;
 	wl_fixed_t from_x, from_y;
 	wl_fixed_t to_x, to_y;
+	int panel_width, panel_height;
 
 	weston_pointer_move(pointer, event);
 
 	if (!shsurf)
 		return;
+
+	if (shsurf->shell->panel_position ==
+	    WESTON_DESKTOP_SHELL_PANEL_POSITION_TOP) {
+		get_output_panel_size(shsurf->shell, shsurf->output,
+			 &panel_width, &panel_height);
+		if (wl_fixed_to_int(pointer->y) < panel_height)
+        	return ;
+	}
+	
+    
 
 	weston_view_from_global_fixed(shsurf->view,
 				      pointer->grab_x, pointer->grab_y,
