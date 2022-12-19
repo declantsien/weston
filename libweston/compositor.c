@@ -1304,7 +1304,6 @@ weston_view_update_transform_disable(struct weston_view *view)
 	view->geometry.y = roundf(view->geometry.y);
 
 	/* Otherwise identity matrix, but with x and y translation. */
-	view->transform.position.matrix.type = WESTON_MATRIX_TRANSFORM_TRANSLATE;
 	view->transform.position.matrix.d[12] = view->geometry.x;
 	view->transform.position.matrix.d[13] = view->geometry.y;
 
@@ -1340,7 +1339,6 @@ weston_view_update_transform_enable(struct weston_view *view)
 	view->transform.enabled = 1;
 
 	/* Otherwise identity matrix, but with x and y translation. */
-	view->transform.position.matrix.type = WESTON_MATRIX_TRANSFORM_TRANSLATE;
 	view->transform.position.matrix.d[12] = view->geometry.x;
 	view->transform.position.matrix.d[13] = view->geometry.y;
 

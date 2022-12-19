@@ -52,10 +52,6 @@
 		.d[1] = a21, .d[5] = a22, .d[ 9] = a23, .d[13] = a24,	\
 		.d[2] = a31, .d[6] = a32, .d[10] = a33, .d[14] = a34,	\
 		.d[3] = a41, .d[7] = a42, .d[11] = a43, .d[15] = a44,	\
-		.type = WESTON_MATRIX_TRANSFORM_TRANSLATE |		\
-			WESTON_MATRIX_TRANSFORM_SCALE |			\
-			WESTON_MATRIX_TRANSFORM_ROTATE |		\
-			WESTON_MATRIX_TRANSFORM_OTHER, \
 	})
 
 static const struct weston_matrix IDENTITY =

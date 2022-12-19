@@ -334,7 +334,6 @@ compute_calibration(struct calibrator *cal, float *result)
 		m.d[i + 4] = cal->samples[i].touched.y;
 		m.d[i + 8] = 1.0f;
 	}
-	m.type = WESTON_MATRIX_TRANSFORM_OTHER;
 
 	if (weston_matrix_invert(&inverse, &m) < 0) {
 		pr_err("non-invertible matrix during computation\n");
