@@ -176,18 +176,6 @@ pixman_renderer_compute_transform(pixman_transform_t *transform_out,
 	weston_matrix_to_pixman_transform(transform_out, &matrix);
 }
 
-static bool
-view_transformation_is_translation(struct weston_view *view)
-{
-	if (!view->transform.enabled)
-		return true;
-
-	if (view->transform.matrix.type <= WESTON_MATRIX_TRANSFORM_TRANSLATE)
-		return true;
-
-	return false;
-}
-
 static void
 region_intersect_only_translation(pixman_region32_t *result_global,
 				  pixman_region32_t *global,
@@ -196,7 +184,7 @@ region_intersect_only_translation(pixman_region32_t *result_global,
 {
 	float view_x, view_y;
 
-	assert(view_transformation_is_translation(view));
+	assert(weston_matrix_transform_retains_precision(&view->transform.matrix));
 
 	/* Convert from surface to global coordinates */
 	pixman_region32_copy(result_global, surf);
@@ -518,7 +506,7 @@ draw_paint_node(struct weston_paint_node *pnode,
 	if (!pixman_region32_not_empty(&repaint))
 		goto out;
 
-	if (view_transformation_is_translation(pnode->view)) {
+	if (weston_matrix_transform_retains_precision(&pnode->view->transform.matrix)) {
 		/* The simple case: The surface regions opaque, non-opaque,
 		 * etc. are convertible to global coordinate space.
 		 * There is no need to use a source clip region.
