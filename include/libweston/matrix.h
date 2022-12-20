@@ -77,6 +77,9 @@ bool
 weston_matrix_to_transform(const struct weston_matrix *mat,
 			   enum wl_output_transform *transform);
 
+bool
+weston_matrix_transform_retains_precision(const struct weston_matrix *mat);
+
 #ifdef  __cplusplus
 }
 #endif

@@ -524,3 +524,48 @@ weston_matrix_to_transform(const struct weston_matrix *mat,
 
 	return true;
 }
+
+/** Examine a matrix to see if it results in a "perfect" integer transform
+ *
+ * \param mat matrix to examine
+ * \return true if integer coordinates transformed remain integers
+ *
+ * Checks to see if a matrix results in a transform that doesn't
+ * need floading point precision if transforming integers. This
+ * is useful for determining if round off error will occur when
+ * applied to pixman regions.
+ */
+WL_EXPORT bool
+weston_matrix_transform_retains_precision(const struct weston_matrix *matrix)
+{
+	enum wl_output_transform dummy;
+
+	if (!matrix_translation_is_integral(matrix))
+		return false;
+
+	/* Any of the standard transforms will provide
+	 * integer output as long as we have integer
+	 * translation. Anything that isn't a standard
+	 * transformation might not.
+	 */
+	if (!weston_matrix_to_transform(matrix, &dummy))
+		return false;
+
+	/* Matrix is of the form:
+	 * [  A   B  0  ? ]
+	 * [  C   D  0  ? ]
+	 * [  0   0  ?  ? ]
+	 * [  0   0  0  1 ]
+	 *
+	 * We need to make sure A, B, C and D are integers to ensure
+	 * there's no scale operation that would result in non-integer
+	 * transformation.
+	 */
+	if (!near_int_at(matrix, 0, 0) ||
+	    !near_int_at(matrix, 0, 1) ||
+	    !near_int_at(matrix, 1, 0) ||
+	    !near_int_at(matrix, 0, 1))
+		return false;
+
+	return true;
+}
