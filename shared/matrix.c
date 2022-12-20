@@ -316,6 +316,16 @@ near_int_at(const struct weston_matrix *matrix, int row, int col)
 	return near_zero(roundf(el) - el);
 }
 
+static bool
+matrix_translation_is_integral(const struct weston_matrix *matrix)
+{
+	/* check for integral X/Y translation - ignore Z */
+	if (!near_int_at(matrix, 0, 3) ||
+	    !near_int_at(matrix, 1, 3))
+		return false;
+	return true;
+}
+
 /* Lazy decompose the matrix to figure out whether its operations will
  * cause an image to look ugly without some kind of filtering.
  *
@@ -335,9 +345,7 @@ near_int_at(const struct weston_matrix *matrix, int row, int col)
 WL_EXPORT bool
 weston_matrix_needs_filtering(const struct weston_matrix *matrix)
 {
-	/* check for non-integral X/Y translation - ignore Z */
-	if (!near_int_at(matrix, 0, 3) ||
-	    !near_int_at(matrix, 1, 3))
+	if (!matrix_translation_is_integral(matrix))
 		return true;
 
 	/* Any transform matrix that matches this will be non-affine. */
