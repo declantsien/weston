@@ -35,16 +35,8 @@
 extern "C" {
 #endif
 
-enum weston_matrix_transform_type {
-	WESTON_MATRIX_TRANSFORM_TRANSLATE	= (1 << 0),
-	WESTON_MATRIX_TRANSFORM_SCALE		= (1 << 1),
-	WESTON_MATRIX_TRANSFORM_ROTATE		= (1 << 2),
-	WESTON_MATRIX_TRANSFORM_OTHER		= (1 << 3),
-};
-
 struct weston_matrix {
 	float d[16];
-	unsigned int type;
 };
 
 struct weston_vector {
@@ -76,6 +68,9 @@ weston_matrix_needs_filtering(const struct weston_matrix *matrix);
 bool
 weston_matrix_to_transform(const struct weston_matrix *mat,
 			   enum wl_output_transform *transform);
+
+bool
+weston_matrix_transform_retains_precision(const struct weston_matrix *mat);
 
 #ifdef  __cplusplus
 }

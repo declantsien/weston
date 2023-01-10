@@ -1641,8 +1641,6 @@ blit_shadow_to_output(struct weston_output *output,
 				 0.0f,  0.0f, 1.0f, 0.0f,
 				-1.0f, -1.0f, 0.0f, 1.0f
 			},
-			.type = WESTON_MATRIX_TRANSFORM_SCALE |
-				WESTON_MATRIX_TRANSFORM_TRANSLATE,
 		},
 		.view_alpha = 1.0f,
 		.input_tex_filter = GL_NEAREST,
@@ -3192,8 +3190,6 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		ARRAY_COPY(sconf.projection.d, projmat_normal);
 	else
 		ARRAY_COPY(sconf.projection.d, projmat_yinvert);
-	sconf.projection.type = WESTON_MATRIX_TRANSFORM_SCALE |
-				WESTON_MATRIX_TRANSFORM_TRANSLATE;
 
 	if (!gl_renderer_use_program(gr, &sconf))
 		goto out;

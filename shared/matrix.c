@@ -49,7 +49,6 @@ weston_matrix_init(struct weston_matrix *matrix)
 {
 	static const struct weston_matrix identity = {
 		.d = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 },
-		.type = 0,
 	};
 
 	memcpy(matrix, &identity, sizeof identity);
@@ -72,7 +71,6 @@ weston_matrix_multiply(struct weston_matrix *m, const struct weston_matrix *n)
 		for (j = 0; j < 4; j++)
 			tmp.d[i] += row[j] * column[j * 4];
 	}
-	tmp.type = m->type | n->type;
 	memcpy(m, &tmp, sizeof tmp);
 }
 
@@ -81,7 +79,6 @@ weston_matrix_translate(struct weston_matrix *matrix, float x, float y, float z)
 {
 	struct weston_matrix translate = {
 		.d = { 1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  x, y, z, 1 },
-		.type = WESTON_MATRIX_TRANSFORM_TRANSLATE,
 	};
 
 	weston_matrix_multiply(matrix, &translate);
@@ -92,7 +89,6 @@ weston_matrix_scale(struct weston_matrix *matrix, float x, float y,float z)
 {
 	struct weston_matrix scale = {
 		.d = { x, 0, 0, 0,  0, y, 0, 0,  0, 0, z, 0,  0, 0, 0, 1 },
-		.type = WESTON_MATRIX_TRANSFORM_SCALE,
 	};
 
 	weston_matrix_multiply(matrix, &scale);
@@ -103,7 +99,6 @@ weston_matrix_rotate_xy(struct weston_matrix *matrix, float cos, float sin)
 {
 	struct weston_matrix translate = {
 		.d = { cos, sin, 0, 0,  -sin, cos, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1 },
-		.type = WESTON_MATRIX_TRANSFORM_ROTATE,
 	};
 
 	weston_matrix_multiply(matrix, &translate);
@@ -267,7 +262,6 @@ weston_matrix_invert(struct weston_matrix *inverse,
 	weston_matrix_init(inverse);
 	for (c = 0; c < 4; ++c)
 		inverse_transform(LU, perm, &inverse->d[c * 4]);
-	inverse->type = matrix->type;
 
 	return 0;
 }
@@ -316,6 +310,16 @@ near_int_at(const struct weston_matrix *matrix, int row, int col)
 	return near_zero(roundf(el) - el);
 }
 
+static bool
+matrix_translation_is_integral(const struct weston_matrix *matrix)
+{
+	/* check for integral X/Y translation - ignore Z */
+	if (!near_int_at(matrix, 0, 3) ||
+	    !near_int_at(matrix, 1, 3))
+		return false;
+	return true;
+}
+
 /* Lazy decompose the matrix to figure out whether its operations will
  * cause an image to look ugly without some kind of filtering.
  *
@@ -335,9 +339,7 @@ near_int_at(const struct weston_matrix *matrix, int row, int col)
 WL_EXPORT bool
 weston_matrix_needs_filtering(const struct weston_matrix *matrix)
 {
-	/* check for non-integral X/Y translation - ignore Z */
-	if (!near_int_at(matrix, 0, 3) ||
-	    !near_int_at(matrix, 1, 3))
+	if (!matrix_translation_is_integral(matrix))
 		return true;
 
 	/* Any transform matrix that matches this will be non-affine. */
@@ -513,6 +515,51 @@ weston_matrix_to_transform(const struct weston_matrix *mat,
 	} else {
 		return false;
 	}
+
+	return true;
+}
+
+/** Examine a matrix to see if it results in a "perfect" integer transform
+ *
+ * \param mat matrix to examine
+ * \return true if integer coordinates transformed remain integers
+ *
+ * Checks to see if a matrix results in a transform that doesn't
+ * need floading point precision if transforming integers. This
+ * is useful for determining if round off error will occur when
+ * applied to pixman regions.
+ */
+WL_EXPORT bool
+weston_matrix_transform_retains_precision(const struct weston_matrix *matrix)
+{
+	enum wl_output_transform dummy;
+
+	if (!matrix_translation_is_integral(matrix))
+		return false;
+
+	/* Any of the standard transforms will provide
+	 * integer output as long as we have integer
+	 * translation. Anything that isn't a standard
+	 * transformation might not.
+	 */
+	if (!weston_matrix_to_transform(matrix, &dummy))
+		return false;
+
+	/* Matrix is of the form:
+	 * [  A   B  0  ? ]
+	 * [  C   D  0  ? ]
+	 * [  0   0  ?  ? ]
+	 * [  0   0  0  1 ]
+	 *
+	 * We need to make sure A, B, C and D are integers to ensure
+	 * there's no scale operation that would result in non-integer
+	 * transformation.
+	 */
+	if (!near_int_at(matrix, 0, 0) ||
+	    !near_int_at(matrix, 0, 1) ||
+	    !near_int_at(matrix, 1, 0) ||
+	    !near_int_at(matrix, 0, 1))
+		return false;
 
 	return true;
 }

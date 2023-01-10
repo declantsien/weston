@@ -39,6 +39,19 @@
 #include "weston-test-client-helper.h"
 
 static void
+check_int_transform(struct weston_matrix *a)
+{
+	struct weston_vector v = { { 1, 2, 0, 1, } };
+
+	weston_matrix_transform(a, &v);
+
+	assert(fmod(v.f[0], 1) == 0.0);
+	assert(fmod(v.f[1], 1) == 0.0);
+	assert(v.f[2] == 0);
+	assert(v.f[3] == 1);
+}
+
+static void
 transform_expect(struct weston_matrix *a, bool valid, enum wl_output_transform ewt)
 {
 	enum wl_output_transform wt;
@@ -57,27 +70,26 @@ TEST(transformation_matrix)
 	weston_matrix_init(&b);
 
 	weston_matrix_multiply(&a, &b);
-	assert(a.type == 0);
 
 	/* Make b a matrix that rotates a surface on the x,y plane by 90
 	 * degrees counter-clockwise */
 	weston_matrix_rotate_xy(&b, 0, -1);
-	assert(b.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 	for (i = 0; i < 10; i++) {
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_90);
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_180);
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_270);
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
+		assert(weston_matrix_transform_retains_precision(&a));
 	}
 
 	weston_matrix_init(&b);
@@ -86,39 +98,38 @@ TEST(transformation_matrix)
 	 * standard transform and a rotation that fails to match any
 	 * known rotations. */
 	weston_matrix_rotate_xy(&b, cos(-M_PI / 4.0), sin(-M_PI / 4.0));
-	assert(b.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 	for (i = 0; i < 10; i++) {
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, false, 0);
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_90);
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, false, 0);
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_180);
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, false, 0);
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_270);
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, false, 0);
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
-		assert(a.type == WESTON_MATRIX_TRANSFORM_ROTATE);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
+		assert(weston_matrix_transform_retains_precision(&a));
 	}
 
 	weston_matrix_init(&b);
@@ -137,34 +148,42 @@ TEST(transformation_matrix)
 		 * filtering when used to transform images - but any
 		 * matrix that fails to match will. */
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_FLIPPED_90);
 		assert(!weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, false, 0);
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_FLIPPED_180);
 		assert(!weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, false, 0);
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_FLIPPED_270);
 		assert(!weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, false, 0);
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_FLIPPED);
 		assert(!weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
 	}
 
 	weston_matrix_init(&a);
@@ -251,18 +270,22 @@ TEST(transformation_matrix)
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
 		assert(weston_matrix_needs_filtering(&a));
+		assert(!weston_matrix_transform_retains_precision(&a));
 
 		weston_matrix_multiply(&a, &b);
 		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
 		assert(!weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
 	}
 
 	weston_matrix_init(&b);
@@ -283,6 +306,38 @@ TEST(transformation_matrix)
 	weston_matrix_multiply(&a, &b);
 	transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
 	assert(!weston_matrix_needs_filtering(&a));
+
+	/* Test the case where weston_matrix_needs_filtering() isn't the
+	 * exact opposite of weston_matrix_transform_retains_precision().
+	 * That's when we have integer scale factors other than 1 for
+	 * X and Y.
+	 */
+	weston_matrix_init(&a);
+	weston_matrix_init(&b);
+	weston_matrix_scale(&b, 2.0, 4.0, 1.0);
+	for (i = 0; i < 10; i++) {
+		weston_matrix_multiply(&a, &b);
+		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
+		assert(weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
+		check_int_transform(&a);
+	}
+
+	weston_matrix_init(&b);
+	weston_matrix_scale(&b, 1.0/2.0, 1.0/4.0, -1.0);
+	for (i = 0; i < 9; i++) {
+		weston_matrix_multiply(&a, &b);
+		transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
+		assert(weston_matrix_needs_filtering(&a));
+		assert(weston_matrix_transform_retains_precision(&a));
+		check_int_transform(&a);
+	}
+
+	/* Back to I */
+	weston_matrix_multiply(&a, &b);
+	transform_expect(&a, true, WL_OUTPUT_TRANSFORM_NORMAL);
+	assert(!weston_matrix_needs_filtering(&a));
+	assert(weston_matrix_transform_retains_precision(&a));
 }
 
 static void

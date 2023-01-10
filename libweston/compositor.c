@@ -1263,6 +1263,38 @@ weston_view_update_transform_scissor(struct weston_view *view,
 		pixman_region32_intersect(region, region,
 					  &view->geometry.scissor);
 }
+
+static void
+weston_view_update_opaque_region(struct weston_view *view)
+{
+	struct weston_matrix *matrix = &view->transform.matrix;
+
+	if (view->alpha != 1.0)
+		return;
+
+	/* If the matrix doesn't perfectly transform pixman
+	 * regions without rounding error, we just revert
+	 * to no opaque region at all.
+	 */
+	if (!weston_matrix_transform_retains_precision(matrix))
+		return;
+
+	if (view->surface->is_opaque) {
+		pixman_region32_copy(&view->transform.opaque,
+				     &view->transform.boundingbox);
+	} else {
+		pixman_region32_copy(&view->transform.opaque,
+				     &view->surface->opaque);
+		if (view->geometry.scissor_enabled)
+			pixman_region32_intersect(&view->transform.opaque,
+						  &view->transform.opaque,
+						  &view->geometry.scissor);
+		pixman_region32_translate(&view->transform.opaque,
+					  matrix->d[12],
+					  matrix->d[13]);
+	}
+}
+
 static void
 weston_view_update_transform_disable(struct weston_view *view)
 {
@@ -1273,7 +1305,6 @@ weston_view_update_transform_disable(struct weston_view *view)
 	view->geometry.y = roundf(view->geometry.y);
 
 	/* Otherwise identity matrix, but with x and y translation. */
-	view->transform.position.matrix.type = WESTON_MATRIX_TRANSFORM_TRANSLATE;
 	view->transform.position.matrix.d[12] = view->geometry.x;
 	view->transform.position.matrix.d[13] = view->geometry.y;
 
@@ -1293,22 +1324,7 @@ weston_view_update_transform_disable(struct weston_view *view)
 	pixman_region32_translate(&view->transform.boundingbox,
 				  view->geometry.x, view->geometry.y);
 
-	if (view->alpha == 1.0) {
-		if (view->surface->is_opaque) {
-			pixman_region32_copy(&view->transform.opaque,
-					     &view->transform.boundingbox);
-		} else {
-			pixman_region32_copy(&view->transform.opaque,
-					     &view->surface->opaque);
-			if (view->geometry.scissor_enabled)
-				pixman_region32_intersect(&view->transform.opaque,
-							  &view->transform.opaque,
-							  &view->geometry.scissor);
-			pixman_region32_translate(&view->transform.opaque,
-						  view->geometry.x,
-						  view->geometry.y);
-		}
-	}
+	weston_view_update_opaque_region(view);
 }
 
 static int
@@ -1324,7 +1340,6 @@ weston_view_update_transform_enable(struct weston_view *view)
 	view->transform.enabled = 1;
 
 	/* Otherwise identity matrix, but with x and y translation. */
-	view->transform.position.matrix.type = WESTON_MATRIX_TRANSFORM_TRANSLATE;
 	view->transform.position.matrix.d[12] = view->geometry.x;
 	view->transform.position.matrix.d[13] = view->geometry.y;
 
@@ -1351,34 +1366,8 @@ weston_view_update_transform_enable(struct weston_view *view)
 
 	view_compute_bbox(view, surfbox, &view->transform.boundingbox);
 
-	if (view->alpha == 1.0 &&
-	    matrix->type == WESTON_MATRIX_TRANSFORM_TRANSLATE) {
-		if (view->surface->is_opaque) {
-			pixman_region32_copy(&view->transform.opaque,
-					     &view->transform.boundingbox);
-		} else {
-			pixman_region32_copy(&view->transform.opaque,
-					     &view->surface->opaque);
-			if (view->geometry.scissor_enabled)
-				pixman_region32_intersect(&view->transform.opaque,
-							  &view->transform.opaque,
-							  &view->geometry.scissor);
-			pixman_region32_translate(&view->transform.opaque,
-						  matrix->d[12],
-						  matrix->d[13]);
-		}
-	} else if (view->alpha == 1.0 &&
-		 matrix->type < WESTON_MATRIX_TRANSFORM_ROTATE &&
-		 pixman_region32_n_rects(&surfregion) == 1 &&
-		 (pixman_region32_equal(&surfregion, &view->surface->opaque) ||
-		  view->surface->is_opaque)) {
-		/* The whole surface is opaque and it is only translated and
-		 * scaled and after applying the scissor, the result is still
-		 * a single rectangle. In this case the boundingbox matches the
-		 * view exactly and can be used as opaque area. */
-		pixman_region32_copy(&view->transform.opaque,
-				     &view->transform.boundingbox);
-	}
+	weston_view_update_opaque_region(view);
+
 	pixman_region32_fini(&surfregion);
 
 	return 0;
