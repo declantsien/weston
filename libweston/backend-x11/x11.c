@@ -52,6 +52,7 @@
 
 #include <libweston/libweston.h>
 #include <libweston/backend-x11.h>
+#include "shared/xcb-xwayland.h"
 #include "shared/helpers.h"
 #include "shared/image-loader.h"
 #include "shared/timespec-util.h"
@@ -1474,217 +1475,247 @@ x11_backend_next_event(struct x11_backend *b,
 	return *event != NULL;
 }
 
+static bool
+handle_previous_event(struct x11_backend *b,
+		      xcb_generic_event_t *current_event)
+{
+	struct timespec time;
+	bool need_more_events = false;
+	xcb_key_press_event_t *key_press, *key_release;
+	xcb_keymap_notify_event_t *keymap_notify;
+	uint8_t response_type = EVENT_TYPE(current_event);
+	uint32_t i, set;
+	uint32_t *k;
+
+	switch (EVENT_TYPE(b->prev_event)) {
+	case XCB_KEY_RELEASE:
+		/* Suppress key repeat events; this is only used if we
+		 * don't have XCB XKB support. */
+		key_release = (xcb_key_press_event_t *) b->prev_event;
+		key_press = (xcb_key_press_event_t *) current_event;
+		if (response_type == XCB_KEY_PRESS &&
+		    key_release->time == key_press->time &&
+		    key_release->detail == key_press->detail) {
+			/* Don't deliver the held key release
+			 * event or the new key press event. */
+			free(current_event);
+			free(b->prev_event);
+			b->prev_event = NULL;
+			need_more_events = true;
+		} else {
+			/* Deliver the held key release now
+			 * and fall through and handle the new
+			 * event below. */
+			update_xkb_state_from_core(b, key_release->state);
+			weston_compositor_get_time(&time);
+			notify_key(&b->core_seat,
+				   &time,
+				   key_release->detail - 8,
+				   WL_KEYBOARD_KEY_STATE_RELEASED,
+				   STATE_UPDATE_AUTOMATIC);
+			free(b->prev_event);
+			b->prev_event = NULL;
+			break;
+		}
+
+	case XCB_FOCUS_IN:
+		assert(response_type == XCB_KEYMAP_NOTIFY);
+		keymap_notify = (xcb_keymap_notify_event_t *) current_event;
+		b->keys.size = 0;
+		for (i = 0; i < ARRAY_LENGTH(keymap_notify->keys) * 8; i++) {
+			set = keymap_notify->keys[i >> 3] &
+				(1 << (i & 7));
+			if (set) {
+				k = wl_array_add(&b->keys, sizeof *k);
+				*k = i;
+			}
+		}
+
+		/* Unfortunately the state only comes with the enter
+		 * event, rather than with the focus event.  I'm not
+		 * sure of the exact semantics around it and whether
+		 * we can ensure that we get both? */
+		notify_keyboard_focus_in(&b->core_seat, &b->keys,
+					 STATE_UPDATE_AUTOMATIC);
+
+		free(b->prev_event);
+		b->prev_event = NULL;
+		break;
+
+	default:
+		/* No previous event held */
+		break;
+	}
+
+	return need_more_events;
+}
+
+static void
+handle_current_event(struct x11_backend *b, xcb_generic_event_t *event)
+{
+	struct timespec time;
+	uint8_t response_type = EVENT_TYPE(event);
+	struct x11_output *output;
+
+	xcb_key_press_event_t *key_press, *key_release;
+	xcb_configure_notify_event_t *configure;
+	xcb_expose_event_t *expose;
+	xcb_focus_in_event_t *focus_in;
+	xcb_enter_notify_event_t *enter_notify;
+	xcb_client_message_event_t *client_message;
+	xcb_atom_t atom;
+	xcb_window_t window;
+
+	switch (response_type) {
+	case XCB_KEY_PRESS:
+		key_press = (xcb_key_press_event_t *) event;
+		if (!b->has_xkb)
+			update_xkb_state_from_core(b, key_press->state);
+		weston_compositor_get_time(&time);
+		notify_key(&b->core_seat,
+			   &time,
+			   key_press->detail - 8,
+			   WL_KEYBOARD_KEY_STATE_PRESSED,
+			   b->has_xkb ? STATE_UPDATE_NONE :
+					STATE_UPDATE_AUTOMATIC);
+		break;
+	case XCB_KEY_RELEASE:
+		/* If we don't have XKB, we need to use the lame
+		 * autorepeat detection above. */
+		if (!b->has_xkb) {
+			b->prev_event = event;
+			break;
+		}
+		key_release = (xcb_key_press_event_t *) event;
+		weston_compositor_get_time(&time);
+		notify_key(&b->core_seat,
+			   &time,
+			   key_release->detail - 8,
+			   WL_KEYBOARD_KEY_STATE_RELEASED,
+			   STATE_UPDATE_NONE);
+		break;
+	case XCB_BUTTON_PRESS:
+	case XCB_BUTTON_RELEASE:
+		x11_backend_deliver_button_event(b, event);
+		break;
+	case XCB_MOTION_NOTIFY:
+		x11_backend_deliver_motion_event(b, event);
+		break;
+
+	case XCB_EXPOSE:
+		expose = (xcb_expose_event_t *) event;
+		output = x11_backend_find_output(b, expose->window);
+		if (!output)
+			break;
+
+		weston_output_damage(&output->base);
+		weston_output_schedule_repaint(&output->base);
+		break;
+
+	case XCB_ENTER_NOTIFY:
+		x11_backend_deliver_enter_event(b, event);
+		break;
+
+	case XCB_LEAVE_NOTIFY:
+		enter_notify = (xcb_enter_notify_event_t *) event;
+		if (enter_notify->state >= Button1Mask)
+			break;
+		if (!b->has_xkb)
+			update_xkb_state_from_core(b, enter_notify->state);
+		clear_pointer_focus(&b->core_seat);
+		break;
+
+	case XCB_CLIENT_MESSAGE:
+		client_message = (xcb_client_message_event_t *) event;
+		atom = client_message->data.data32[0];
+		window = client_message->window;
+		if (atom == b->atom.wm_delete_window) {
+			struct wl_event_loop *loop;
+			struct window_delete_data *data = malloc(sizeof *data);
+
+			/* if malloc failed we should at least try to
+			 * delete the window, even if it may result in
+			 * a crash.
+			 */
+			if (!data) {
+				x11_backend_delete_window(b, window);
+				break;
+			}
+			data->backend = b;
+			data->window = window;
+			loop = wl_display_get_event_loop(b->compositor->wl_display);
+			wl_event_loop_add_idle(loop, delete_cb, data);
+		}
+		break;
+
+	case XCB_CONFIGURE_NOTIFY:
+		configure = (struct xcb_configure_notify_event_t *) event;
+		struct x11_output *output =
+			x11_backend_find_output(b, configure->window);
+
+		if (!output || output->resize_pending)
+			break;
+
+		struct weston_mode mode = output->mode;
+
+		if (mode.width == configure->width &&
+		    mode.height == configure->height)
+			break;
+
+		output->window_resized = true;
+
+		mode.width = configure->width;
+		mode.height = configure->height;
+
+		if (weston_output_mode_set_native(&output->base,
+						  &mode, output->scale) < 0)
+			weston_log("Mode switch failed\n");
+
+		break;
+
+	case XCB_FOCUS_IN:
+		focus_in = (xcb_focus_in_event_t *) event;
+		if (focus_in->mode == XCB_NOTIFY_MODE_WHILE_GRABBED)
+			break;
+
+		b->prev_event = event;
+		break;
+
+	case XCB_FOCUS_OUT:
+		focus_in = (xcb_focus_in_event_t *) event;
+		if (focus_in->mode == XCB_NOTIFY_MODE_WHILE_GRABBED ||
+		    focus_in->mode == XCB_NOTIFY_MODE_UNGRAB)
+			break;
+		notify_keyboard_focus_out(&b->core_seat);
+		break;
+
+	default:
+		break;
+	}
+}
+
 static int
 x11_backend_handle_event(int fd, uint32_t mask, void *data)
 {
 	struct x11_backend *b = data;
-	struct x11_output *output;
 	xcb_generic_event_t *event;
-	xcb_client_message_event_t *client_message;
-	xcb_enter_notify_event_t *enter_notify;
-	xcb_key_press_event_t *key_press, *key_release;
-	xcb_keymap_notify_event_t *keymap_notify;
-	xcb_focus_in_event_t *focus_in;
-	xcb_expose_event_t *expose;
-	xcb_configure_notify_event_t *configure;
-	xcb_atom_t atom;
-	xcb_window_t window;
-	uint32_t *k;
-	uint32_t i, set;
+	xcb_key_press_event_t *key_release;
 	uint8_t response_type;
 	int count;
 	struct timespec time;
 
 	count = 0;
 	while (x11_backend_next_event(b, &event, mask)) {
-		response_type = event->response_type & ~0x80;
+		response_type = EVENT_TYPE(event);
+		bool need_more_events = false;
 
-		switch (b->prev_event ? b->prev_event->response_type & ~0x80 : 0x80) {
-		case XCB_KEY_RELEASE:
-			/* Suppress key repeat events; this is only used if we
-			 * don't have XCB XKB support. */
-			key_release = (xcb_key_press_event_t *) b->prev_event;
-			key_press = (xcb_key_press_event_t *) event;
-			if (response_type == XCB_KEY_PRESS &&
-			    key_release->time == key_press->time &&
-			    key_release->detail == key_press->detail) {
-				/* Don't deliver the held key release
-				 * event or the new key press event. */
-				free(event);
-				free(b->prev_event);
-				b->prev_event = NULL;
-				continue;
-			} else {
-				/* Deliver the held key release now
-				 * and fall through and handle the new
-				 * event below. */
-				update_xkb_state_from_core(b, key_release->state);
-				weston_compositor_get_time(&time);
-				notify_key(&b->core_seat,
-					   &time,
-					   key_release->detail - 8,
-					   WL_KEYBOARD_KEY_STATE_RELEASED,
-					   STATE_UPDATE_AUTOMATIC);
-				free(b->prev_event);
-				b->prev_event = NULL;
-				break;
-			}
+		if (b->prev_event)
+			need_more_events = handle_previous_event(b, event);
 
-		case XCB_FOCUS_IN:
-			assert(response_type == XCB_KEYMAP_NOTIFY);
-			keymap_notify = (xcb_keymap_notify_event_t *) event;
-			b->keys.size = 0;
-			for (i = 0; i < ARRAY_LENGTH(keymap_notify->keys) * 8; i++) {
-				set = keymap_notify->keys[i >> 3] &
-					(1 << (i & 7));
-				if (set) {
-					k = wl_array_add(&b->keys, sizeof *k);
-					*k = i;
-				}
-			}
+		if (need_more_events)
+			continue;
 
-			/* Unfortunately the state only comes with the enter
-			 * event, rather than with the focus event.  I'm not
-			 * sure of the exact semantics around it and whether
-			 * we can ensure that we get both? */
-			notify_keyboard_focus_in(&b->core_seat, &b->keys,
-						 STATE_UPDATE_AUTOMATIC);
-
-			free(b->prev_event);
-			b->prev_event = NULL;
-			break;
-
-		default:
-			/* No previous event held */
-			break;
-		}
-
-		switch (response_type) {
-		case XCB_KEY_PRESS:
-			key_press = (xcb_key_press_event_t *) event;
-			if (!b->has_xkb)
-				update_xkb_state_from_core(b, key_press->state);
-			weston_compositor_get_time(&time);
-			notify_key(&b->core_seat,
-				   &time,
-				   key_press->detail - 8,
-				   WL_KEYBOARD_KEY_STATE_PRESSED,
-				   b->has_xkb ? STATE_UPDATE_NONE :
-						STATE_UPDATE_AUTOMATIC);
-			break;
-		case XCB_KEY_RELEASE:
-			/* If we don't have XKB, we need to use the lame
-			 * autorepeat detection above. */
-			if (!b->has_xkb) {
-				b->prev_event = event;
-				break;
-			}
-			key_release = (xcb_key_press_event_t *) event;
-			weston_compositor_get_time(&time);
-			notify_key(&b->core_seat,
-				   &time,
-				   key_release->detail - 8,
-				   WL_KEYBOARD_KEY_STATE_RELEASED,
-				   STATE_UPDATE_NONE);
-			break;
-		case XCB_BUTTON_PRESS:
-		case XCB_BUTTON_RELEASE:
-			x11_backend_deliver_button_event(b, event);
-			break;
-		case XCB_MOTION_NOTIFY:
-			x11_backend_deliver_motion_event(b, event);
-			break;
-
-		case XCB_EXPOSE:
-			expose = (xcb_expose_event_t *) event;
-			output = x11_backend_find_output(b, expose->window);
-			if (!output)
-				break;
-
-			weston_output_damage(&output->base);
-			weston_output_schedule_repaint(&output->base);
-			break;
-
-		case XCB_ENTER_NOTIFY:
-			x11_backend_deliver_enter_event(b, event);
-			break;
-
-		case XCB_LEAVE_NOTIFY:
-			enter_notify = (xcb_enter_notify_event_t *) event;
-			if (enter_notify->state >= Button1Mask)
-				break;
-			if (!b->has_xkb)
-				update_xkb_state_from_core(b, enter_notify->state);
-			clear_pointer_focus(&b->core_seat);
-			break;
-
-		case XCB_CLIENT_MESSAGE:
-			client_message = (xcb_client_message_event_t *) event;
-			atom = client_message->data.data32[0];
-			window = client_message->window;
-			if (atom == b->atom.wm_delete_window) {
-				struct wl_event_loop *loop;
-				struct window_delete_data *data = malloc(sizeof *data);
-
-				/* if malloc failed we should at least try to
-				 * delete the window, even if it may result in
-				 * a crash.
-				 */
-				if (!data) {
-					x11_backend_delete_window(b, window);
-					break;
-				}
-				data->backend = b;
-				data->window = window;
-				loop = wl_display_get_event_loop(b->compositor->wl_display);
-				wl_event_loop_add_idle(loop, delete_cb, data);
-			}
-			break;
-
-		case XCB_CONFIGURE_NOTIFY:
-			configure = (struct xcb_configure_notify_event_t *) event;
-			struct x11_output *output =
-				x11_backend_find_output(b, configure->window);
-
-			if (!output || output->resize_pending)
-				break;
-
-			struct weston_mode mode = output->mode;
-
-			if (mode.width == configure->width &&
-			    mode.height == configure->height)
-				break;
-
-			output->window_resized = true;
-
-			mode.width = configure->width;
-			mode.height = configure->height;
-
-			if (weston_output_mode_set_native(&output->base,
-							  &mode, output->scale) < 0)
-				weston_log("Mode switch failed\n");
-
-			break;
-
-		case XCB_FOCUS_IN:
-			focus_in = (xcb_focus_in_event_t *) event;
-			if (focus_in->mode == XCB_NOTIFY_MODE_WHILE_GRABBED)
-				break;
-
-			b->prev_event = event;
-			break;
-
-		case XCB_FOCUS_OUT:
-			focus_in = (xcb_focus_in_event_t *) event;
-			if (focus_in->mode == XCB_NOTIFY_MODE_WHILE_GRABBED ||
-			    focus_in->mode == XCB_NOTIFY_MODE_UNGRAB)
-				break;
-			notify_keyboard_focus_out(&b->core_seat);
-			break;
-
-		default:
-			break;
-		}
+		handle_current_event(b, event);
 
 #ifdef HAVE_XCB_XKB
 		if (b->has_xkb) {
@@ -1709,11 +1740,12 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 			free(event);
 	}
 
-	switch (b->prev_event ? b->prev_event->response_type & ~0x80 : 0x80) {
-	case XCB_KEY_RELEASE:
+	if (b->prev_event && EVENT_TYPE(b->prev_event) == XCB_KEY_RELEASE) {
 		key_release = (xcb_key_press_event_t *) b->prev_event;
+
 		update_xkb_state_from_core(b, key_release->state);
 		weston_compositor_get_time(&time);
+
 		notify_key(&b->core_seat,
 			   &time,
 			   key_release->detail - 8,
@@ -1721,9 +1753,6 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 			   STATE_UPDATE_AUTOMATIC);
 		free(b->prev_event);
 		b->prev_event = NULL;
-		break;
-	default:
-		break;
 	}
 
 	return count;
