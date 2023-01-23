@@ -7,6 +7,7 @@ config_h.set('BUILD_X11_COMPOSITOR', '1')
 
 srcs_x11 = [
 	'x11.c',
+        '../../shared/xcb-xwayland.c',
 	presentation_time_server_protocol_h,
 ]
 

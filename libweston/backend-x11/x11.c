@@ -102,23 +102,7 @@ struct x11_backend {
 	double				 prev_x;
 	double				 prev_y;
 
-	struct {
-		xcb_atom_t		 wm_protocols;
-		xcb_atom_t		 wm_normal_hints;
-		xcb_atom_t		 wm_size_hints;
-		xcb_atom_t		 wm_delete_window;
-		xcb_atom_t		 wm_class;
-		xcb_atom_t		 net_wm_name;
-		xcb_atom_t		 net_supporting_wm_check;
-		xcb_atom_t		 net_supported;
-		xcb_atom_t		 net_wm_icon;
-		xcb_atom_t		 net_wm_state;
-		xcb_atom_t		 net_wm_state_fullscreen;
-		xcb_atom_t		 string;
-		xcb_atom_t		 utf8_string;
-		xcb_atom_t		 cardinal;
-		xcb_atom_t		 xkb_names;
-	} atom;
+	struct atom_x11 atom;
 	xcb_generic_event_t *prev_event;
 };
 
@@ -1763,43 +1747,11 @@ x11_backend_handle_event(int fd, uint32_t mask, void *data)
 static void
 x11_backend_get_resources(struct x11_backend *b)
 {
-	static const struct { const char *name; int offset; } atoms[] = {
-		{ "WM_PROTOCOLS",	F(atom.wm_protocols) },
-		{ "WM_NORMAL_HINTS",	F(atom.wm_normal_hints) },
-		{ "WM_SIZE_HINTS",	F(atom.wm_size_hints) },
-		{ "WM_DELETE_WINDOW",	F(atom.wm_delete_window) },
-		{ "WM_CLASS",		F(atom.wm_class) },
-		{ "_NET_WM_NAME",	F(atom.net_wm_name) },
-		{ "_NET_WM_ICON",	F(atom.net_wm_icon) },
-		{ "_NET_WM_STATE",	F(atom.net_wm_state) },
-		{ "_NET_WM_STATE_FULLSCREEN", F(atom.net_wm_state_fullscreen) },
-		{ "_NET_SUPPORTING_WM_CHECK",
-					F(atom.net_supporting_wm_check) },
-		{ "_NET_SUPPORTED",     F(atom.net_supported) },
-		{ "STRING",		F(atom.string) },
-		{ "UTF8_STRING",	F(atom.utf8_string) },
-		{ "CARDINAL",		F(atom.cardinal) },
-		{ "_XKB_RULES_NAMES",	F(atom.xkb_names) },
-	};
-
-	xcb_intern_atom_cookie_t cookies[ARRAY_LENGTH(atoms)];
-	xcb_intern_atom_reply_t *reply;
 	xcb_pixmap_t pixmap;
 	xcb_gc_t gc;
-	unsigned int i;
 	uint8_t data[] = { 0, 0, 0, 0 };
 
-	for (i = 0; i < ARRAY_LENGTH(atoms); i++)
-		cookies[i] = xcb_intern_atom (b->conn, 0,
-					      strlen(atoms[i].name),
-					      atoms[i].name);
-
-	for (i = 0; i < ARRAY_LENGTH(atoms); i++) {
-		reply = xcb_intern_atom_reply (b->conn, cookies[i], NULL);
-		*(xcb_atom_t *) ((char *) b + atoms[i].offset) = reply->atom;
-		free(reply);
-	}
-
+	x11_get_atoms(b->conn, &b->atom);
 	pixmap = xcb_generate_id(b->conn);
 	gc = xcb_generate_id(b->conn);
 	xcb_create_pixmap(b->conn, 1, pixmap, b->screen->root, 1, 1);
