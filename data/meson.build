@@ -20,6 +20,7 @@ install_data(
 		'sign_close.png',
 		'sign_maximize.png',
 		'sign_minimize.png',
+		'sign_restorenormal.png',
 		'terminal.png',
 		'tiling.png',
 		'wayland.png',
