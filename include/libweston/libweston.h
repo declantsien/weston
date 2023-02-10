@@ -444,6 +444,8 @@ struct weston_output {
 	uint32_t id;
 	char *name;
 
+	enum dpms_enum dpms_state;
+
 	/** Matches the lifetime from the user perspective */
 	struct wl_signal user_destroy_signal;
 
@@ -1863,6 +1865,8 @@ void
 weston_compositor_schedule_repaint(struct weston_compositor *compositor);
 void
 weston_compositor_damage_all(struct weston_compositor *compositor);
+void
+weston_output_dpms(struct weston_compositor *compositor, struct weston_output *output, enum dpms_enum state);
 void
 weston_compositor_wake(struct weston_compositor *compositor);
 void

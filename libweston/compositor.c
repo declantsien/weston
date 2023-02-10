@@ -3163,6 +3163,10 @@ weston_output_maybe_repaint(struct weston_output *output, struct timespec *now)
 	    compositor->state == WESTON_COMPOSITOR_OFFSCREEN)
 		goto err;
 
+	if (output->dpms_state != WESTON_DPMS_ON) {
+		goto err;
+	}
+
 	/* We don't actually need to repaint this output; drop it from
 	 * repaint until something causes damage. */
 	if (!output->repaint_needed)
@@ -3573,6 +3577,10 @@ weston_output_schedule_repaint(struct weston_output *output)
 	if (compositor->state == WESTON_COMPOSITOR_SLEEPING ||
 	    compositor->state == WESTON_COMPOSITOR_OFFSCREEN)
 		return;
+
+	if (output->dpms_state != WESTON_DPMS_ON) {
+		return;
+	}
 
 	if (!output->repaint_needed)
 		TL_POINT(compositor, "core_repaint_req", TLP_OUTPUT(output), TLP_END);
@@ -5137,6 +5145,15 @@ bind_subcompositor(struct wl_client *client,
 	}
 	wl_resource_set_implementation(resource, &subcompositor_interface,
 				       compositor, NULL);
+}
+
+WL_EXPORT void
+weston_output_dpms(struct weston_compositor *compositor, struct weston_output *output, enum dpms_enum state)
+{
+	output->dpms_state = state;
+	if (output->set_dpms) {
+		output->set_dpms(output, state);
+	}
 }
 
 /** Set a DPMS mode on all of the compositor's outputs
