@@ -350,6 +350,7 @@ struct drm_backend {
 	const struct pixel_format_info *format;
 
 	bool use_pixman_shadow;
+	char *seat_id;
 
 	struct udev_input input;
 
