@@ -49,12 +49,14 @@ enum run_mode {
 	RUN_MODE_FEEDBACK,
 	RUN_MODE_FEEDBACK_IDLE,
 	RUN_MODE_PRESENT,
+	RUN_MODE_NO_THROTTLE,
 };
 
 static const char * const run_mode_name[] = {
 	[RUN_MODE_FEEDBACK] = "feedback",
 	[RUN_MODE_FEEDBACK_IDLE] = "feedback-idle",
 	[RUN_MODE_PRESENT] = "low-lat present",
+	[RUN_MODE_NO_THROTTLE] = "no-throttle",
 };
 
 struct output {
@@ -481,6 +483,13 @@ feedback_presented(void *data,
 			"t2p %6d, [%s], seq %" PRIu64 "\n", feedback->frame_no,
 			f2c, c2p, f2p, p2p, t2p,
 			pflags_to_str(flags, flagstr, sizeof(flagstr)), seq);
+		break;
+	case RUN_MODE_NO_THROTTLE:
+		printf("%6u: c2p %4u ms, p2p %5d us, t2p %6d us, [%s] "
+			"seq %" PRIu64 "\n", feedback->frame_no, c2p,
+			p2p, t2p,
+			pflags_to_str(flags, flagstr, sizeof(flagstr)), seq);
+		break;
 	}
 
 	if (window->received_feedback)
@@ -637,6 +646,7 @@ feedkick_presented(void *data,
 		break;
 	case RUN_MODE_FEEDBACK:
 	case RUN_MODE_FEEDBACK_IDLE:
+	case RUN_MODE_NO_THROTTLE:
 		assert(0 && "bad mode");
 	}
 }
@@ -658,6 +668,7 @@ feedkick_discarded(void *data,
 		break;
 	case RUN_MODE_FEEDBACK:
 	case RUN_MODE_FEEDBACK_IDLE:
+	case RUN_MODE_NO_THROTTLE:
 		assert(0 && "bad mode");
 	}
 }
@@ -679,6 +690,7 @@ firstdraw_mode_burst(struct window *window)
 		break;
 	case RUN_MODE_FEEDBACK:
 	case RUN_MODE_FEEDBACK_IDLE:
+	case RUN_MODE_NO_THROTTLE:
 		assert(0 && "bad mode");
 	}
 
@@ -915,6 +927,8 @@ main(int argc, char **argv)
 			mode = RUN_MODE_FEEDBACK_IDLE;
 		else if (strcmp("-p", argv[i]) == 0)
 			mode = RUN_MODE_PRESENT;
+		else if (strcmp("-c", argv[i]) == 0)
+			mode = RUN_MODE_NO_THROTTLE;
 		else if ((strcmp("-d", argv[i]) == 0) && (i + 1 < argc)) {
 			i++;
 			commit_delay_msecs = atoi(argv[i]);
@@ -943,10 +957,18 @@ main(int argc, char **argv)
 	case RUN_MODE_PRESENT:
 		firstdraw_mode_burst(window);
 		break;
+	case RUN_MODE_NO_THROTTLE:
+		/* do nothing */
+		break;
 	}
 
-	while (running && ret != -1)
+	while (running && ret != -1) {
+		if (window->mode == RUN_MODE_NO_THROTTLE) {
+			window_create_feedback(window, 0);
+			window_commit_next(window);
+		}
 		ret = wl_display_dispatch(display->display);
+	}
 
 	fprintf(stderr, "presentation-shm exiting\n");
 	destroy_window(window);
