@@ -888,6 +888,7 @@ usage(const char *prog, int exit_code)
 {
 	fprintf(stderr, "Usage: %s [mode] [options]\n"
 		"where 'mode' is one of\n"
+		"  -r\t\twindow size: <width> <height>\n"
 		"  -f\t\trun in feedback mode (default)\n"
 		"  -i\t\trun in feedback-idle mode; sleep 1s between frames\n"
 		"  -p\t\trun in low-latency presentation mode\n"
@@ -912,6 +913,7 @@ usage(const char *prog, int exit_code)
 int
 main(int argc, char **argv)
 {
+	int width = 256, height = 256;
 	struct sigaction sigint;
 	struct display *display;
 	struct window *window;
@@ -921,7 +923,11 @@ main(int argc, char **argv)
 	int commit_delay_msecs = 0;
 
 	for (i = 1; i < argc; i++) {
-		if (strcmp("-f", argv[i]) == 0)
+		if ((strcmp("-r", argv[i]) == 0) && (i + 2 < argc)) {
+			width = atoi(argv[++i]);
+			height = atoi(argv[++i]);
+		}
+		else if (strcmp("-f", argv[i]) == 0)
 			mode = RUN_MODE_FEEDBACK;
 		else if (strcmp("-i", argv[i]) == 0)
 			mode = RUN_MODE_FEEDBACK_IDLE;
@@ -938,7 +944,7 @@ main(int argc, char **argv)
 	}
 
 	display = create_display();
-	window = create_window(display, 250, 250, mode, commit_delay_msecs);
+	window = create_window(display, width, height, mode, commit_delay_msecs);
 	if (!window)
 		return 1;
 
