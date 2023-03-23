@@ -40,6 +40,7 @@
 
 #include "clients/window.h"
 #include "shared/helpers.h"
+#include "shared/crt-compatibility.h"
 #include <libweston/matrix.h>
 
 #include "weston-touch-calibration-client-protocol.h"

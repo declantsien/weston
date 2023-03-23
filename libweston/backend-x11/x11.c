@@ -38,6 +38,7 @@
 #include <sys/time.h>
 #include <sys/shm.h>
 #include <linux/input.h>
+#include <sys/stat.h>
 
 #include <xcb/xcb.h>
 #include <xcb/shm.h>

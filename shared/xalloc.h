@@ -36,6 +36,8 @@ extern "C" {
 #include <unistd.h>
 #include <string.h>
 
+#include "shared/crt-compatibility.h"
+
 static inline void *
 abort_oom_if_null(void *p)
 {

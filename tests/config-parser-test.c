@@ -48,26 +48,18 @@ static struct weston_config *
 load_config(const char *text)
 {
 	struct weston_config *config = NULL;
-	char *content = NULL;
-	size_t file_len = 0;
-	int write_len;
+	size_t file_len = strlen(text);
+	char *content = strdup(text);
 	FILE *file;
 
-	file = open_memstream(&content, &file_len);
+	file = fmemopen(content, file_len, "rb");
 	ZUC_ASSERTG_NOT_NULL(file, out);
-
-	write_len = fwrite(text, 1, strlen(text), file);
-	ZUC_ASSERTG_EQ((int)strlen(text), write_len, out_close);
-
-	ZUC_ASSERTG_EQ(fflush(file), 0, out_close);
-	fseek(file, 0L, SEEK_SET);
 
 	config = weston_config_parse_fp(file);
 
-out_close:
 	fclose(file);
-	free(content);
 out:
+	free(content);
 	return config;
 }
 

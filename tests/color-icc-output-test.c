@@ -29,7 +29,12 @@
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
+
+#ifdef __linux__
 #include <linux/limits.h>
+#else
+#include <sys/limits.h>
+#endif
 
 #include <lcms2.h>
 

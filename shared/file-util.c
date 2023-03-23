@@ -33,6 +33,8 @@
 #include <fcntl.h>
 #include <stdlib.h>
 
+#include "crt-compatibility.h"
+
 #include "file-util.h"
 
 static int

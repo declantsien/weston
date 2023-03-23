@@ -149,6 +149,12 @@ dep_threads = dependency('threads')
 
 dep_lcms2 = dependency('lcms2', version: '>= 2.9', required: false)
 
+if host_machine.system() == 'freebsd'
+	dep_epoll_shim = dependency('epoll-shim')
+else
+	dep_epoll_shim = []
+endif
+
 prog_python = import('python').find_installation('python3')
 files_xxd_py = files('tools/xxd.py')
 cmd_xxd = [ prog_python, files_xxd_py, '@INPUT@', '@OUTPUT@' ]

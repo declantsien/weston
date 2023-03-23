@@ -8680,7 +8680,9 @@ weston_compositor_set_presentation_clock_software(
 {
 	/* In order of preference */
 	static const clockid_t clocks[] = {
+#ifdef CLOCK_MONOTONIC_RAW
 		CLOCK_MONOTONIC_RAW,	/* no jumps, no crawling */
+#endif
 		CLOCK_MONOTONIC_COARSE,	/* no jumps, may crawl, fast & coarse */
 		CLOCK_MONOTONIC,	/* no jumps, may crawl */
 	};

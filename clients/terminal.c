@@ -33,13 +33,19 @@
 #include <unistd.h>
 #include <math.h>
 #include <time.h>
-#include <pty.h>
 #include <ctype.h>
 #include <cairo.h>
 #include <sys/epoll.h>
 #include <wchar.h>
 #include <locale.h>
 #include <errno.h>
+
+#ifdef __linux__
+#include <pty.h>
+#else
+#include <termios.h>
+#include <libutil.h>
+#endif
 
 #include <linux/input.h>
 

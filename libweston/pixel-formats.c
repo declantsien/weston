@@ -26,7 +26,6 @@
 
 #include "config.h"
 
-#include <endian.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -34,6 +33,16 @@
 #include <string.h>
 #include <stdlib.h>
 #include <wayland-client-protocol.h>
+
+#ifdef __linux__  /* NOTE: FreeBSD 14.0 adds endian.h. This can be removed when
+		     this is the minimum supported FreeBSD. */
+#include <endian.h>
+#else
+#include <sys/endian.h>
+#define __BIG_ENDIAN		_BIG_ENDIAN
+#define __BYTE_ORDER		_BYTE_ORDER
+#define __LITTLE_ENDIAN		_LITTLE_ENDIAN
+#endif
 
 #include <xf86drm.h>
 
