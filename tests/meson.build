@@ -156,6 +156,18 @@ tests = [
 		'dep_objs': dep_libdrm_headers,
 	},
 	{	'name': 'drm-smoke', 'run_exclusive': true },
+	{
+		'name': 'drm-composite-bypass', 'run_exclusive': true,
+		'sources': [
+			'drm-composite-bypass-test.c',
+			linux_dmabuf_unstable_v1_protocol_c,
+			xdg_shell_protocol_c,
+			weston_direct_display_protocol_c,
+		],
+		'dep_objs': [
+			dep_libdrm,
+		],
+	},
 	{	'name': 'drm-writeback-screenshot', 'run_exclusive': true },
 	{	'name': 'event', },
 	{	'name': 'internal-screenshot', },
