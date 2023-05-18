@@ -45,7 +45,7 @@
 #include <libevdev/libevdev.h>
 #include <linux/input.h>
 #include <sys/time.h>
-#include <linux/limits.h>
+#include <limits.h>
 
 #include "weston.h"
 #include <libweston/libweston.h>
@@ -816,7 +816,9 @@ clock_name(clockid_t clk_id)
 	static const char *names[] = {
 		[CLOCK_REALTIME] =		"CLOCK_REALTIME",
 		[CLOCK_MONOTONIC] =		"CLOCK_MONOTONIC",
+#ifdef CLOCK_MONOTONIC_RAW
 		[CLOCK_MONOTONIC_RAW] =		"CLOCK_MONOTONIC_RAW",
+#endif
 		[CLOCK_REALTIME_COARSE] =	"CLOCK_REALTIME_COARSE",
 		[CLOCK_MONOTONIC_COARSE] =	"CLOCK_MONOTONIC_COARSE",
 #ifdef CLOCK_BOOTTIME

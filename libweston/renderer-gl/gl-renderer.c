@@ -42,6 +42,16 @@
 #include <linux/input.h>
 #include <unistd.h>
 
+#ifdef __linux__  /* NOTE: FreeBSD 14.0 adds endian.h. This can be removed when
+		     this is the minimum supported FreeBSD. */
+#include <endian.h>
+#else
+#include <sys/endian.h>
+#define __BIG_ENDIAN		_BIG_ENDIAN
+#define __BYTE_ORDER		_BYTE_ORDER
+#define __LITTLE_ENDIAN		_LITTLE_ENDIAN
+#endif
+
 #include "linux-sync-file.h"
 #include "timeline.h"
 

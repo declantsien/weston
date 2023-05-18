@@ -36,6 +36,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <libgen.h>
 
 #include "zunitc/zunitc_impl.h"
 #include "zunitc/zunitc.h"
@@ -839,7 +840,7 @@ mark_single_failed(struct zuc_test *test, enum zuc_fail_state state)
 	}
 
 	if (g_ctx.break_on_failure)
-		raise(SIGABRT);
+		abort();
 
 }
 

@@ -34,11 +34,17 @@
 #include <sys/mman.h>
 #include <assert.h>
 #include <unistd.h>
-#include <values.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <errno.h>
 #include <linux/input.h>
+
+#ifdef __linux__
+#include <values.h>
+#else
+#include <sys/limits.h>
+#include <machine/float.h>
+#endif
 
 #include "shared/helpers.h"
 #include "shared/os-compatibility.h"

@@ -3,8 +3,16 @@
 #ifndef WESTON_LINUX_SYNC_FILE_UAPI_H
 #define WESTON_LINUX_SYNC_FILE_UAPI_H
 
+#ifdef __linux__
 #include <linux/ioctl.h>
 #include <linux/types.h>
+#else
+#include <sys/ioctl.h>
+#include <sys/types.h>
+typedef uint64_t __u64;
+typedef int32_t __s32;
+typedef uint32_t __u32;
+#endif
 
 struct sync_fence_info {
 	char obj_name[32];

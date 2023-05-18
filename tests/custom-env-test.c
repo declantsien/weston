@@ -62,7 +62,14 @@ static enum test_result_code
 setup_env(struct weston_test_harness *harness)
 {
 	/* as this is a standalone test, we can clear the environment here */
+#ifdef __FreeBSD__
+	extern char **environ;
+	char *cleanenv[1];
+	environ = cleanenv;
+	cleanenv[0] = NULL;
+#else
 	clearenv();
+#endif
 
 	putenv("ENV1=one");
 	setenv("ENV2", "two", 1);

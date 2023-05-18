@@ -1,6 +1,6 @@
 # vim: set expandtab shiftwidth=2 tabstop=8 textwidth=0:
 
-.templates_sha: &template_sha 567700e483aabed992d0a4fea84994a0472deff6 # see https://docs.gitlab.com/ee/ci/yaml/#includefile
+.templates_sha: &template_sha dfe97ca8047c55b1e1e29a75cadedfea092b3851 # see https://docs.gitlab.com/ee/ci/yaml/#includefile
 # This file uses the freedesktop ci-templates to build Weston and run our
 # tests in CI.
 #
@@ -51,12 +51,12 @@ include:
   # API changes. If you need new features from ci-templates you must bump
   # this to the current SHA you require from the ci-templates repo, however
   # be aware that you may need to account for API changes when doing so.
-  - project: 'freedesktop/ci-templates'
+  - project: 'rhelmot/ci-templates'
     ref: *template_sha
-    file: '/templates/debian.yml'
-  - project: 'freedesktop/ci-templates'
-    ref: *template_sha
-    file: '/templates/ci-fairy.yml'
+    file:
+      - '/templates/debian.yml'
+      - '/templates/freebsd.yml'
+      - '/templates/ci-fairy.yml'
 
 
 # Define the build stages. These are used for UI grouping as well as
@@ -192,6 +192,39 @@ aarch64-debian-container_prep:
   - cp -R /weston-virtme ./
   - rm weston-virtme/${KERNEL_IMAGE}
   - exit $TEST_RES
+  artifacts:
+    name: weston-$CI_COMMIT_SHA
+    when: always
+    paths:
+    - $BUILDDIR/*.png
+    - $BUILDDIR/meson-logs
+    - $BUILDDIR/dmesg.log
+    - $BUILDDIR/weston-virtme
+    - $PREFIX
+    reports:
+      junit: $BUILDDIR/meson-logs/testlog-per-test-asan.sh.junit.xml
+
+.build-and-test-qemu:
+  extends:
+  - .ci-rules
+  script:
+  # Start the VM and copy our workspace to the VM
+  - /app/vmctl start
+  - scp -r $PWD "vm:"
+  # The `set +e is needed to ensure that we always copy the meson logs back to
+  # the workspace to see details about the failed tests.
+  - |
+    set +e
+    /app/vmctl exec 'ln -s /usr/local/bin/python3.9 /usr/local/bin/python3'
+    /app/vmctl exec "pkg info; cd $CI_PROJECT_NAME; meson setup $BUILDDIR --prefix=$PREFIX $MESON_BUILD_TYPE $MESON_ARGS && ninja -C $BUILDDIR -j${FDO_CI_CONCURRENT:-4}"
+    /app/vmctl exec "env PATH=~/.local/bin:\$PATH XDG_RUNTIME_DIR=\"\`mktemp -d /root/xdg-runtime-XXXXXX\`\" TESTS_RES_PATH=\"$BUILDDIR/tests-res.txt\" meson test --print-errorlogs -C $BUILDDIR --num-processes ${FDO_CI_CONCURENT:-4}" && touch .tests-successful
+    set -ex
+    scp -r vm:$BUILDDIR/meson-logs .
+    /app/vmctl exec "ninja -C $BUILDDIR install"
+    mkdir -p $PREFIX && scp -r vm:$PREFIX/ $PREFIX/
+  # Finally, shut down the VM.
+  - /app/vmctl stop
+  - test -f .tests-successful || exit 1
   artifacts:
     name: weston-$CI_COMMIT_SHA
     when: always
@@ -363,6 +396,63 @@ aarch64-debian-no-gl-build:
   extends:
     - .test-env-debian-aarch64
     - .build-options-no-gl
+
+# Base variables used for anything using a FreeBSD environment
+.os-freebsd:
+  variables:
+    BUILD_OS: freebsd
+    FDO_DISTRIBUTION_VERSION: "13.1"
+    FDO_DISTRIBUTION_PREEXEC: "gpart create -s GPT ada1 && gpart add -t freebsd-ufs -l local ada1 && newfs /dev/gpt/local && echo '/dev/gpt/local /usr/local ufs rw' >>/etc/fstab && mount -a && mkdir /usr/local/bin /usr/local/etc /usr/local/include /usr/local/lib /usr/local/libdata /usr/local/libexec /usr/local/man /usr/local/sbin /usr/local/share"
+    FDO_DISTRIBUTION_PACKAGES: 'meson ninja pkgconf libxkbcommon pixman libinput libdrm libepoll-shim python39 wayland-protocols cairo jpeg-turbo webp seatd lcms2 mesa-libs libva libXcursor gstreamer1 gstreamer1-plugins pipewire pango xcb-util-cursor evdev-proto mesa-dri'
+    # bump this tag every time you change something which requires rebuilding the
+    # base image
+    FDO_DISTRIBUTION_TAG: "2023-04-07.1"
+    # Don't build documentation since installing the required tools massively
+    # increases the VM image (and therefore container) size.
+    VMCTL_EXTRA_QEMU_ARGS: "-drive file=/app/local.qcow2,format=qcow2"
+    FDO_CI_TEMPLATES_QEMU_BASE_IMAGE: "registry.freedesktop.org/rhelmot/ci-templates:latest"
+    FDO_EXTRA_ARTIFACTS: "/app/local.qcow2"
+    MESON_ARGS: "-Ddoc=false"
+
+.freebsd-x86_64:
+  extends:
+    - .os-freebsd
+  variables:
+    BUILD_ARCH: "x86_64"
+
+x86_64-freebsd-container_prep:
+  image: registry.freedesktop.org/rhelmot/ci-templates:latest
+  extends:
+    - .ci-rules
+    - .fdo.qemu-build@freebsd@x86_64
+    - .freebsd-x86_64
+  before_script:
+    - qemu-img create -f qcow2 /app/local.qcow2 100G
+  stage: "Base container"
+  variables:
+    GIT_STRATEGY: none
+
+.build-env-freebsd-x86_64:
+  variables:
+    # Compiling with ASan+UBSan appears to trigger an infinite loop in the
+    # compiler shipped with FreeBSD 13.0, so we only use UBSan here.
+    # Additionally, sanitizers can't be used with b_lundef on FreeBSD.
+    MESON_BUILD_TYPE: "-Dbuildtype=debug -Db_sanitize=undefined -Db_lundef=false "
+    MESON_ARGS: "-Dsystemd=false -Dbackend-rdp=false -Dbackend-vnc=false -Dsimple-clients=damage,im,egl,shm,touch"
+  extends:
+    - .fdo.suffixed-image@freebsd
+    - .freebsd-x86_64
+    - .build-env
+  needs:
+    - job: x86_64-freebsd-container_prep
+      artifacts: false
+
+# Full build and test.
+x86_64-freebsd-full-build:
+  extends:
+    - .build-env-freebsd-x86_64
+    - .build-and-test-qemu
+    - .build-options-full
 
 # Expose docs and coverage reports, so we can show users any changes to these
 # inside their merge requests, letting us check them before merge.

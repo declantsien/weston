@@ -35,6 +35,7 @@
 
 #include <libweston/libweston.h>
 #include "compositor/weston.h"
+#include "shared/crt-compatibility.h"
 #include "shared/file-util.h"
 #include "libweston-internal.h"
 

@@ -50,6 +50,7 @@
 #include "shared/file-util.h"
 #include "shared/process-util.h"
 #include "shared/timespec-util.h"
+#include "shared/crt-compatibility.h"
 
 #include "window.h"
 

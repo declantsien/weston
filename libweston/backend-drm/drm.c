@@ -37,7 +37,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/input.h>
-#include <linux/vt.h>
 #include <assert.h>
 #include <sys/mman.h>
 #include <time.h>
