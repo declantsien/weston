@@ -3882,6 +3882,7 @@ next:
 
 static const struct weston_drm_output_api api = {
 	drm_output_set_mode,
+	drm_output_get_modes,
 	drm_output_set_gbm_format,
 	drm_output_set_seat,
 	drm_output_set_max_bpc,

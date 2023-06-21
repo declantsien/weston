@@ -897,3 +897,39 @@ drm_output_set_mode(struct weston_output *base,
 
 	return 0;
 }
+
+int
+drm_output_get_modes(struct weston_output *base,
+		     size_t *count, struct weston_drm_modeline **out)
+{
+	struct drm_output *output = to_drm_output(base);
+	struct weston_mode *mode;
+	struct weston_drm_modeline *modelines;
+	struct drm_mode *drm_mode;
+	int i = 0;
+
+	if (!base->enabled)
+		drm_output_update_modelist_from_heads(output);
+
+	*count = wl_list_length(&base->mode_list);
+
+	if (!out)
+		return 0;
+
+	modelines = xcalloc(*count, sizeof(*modelines));
+	wl_list_for_each(mode, &base->mode_list, link) {
+		drm_mode = to_drm_mode(mode);
+
+		modelines[i].has_mode_info = true;
+		modelines[i].mode_info = drm_mode->mode_info;
+		modelines[i].width = mode->width;
+		modelines[i].height = mode->height;
+		modelines[i].refresh = mode->refresh;
+		modelines[i].aspect_ratio = mode->aspect_ratio;
+
+		i++;
+	}
+	*out = modelines;
+
+	return 0;
+}

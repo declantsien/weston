@@ -55,7 +55,7 @@ enum weston_drm_backend_output_mode {
 	WESTON_DRM_BACKEND_OUTPUT_PREFERRED,
 };
 
-#define WESTON_DRM_OUTPUT_API_NAME "weston_drm_output_api_v1"
+#define WESTON_DRM_OUTPUT_API_NAME "weston_drm_output_api_v2"
 
 struct weston_drm_modeline {
 	/*
@@ -93,6 +93,16 @@ struct weston_drm_output_api {
 	int (*set_mode)(struct weston_output *output,
 			enum weston_drm_backend_output_mode mode,
 			struct weston_drm_modeline *modeline);
+
+	/** The modes that are available on the given output.
+	 *
+	 * The available modes will be returned as copied weston_drm_modeline in
+	 * modelines and count contains the number of available
+	 * weston_drm_modelines.  The caller is responsible for freeing
+	 * modelines once it finished using it.
+	 */
+	int (*get_modes)(struct weston_output *output,
+			 size_t *count, struct weston_drm_modeline **modelines);
 
 	/** The pixel format to be used by the output. Valid values are:
 	 * - NULL - The format set at backend creation time will be used;
