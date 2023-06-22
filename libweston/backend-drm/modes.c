@@ -183,8 +183,9 @@ get_panel_orientation(struct drm_connector *connector, drmModeObjectPropertiesPt
 }
 
 static int
-parse_modeline(const char *s, drmModeModeInfo *mode)
+parse_modeline(const char *s, struct weston_drm_modeline *modeline)
 {
+	drmModeModeInfo *mode = &modeline->mode_info;
 	char hsync[16];
 	char vsync[16];
 	float fclock;
@@ -212,6 +213,7 @@ parse_modeline(const char *s, drmModeModeInfo *mode)
 		   &mode->vtotal, hsync, vsync) != 11)
 		return -1;
 
+	modeline->has_mode_info = true;
 	mode->clock = fclock * 1000;
 	if (strcasecmp(hsync, "+hsync") == 0)
 		mode->flags |= DRM_MODE_FLAG_PHSYNC;
@@ -714,7 +716,8 @@ drm_output_choose_initial_mode(struct drm_device *device,
 	struct drm_mode *config_fall_back = NULL;
 	struct drm_mode *best = NULL;
 	struct drm_mode *drm_mode;
-	drmModeModeInfo drm_modeline;
+	struct weston_drm_modeline tmp_modeline;
+	struct weston_drm_modeline *drm_modeline = &tmp_modeline;
 	int32_t width = 0;
 	int32_t height = 0;
 	uint32_t refresh = 0;
@@ -742,8 +745,10 @@ drm_output_choose_initial_mode(struct drm_device *device,
 		if (n != 2 && n != 3 && n != 5) {
 			width = -1;
 
-			if (parse_modeline(modeline, &drm_modeline) == 0) {
-				configured = drm_output_add_mode(output, &drm_modeline);
+			if (parse_modeline(modeline, drm_modeline) == 0 &&
+			    drm_modeline->has_mode_info) {
+				configured = drm_output_add_mode(output,
+								 &drm_modeline->mode_info);
 				if (!configured)
 					return NULL;
 			} else {
