@@ -2300,6 +2300,7 @@ drm_backend_output_configure(struct weston_output *output,
 	char *gbm_format = NULL;
 	char *content_type = NULL;
 	char *seat = NULL;
+	size_t num_modes = 0;
 
 	api = weston_drm_output_get_api(output->compositor);
 	if (!api) {
@@ -2328,6 +2329,21 @@ drm_backend_output_configure(struct weston_output *output,
 		}
 	}
 	free(s);
+
+	api->get_modes(output, &num_modes, NULL);
+	if (num_modes == 0 && !modeline) {
+		weston_log("Output \"%s\" doesn't have output modes: trying fallback-mode\n",
+			   output->name);
+		weston_config_section_get_string(section, "fallback-mode", &s, NULL);
+		if (s) {
+			modeline = xzalloc(sizeof(*modeline));
+			parse_modeline(s, modeline);
+			if (!modeline->has_mode_info)
+				weston_log("Invalid fallback-mode \"%s\" for output %s\n",
+					   s, output->name);
+			free(s);
+		}
+	}
 
 	if (api->set_mode(output, mode, modeline) < 0) {
 		weston_log("Cannot configure output \"%s\" using weston_drm_output_api.\n",
