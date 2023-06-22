@@ -189,9 +189,40 @@ parse_modeline(const char *s, struct weston_drm_modeline *modeline)
 	char hsync[16];
 	char vsync[16];
 	float fclock;
+	int n;
+	int32_t width = 0;
+	int32_t height = 0;
+	uint32_t refresh = 0;
+	uint32_t aspect_width = 0;
+	uint32_t aspect_height = 0;
 
 	if (!s)
 		return -1;
+
+	n = sscanf(s, "%dx%d@%d %u:%u",
+		   &width, &height, &refresh, &aspect_width, &aspect_height);
+	if (n == 2 || n == 3 || n == 5) {
+		modeline->width = width;
+		modeline->height = height;
+		modeline->refresh = refresh * 1000;
+
+		if (n == 5) {
+			if (aspect_width == 4 && aspect_height == 3)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_4_3;
+			else if (aspect_width == 16 && aspect_height == 9)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_16_9;
+			else if (aspect_width == 64 && aspect_height == 27)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_64_27;
+			else if (aspect_width == 256 && aspect_height == 135)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_256_135;
+			else
+				return -1;
+			modeline->is_cea = true;
+		} else {
+			modeline->is_cea = false;
+		}
+		return 0;
+	}
 
 	memset(mode, 0, sizeof *mode);
 
@@ -721,40 +752,29 @@ drm_output_choose_initial_mode(struct drm_device *device,
 	int32_t width = 0;
 	int32_t height = 0;
 	uint32_t refresh = 0;
-	uint32_t aspect_width = 0;
-	uint32_t aspect_height = 0;
 	enum weston_mode_aspect_ratio aspect_ratio = WESTON_MODE_PIC_AR_NONE;
-	int n;
 
-	if (mode == WESTON_DRM_BACKEND_OUTPUT_PREFERRED && modeline) {
-		n = sscanf(modeline, "%dx%d@%d %u:%u", &width, &height,
-			   &refresh, &aspect_width, &aspect_height);
-		if (device->aspect_ratio_supported && n == 5) {
-			if (aspect_width == 4 && aspect_height == 3)
-				aspect_ratio = WESTON_MODE_PIC_AR_4_3;
-			else if (aspect_width == 16 && aspect_height == 9)
-				aspect_ratio = WESTON_MODE_PIC_AR_16_9;
-			else if (aspect_width == 64 && aspect_height == 27)
-				aspect_ratio = WESTON_MODE_PIC_AR_64_27;
-			else if (aspect_width == 256 && aspect_height == 135)
-				aspect_ratio = WESTON_MODE_PIC_AR_256_135;
-			else
-				weston_log("Invalid modeline \"%s\" for output %s\n",
-					   modeline, output->base.name);
-		}
-		if (n != 2 && n != 3 && n != 5) {
+	if (mode == WESTON_DRM_BACKEND_OUTPUT_PREFERRED &&
+	    parse_modeline(modeline, drm_modeline) != 0) {
+		weston_log("Invalid modeline \"%s\" for output %s\n",
+			   modeline, output->base.name);
+		drm_modeline = NULL;
+	}
+
+	if (mode == WESTON_DRM_BACKEND_OUTPUT_PREFERRED && drm_modeline) {
+		width = drm_modeline->width;
+		height = drm_modeline->height;
+		refresh = drm_modeline->refresh / 1000;
+
+		if (device->aspect_ratio_supported && drm_modeline->is_cea)
+			aspect_ratio = drm_modeline->aspect_ratio;
+
+		if (drm_modeline->has_mode_info) {
 			width = -1;
 
-			if (parse_modeline(modeline, drm_modeline) == 0 &&
-			    drm_modeline->has_mode_info) {
-				configured = drm_output_add_mode(output,
-								 &drm_modeline->mode_info);
-				if (!configured)
-					return NULL;
-			} else {
-				weston_log("Invalid modeline \"%s\" for output %s\n",
-					   modeline, output->base.name);
-			}
+			configured = drm_output_add_mode(output, &drm_modeline->mode_info);
+			if (!configured)
+				return NULL;
 		}
 	}
 
