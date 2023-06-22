@@ -2201,6 +2201,90 @@ configure_input_device(struct weston_compositor *compositor,
 }
 
 static int
+parse_modeline(const char *s, struct weston_drm_modeline *modeline)
+{
+	drmModeModeInfo *mode = &modeline->mode_info;
+	char hsync[16];
+	char vsync[16];
+	float fclock;
+	int n;
+	int32_t width = 0;
+	int32_t height = 0;
+	uint32_t refresh = 0;
+	uint32_t aspect_width = 0;
+	uint32_t aspect_height = 0;
+
+	if (!s)
+		return -1;
+
+	n = sscanf(s, "%dx%d@%d %u:%u",
+		   &width, &height, &refresh, &aspect_width, &aspect_height);
+	if (n == 2 || n == 3 || n == 5) {
+		modeline->width = width;
+		modeline->height = height;
+		modeline->refresh = refresh * 1000;
+
+		if (n == 5) {
+			if (aspect_width == 4 && aspect_height == 3)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_4_3;
+			else if (aspect_width == 16 && aspect_height == 9)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_16_9;
+			else if (aspect_width == 64 && aspect_height == 27)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_64_27;
+			else if (aspect_width == 256 && aspect_height == 135)
+				modeline->aspect_ratio = WESTON_MODE_PIC_AR_256_135;
+			else
+				return -1;
+			modeline->is_cea = true;
+		} else {
+			modeline->is_cea = false;
+		}
+		return 0;
+	}
+
+	memset(mode, 0, sizeof *mode);
+
+	mode->type = DRM_MODE_TYPE_USERDEF;
+	mode->hskew = 0;
+	mode->vscan = 0;
+	mode->vrefresh = 0;
+	mode->flags = 0;
+
+	if (sscanf(s, "%f %hd %hd %hd %hd %hd %hd %hd %hd %15s %15s",
+		   &fclock,
+		   &mode->hdisplay,
+		   &mode->hsync_start,
+		   &mode->hsync_end,
+		   &mode->htotal,
+		   &mode->vdisplay,
+		   &mode->vsync_start,
+		   &mode->vsync_end,
+		   &mode->vtotal, hsync, vsync) != 11)
+		return -1;
+
+	modeline->has_mode_info = true;
+	mode->clock = fclock * 1000;
+	if (strcasecmp(hsync, "+hsync") == 0)
+		mode->flags |= DRM_MODE_FLAG_PHSYNC;
+	else if (strcasecmp(hsync, "-hsync") == 0)
+		mode->flags |= DRM_MODE_FLAG_NHSYNC;
+	else
+		return -1;
+
+	if (strcasecmp(vsync, "+vsync") == 0)
+		mode->flags |= DRM_MODE_FLAG_PVSYNC;
+	else if (strcasecmp(vsync, "-vsync") == 0)
+		mode->flags |= DRM_MODE_FLAG_NVSYNC;
+	else
+		return -1;
+
+	snprintf(mode->name, sizeof mode->name, "%dx%d@%.3f",
+			mode->hdisplay, mode->vdisplay, fclock);
+
+	return 0;
+}
+
+static int
 drm_backend_output_configure(struct weston_output *output,
 			     struct weston_config_section *section)
 {
@@ -2212,7 +2296,7 @@ drm_backend_output_configure(struct weston_output *output,
 	uint32_t max_bpc = 0;
 	bool max_bpc_specified = false;
 	char *s;
-	char *modeline = NULL;
+	struct weston_drm_modeline *modeline = NULL;
 	char *gbm_format = NULL;
 	char *content_type = NULL;
 	char *seat = NULL;
@@ -2237,8 +2321,11 @@ drm_backend_output_configure(struct weston_output *output,
 		if (!max_bpc_specified)
 			max_bpc = 0;
 	} else if (strcmp(s, "preferred") != 0) {
-		modeline = s;
-		s = NULL;
+		modeline = xzalloc(sizeof(*modeline));
+		if (parse_modeline(s, modeline)) {
+			weston_log("Invalid modeline \"%s\" for output %s\n",
+				   s, output->name);
+		}
 	}
 	free(s);
 

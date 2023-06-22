@@ -92,7 +92,7 @@ struct weston_drm_output_api {
 	 */
 	int (*set_mode)(struct weston_output *output,
 			enum weston_drm_backend_output_mode mode,
-			const char *modeline);
+			struct weston_drm_modeline *modeline);
 
 	/** The pixel format to be used by the output. Valid values are:
 	 * - NULL - The format set at backend creation time will be used;
