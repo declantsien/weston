@@ -1207,6 +1207,8 @@ struct weston_layer_entry {
  *
  * A fully integrated environment can use any value, based on these or not,
  * at their discretion.
+ *
+ * \ingroup compositor
  */
 enum weston_layer_position {
 	/*
@@ -1604,7 +1606,8 @@ struct weston_region {
 	pixman_region32_t region;
 };
 
-/* Using weston_view transformations
+/*
+ * Using weston_view transformations
  *
  * To add a transformation to a view, create a struct weston_transform, and
  * add it to the list view->geometry.transformation_list. Whenever you
@@ -1634,6 +1637,9 @@ struct weston_region {
  *    Mparent * Mn * ... * M2 * M1
  */
 
+/**
+ * \ingroup compositor
+ */
 struct weston_view {
 	struct weston_surface *surface;
 	struct wl_list surface_link;
@@ -1812,6 +1818,9 @@ struct weston_pointer_constraint {
 	struct wl_listener surface_activate_listener;
 };
 
+/**
+ * \ingroup compositor
+ */
 struct weston_surface {
 	struct wl_resource *resource;
 	struct wl_signal destroy_signal; /* callback argument: this surface */

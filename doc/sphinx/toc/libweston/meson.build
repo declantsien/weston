@@ -4,6 +4,8 @@ files = [
 	'head.rst',
 	'log.rst',
 	'output.rst',
+        'desktop.rst',
+	'views-mgmt.rst',
 	'output-management.rst',
         'weston-config.rst',
         'shell-utils.rst',

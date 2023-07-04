@@ -460,6 +460,13 @@ region_init_infinite(pixman_region32_t *region)
 static struct weston_subsurface *
 weston_surface_to_subsurface(struct weston_surface *surface);
 
+/**
+ * Create a view from a weston_surface.
+ *
+ * \param surface
+ * \return a pointer to a weston_view
+ * \ingroup compositor
+ */
 WL_EXPORT struct weston_view *
 weston_view_create(struct weston_surface *surface)
 {
@@ -666,6 +673,14 @@ weston_surface_state_set_buffer(struct weston_surface_state *state,
 			      &state->buffer_destroy_listener);
 }
 
+/**
+ * Create a surface.
+ *
+ * \param compositor a point to a compositor instance
+ * \return a pointer to a weston_surface
+ *
+ * \ingroup compositor
+ */
 WL_EXPORT struct weston_surface *
 weston_surface_create(struct weston_compositor *compositor)
 {
@@ -2148,6 +2163,12 @@ weston_surface_reset_pending_buffer(struct weston_surface *surface)
 	surface->pending.buffer_viewport.changed = false;
 }
 
+/**
+ * Destroys a weston_view
+ *
+ * \param view the weston_view in question
+ * \ingroup compositor
+ */
 WL_EXPORT void
 weston_view_destroy(struct weston_view *view)
 {
@@ -2182,6 +2203,16 @@ weston_view_destroy(struct weston_view *view)
 	free(view);
 }
 
+/**
+ *
+ * Take a new weston_surface reference.
+ *
+ * \sa weston_surface_create
+ * \param surface the surface in question to take a new reference
+ * \return the 
+ * \ingroup compositor
+ *
+ */
 WL_EXPORT struct weston_surface *
 weston_surface_ref(struct weston_surface *surface)
 {
@@ -2192,6 +2223,15 @@ weston_surface_ref(struct weston_surface *surface)
 	return surface;
 }
 
+/**
+ * Destroy a weston_surface reference, and if it is last one, also destroys 
+ * the weston_surface object itself.
+ *
+ * \sa weston_surface_create
+ * \param surface the surface in question to destroy
+ * \ingroup compositor
+ *
+ */
 WL_EXPORT void
 weston_surface_unref(struct weston_surface *surface)
 {
@@ -3569,6 +3609,7 @@ weston_layer_entry_remove(struct weston_layer_entry *entry)
 
 /** Initialize the weston_layer struct.
  *
+ * \ingroup compositor
  * \param compositor The compositor instance
  * \param layer The layer to initialize
  */
@@ -3586,6 +3627,7 @@ weston_layer_init(struct weston_layer *layer,
 /** Finalize the weston_layer struct.
  *
  * \param layer The layer to finalize.
+ * \ingroup compositor
  */
 WL_EXPORT void
 weston_layer_fini(struct weston_layer *layer)
@@ -3605,6 +3647,7 @@ weston_layer_fini(struct weston_layer *layer)
  *
  * \param layer The layer to modify
  * \param position The position the layer will be placed at
+ * \ingroup compositor
  */
 WL_EXPORT void
 weston_layer_set_position(struct weston_layer *layer,
