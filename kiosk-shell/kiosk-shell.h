@@ -49,6 +49,7 @@ struct kiosk_shell {
 
 	const struct weston_xwayland_surface_api *xwayland_surface_api;
 	struct weston_config *config;
+	bool allow_zap;
 };
 
 struct kiosk_shell_surface {

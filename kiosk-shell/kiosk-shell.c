@@ -745,6 +745,7 @@ kiosk_shell_output_configure(struct kiosk_shell_output *shoutput)
 	struct weston_config *wc = wet_get_config(shoutput->shell->compositor);
 	struct weston_config_section *section =
 		weston_config_get_section(wc, "output", "name", shoutput->output->name);
+	bool allow_zap;
 
 	assert(shoutput->app_ids == NULL);
 
@@ -752,6 +753,11 @@ kiosk_shell_output_configure(struct kiosk_shell_output *shoutput)
 		weston_config_section_get_string(section, "app-ids",
 						 &shoutput->app_ids, NULL);
 	}
+
+	section = weston_config_get_section(wc, "shell", NULL, NULL);
+	weston_config_section_get_bool(section,
+				       "allow-zap", &allow_zap, true);
+	shoutput->shell->allow_zap = allow_zap;
 }
 
 static void
@@ -1307,10 +1313,22 @@ kiosk_shell_touch_to_activate_binding(struct weston_touch *touch,
 }
 
 static void
+terminate_binding(struct weston_keyboard *keyboard, const struct timespec *time,
+                  uint32_t key, void *data)
+{
+	struct weston_compositor *compositor = data;
+
+	weston_compositor_exit(compositor);
+}
+
+static void
 kiosk_shell_add_bindings(struct kiosk_shell *shell)
 {
 	uint32_t mod = 0;
-
+	if (shell->allow_zap)
+		weston_compositor_add_key_binding(shell->compositor, KEY_BACKSPACE,
+						  MODIFIER_CTRL | MODIFIER_ALT,
+						  terminate_binding, shell->compositor);
 	mod = weston_config_get_binding_modifier(shell->config, MODIFIER_SUPER);
 
 	weston_compositor_add_button_binding(shell->compositor, BTN_LEFT, 0,
