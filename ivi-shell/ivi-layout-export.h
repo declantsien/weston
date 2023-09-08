@@ -548,9 +548,8 @@ struct ivi_layout_interface {
 				 int32_t *stride);
 
 	int32_t (*surface_dump)(struct weston_surface *surface,
-				void *target, size_t size,
-				int32_t x, int32_t y,
-				int32_t width, int32_t height);
+				struct weston_buffer *buffer,
+				int32_t x, int32_t y);
 
 	/**
 	 * Returns the ivi_layout_surface or NULL

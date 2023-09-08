@@ -380,16 +380,6 @@ if get_option('xwayland')
 	} ]
 endif
 
-# Manual test plugin, not used in the automatic suite
-surface_screenshot_test = shared_library(
-	'test-surface-screenshot',
-	'surface-screenshot-test.c',
-	include_directories: common_inc,
-	dependencies: [ dep_libweston_private, dep_libshared ],
-	name_prefix: '',
-	install: false,
-)
-
 if get_option('shell-ivi')
 	ivi_layout_test_plugin = shared_library(
 		'test-ivi-layout',

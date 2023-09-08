@@ -2409,9 +2409,8 @@ weston_surface_get_bounding_box(struct weston_surface *surface);
 
 int
 weston_surface_copy_content(struct weston_surface *surface,
-			    void *target, size_t size,
-			    int src_x, int src_y,
-			    int width, int height);
+			    struct weston_buffer *buffer,
+			    int src_x, int src_y);
 
 struct weston_buffer *
 weston_buffer_from_resource(struct weston_compositor *ec,
@@ -2498,7 +2497,11 @@ weston_log_paced(struct weston_log_pacer *pacer, unsigned int max_burst,
 enum weston_screenshooter_outcome {
 	WESTON_SCREENSHOOTER_SUCCESS,
 	WESTON_SCREENSHOOTER_NO_MEMORY,
-	WESTON_SCREENSHOOTER_BAD_BUFFER
+	WESTON_SCREENSHOOTER_NO_OUTPUT,
+	WESTON_SCREENSHOOTER_NO_SURFACE,
+	WESTON_SCREENSHOOTER_BAD_BUFFER,
+	WESTON_SCREENSHOOTER_NOT_SUPPORTED,
+	WESTON_SCREENSHOOTER_FAILED
 };
 
 typedef void (*weston_screenshooter_done_func_t)(void *data,

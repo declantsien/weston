@@ -1852,16 +1852,14 @@ ivi_layout_surface_set_transition(struct ivi_layout_surface *ivisurf,
 
 static int32_t
 ivi_layout_surface_dump(struct weston_surface *surface,
-			void *target, size_t size,int32_t x, int32_t y,
-			int32_t width, int32_t height)
+			struct weston_buffer *buffer,
+			int32_t x, int32_t y)
 {
 	int result = 0;
 
 	assert(surface);
 
-	result = weston_surface_copy_content(
-		surface, target, size,
-		x, y, width, height);
+	result = weston_surface_copy_content(surface, buffer, x, y);
 
 	return result == 0 ? IVI_SUCCEEDED : IVI_FAILED;
 }
