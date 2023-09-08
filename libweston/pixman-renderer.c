@@ -892,20 +892,53 @@ pixman_renderer_destroy(struct weston_compositor *ec)
 
 static int
 pixman_renderer_surface_copy_content(struct weston_surface *surface,
-				     void *target, size_t size,
-				     int src_x, int src_y,
-				     int width, int height)
+				     struct weston_buffer *buffer,
+				     int src_x, int src_y)
 {
-	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
+	pixman_format_code_t format;
+	size_t bytespp;
 	struct pixman_surface_state *ps = get_surface_state(surface);
 	pixman_image_t *out_buf;
+	struct wl_shm_buffer *shm_buffer;
+	int32_t width, height;
+	void *target;
+	int ret = -1;
 
 	if (!ps->image)
-		return -1;
+		return ret;
+
+	if (!buffer || (buffer->type != WESTON_BUFFER_SHM)) {
+		weston_log("%s: error: invalid buffer\n", __func__);
+		return ret;
+	}
+
+	shm_buffer = buffer->shm_buffer;
+	width = buffer->width;
+	height = buffer->height;
+	format = buffer->pixel_format->pixman_format;
+	bytespp = (buffer->pixel_format->bpp)/8;
+
+	if ((src_x + width) > surface->width ||
+	    (src_y + height) > surface->height) {
+		weston_log("%s: error: src %dx%d buffer dimension %dx%d "
+			   "is inappropriate for surface %dx%d\n",
+			   __func__, src_x, src_y, width, height,
+			   surface->width, surface->height);
+		return ret;
+	}
+
+	target = wl_shm_buffer_get_data(shm_buffer);
+
+	wl_shm_buffer_begin_access(shm_buffer);
 
 	out_buf = pixman_image_create_bits(format, width, height,
 					   target, width * bytespp);
+
+	if (!out_buf) {
+		weston_log("%s: error: unable to create pixman image\n",
+			   __func__);
+		goto error;
+	}
 
 	pixman_image_set_transform(ps->image, NULL);
 	pixman_image_composite32(PIXMAN_OP_SRC,
@@ -917,9 +950,14 @@ pixman_renderer_surface_copy_content(struct weston_surface *surface,
 				 0, 0,         /* dest_x, dest_y */
 				 width, height);
 
+	ret = 0;
+
 	pixman_image_unref(out_buf);
 
-	return 0;
+error:
+	wl_shm_buffer_end_access(shm_buffer);
+
+	return ret;
 }
 
 static bool
