@@ -38,6 +38,7 @@
 struct window;
 struct widget;
 struct display;
+struct session;
 struct input;
 struct output;
 struct tablet;
@@ -150,6 +151,9 @@ display_exit(struct display *d);
 int
 display_get_data_device_manager_version(struct display *d);
 
+struct session *
+display_get_session(struct display *display, const char *session_id);
+
 enum cursor_type {
 	CURSOR_BOTTOM_LEFT,
 	CURSOR_BOTTOM_RIGHT,
@@ -190,6 +194,19 @@ typedef void (*window_drop_handler_t)(struct window *window,
 
 typedef void (*window_close_handler_t)(void *data);
 typedef void (*window_fullscreen_handler_t)(struct window *window, void *data);
+
+typedef void (*session_created_handler_t)(struct session *session,
+					  const char *session_id,
+					  void *data);
+typedef void (*session_restored_handler_t)(struct session *session,
+					   void *data);
+
+typedef void (*window_session_toplevel_id_handler_t)(struct window *window,
+						     const char *toplevel_id,
+						     void *data);
+typedef void (*window_session_restored_handler_t)(struct window *window,
+						  void *data);
+
 
 typedef void (*window_output_handler_t)(struct window *window, struct output *output,
 					int enter, void *data);
@@ -344,6 +361,49 @@ struct window *
 window_create(struct display *display);
 struct window *
 window_create_custom(struct display *display);
+struct window *
+window_create_restore(struct display *display,
+		      struct session *session,
+		      const char *toplevel_id);
+
+void
+session_remove(struct session *session);
+void
+session_destroy(struct session *session);
+const char *
+session_get_session_id(struct session *session);
+
+void
+session_remove_window(struct session *session,
+		      const char *toplevel_id);
+void
+session_add_window(struct session *session,
+		   struct window *window);
+
+void
+session_set_user_data(struct session *session,
+		      void *data);
+
+void
+session_set_created_handler(struct session *session,
+			    session_created_handler_t handler);
+void
+session_set_restored_handler(struct session *session,
+			     session_restored_handler_t handler);
+
+void
+window_set_session_toplevel_id_handler(struct window *window,
+				       window_session_toplevel_id_handler_t handler);
+void
+window_set_session_restored_handler(struct window *window,
+				    window_session_restored_handler_t handler);
+
+const char *
+window_session_get_toplevel_id(struct window *window);
+void
+window_session_destroy(struct window *window);
+
+bool window_has_session(struct window *window);
 
 void
 window_set_parent(struct window *window, struct window *parent_window);

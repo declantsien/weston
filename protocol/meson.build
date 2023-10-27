@@ -43,6 +43,7 @@ generated_protocols = [
 	[ 'xdg-output', 'unstable', 'v1' ],
 	[ 'xdg-shell', 'unstable', 'v6' ],
 	[ 'xdg-shell', 'stable' ],
+	[ 'xdg-session-management', 'internal', 'v1' ],
 	[ 'xwayland-shell', 'staging', 'v1' ],
 ]
 

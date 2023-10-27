@@ -56,6 +56,7 @@
 #include "shared/xalloc.h"
 #include <libweston/zalloc.h>
 #include "xdg-shell-client-protocol.h"
+#include "xdg-session-management-client-protocol.h"
 #include "text-cursor-position-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
@@ -90,6 +91,7 @@ struct display {
 	struct wl_data_device_manager *data_device_manager;
 	struct text_cursor_position *text_cursor_position;
 	struct xdg_wm_base *xdg_shell;
+	struct xdg_session_manager_v1 *xdg_session_manager;
 	struct zwp_tablet_manager_v2 *tablet_manager;
 	struct zwp_relative_pointer_manager_v1 *relative_pointer_manager;
 	struct zwp_pointer_constraints_v1 *pointer_constraints;
@@ -108,6 +110,7 @@ struct display {
 	struct wl_list window_list;
 	struct wl_list input_list;
 	struct wl_list output_list;
+	struct wl_list session_list;
 
 	struct theme *theme;
 
@@ -232,6 +235,7 @@ struct window {
 	struct wl_list window_output_list;
 	char *title;
 	char *appid;
+	char *toplevel_id;
 	struct rectangle saved_allocation;
 	struct rectangle min_allocation;
 	struct rectangle pending_allocation;
@@ -260,12 +264,16 @@ struct window {
 	window_output_handler_t output_handler;
 	window_state_changed_handler_t state_changed_handler;
 
+	window_session_toplevel_id_handler_t session_toplevel_id_handler;
+	window_session_restored_handler_t session_restored_handler;
+
 	window_locked_pointer_motion_handler_t locked_pointer_motion_handler;
 
 	struct surface *main_surface;
 	struct xdg_surface *xdg_surface;
 	struct xdg_toplevel *xdg_toplevel;
 	struct xdg_popup *xdg_popup;
+	struct xdg_toplevel_session_v1 *xdg_toplevel_session;
 
 	struct window *parent;
 	struct window *last_parent;
@@ -286,6 +294,19 @@ struct window {
 	struct zwp_confined_pointer_v1 *confined_pointer;
 	struct widget *confined_widget;
 	bool confined;
+
+	void *user_data;
+	struct wl_list session_link;  /* struct session::window_list */
+	struct wl_list link;
+};
+
+struct session {
+	struct xdg_session_v1 *xdg_session;
+	char *session_id;
+	struct wl_list window_list;  /* struct window::session_link */
+
+	session_created_handler_t created_handler;
+	session_restored_handler_t restored_handler;
 
 	void *user_data;
 	struct wl_list link;
@@ -1404,6 +1425,22 @@ surface_destroy(struct surface *surface)
 	free(surface);
 }
 
+bool
+window_has_session(struct window *window)
+{
+	return window->xdg_toplevel_session != NULL;
+}
+
+static void
+window_session_destroy_internal(struct window *window)
+{
+	xdg_toplevel_session_v1_destroy(window->xdg_toplevel_session);
+	window->xdg_toplevel_session = NULL;
+	free(window->toplevel_id);
+	window->toplevel_id = NULL;
+	wl_list_remove(&window->session_link);
+}
+
 void
 window_destroy(struct window *window)
 {
@@ -1412,6 +1449,8 @@ window_destroy(struct window *window)
 	struct window_output *window_output;
 	struct window_output *window_output_tmp;
 
+	if (window->xdg_toplevel_session != NULL)
+		window_session_destroy_internal(window);
 	wl_list_remove(&window->redraw_task.link);
 
 	wl_list_for_each(input, &display->input_list, link) {
@@ -4753,6 +4792,19 @@ window_set_locked_pointer_motion_handler(struct window *window,
 }
 
 void
+window_set_session_toplevel_id_handler(struct window *window,
+				       window_session_toplevel_id_handler_t handler)
+{
+	window->session_toplevel_id_handler = handler;
+}
+void
+window_set_session_restored_handler(struct window *window,
+					     window_session_restored_handler_t handler)
+{
+	window->session_restored_handler = handler;
+}
+
+void
 window_set_title(struct window *window, const char *title)
 {
 	free(window->title);
@@ -4763,6 +4815,20 @@ window_set_title(struct window *window, const char *title)
 	}
 	if (window->xdg_toplevel)
 		xdg_toplevel_set_title(window->xdg_toplevel, title);
+}
+
+const char *
+window_session_get_toplevel_id(struct window *window)
+{
+	return window->toplevel_id;
+}
+void
+window_session_destroy(struct window *window)
+{
+	if (!window->toplevel_id)
+		return;
+
+	window_session_destroy_internal(window);
 }
 
 const char *
@@ -5246,6 +5312,166 @@ window_create(struct display *display)
 		window_inhibit_redraw(window);
 
 		wl_surface_commit(window->main_surface->surface);
+	}
+
+	return window;
+}
+
+static void
+xdg_toplevel_session_handle_restored(void *data,
+				     struct xdg_toplevel_session_v1 *xdg_toplevel_session_resource,
+				     struct xdg_toplevel *xdg_toplevel_resource)
+{
+	struct window *window = data;
+
+	wl_surface_commit(window->main_surface->surface);
+
+	if (window->session_restored_handler)
+		window->session_restored_handler(window, window->user_data);
+}
+
+static void
+xdg_toplevel_session_handle_toplevel_id(void *data,
+					struct xdg_toplevel_session_v1 *xdg_toplevel_session_resource,
+					struct xdg_toplevel *xdg_toplevel_resource,
+					const char *toplevel_id)
+{
+	struct window *window = data;
+
+	window->toplevel_id = xstrdup(toplevel_id);
+	wl_surface_commit(window->main_surface->surface);
+
+	if (window->session_toplevel_id_handler)
+		window->session_toplevel_id_handler(window,
+						    window->toplevel_id,
+						    window->user_data);
+}
+
+static const struct xdg_toplevel_session_v1_listener xdg_toplevel_session_listener = {
+	.restored = xdg_toplevel_session_handle_restored,
+	.toplevel_id = xdg_toplevel_session_handle_toplevel_id,
+};
+
+static void
+xdg_session_handle_created(void *data,
+			   struct xdg_session_v1 *xdg_session_resource,
+			   const char *session_id)
+{
+	struct session *session = data;
+
+	session->session_id = xstrdup(session_id);
+
+	if (session->created_handler)
+		session->created_handler(session,
+					 session->session_id,
+					 session->user_data);
+}
+
+static void
+xdg_session_handle_restored(void *data,
+			   struct xdg_session_v1 *xdg_session_resource)
+{
+	struct session *session = data;
+
+	if (session->restored_handler)
+		session->restored_handler(session,
+					  session->user_data);
+}
+
+static const struct xdg_session_v1_listener xdg_session_listener = {
+	.created = xdg_session_handle_created,
+	.restored = xdg_session_handle_restored,
+};
+
+void
+session_add_window(struct session *session, struct window *window)
+{
+	if (session->xdg_session != NULL && window->xdg_toplevel_session == NULL)
+	{
+		window->xdg_toplevel_session =
+			xdg_session_v1_add_toplevel(session->xdg_session,
+						    window->xdg_toplevel);
+		if (window->xdg_toplevel_session)
+		{
+			xdg_toplevel_session_v1_add_listener(window->xdg_toplevel_session,
+							     &xdg_toplevel_session_listener,
+							     window);
+			wl_list_insert(session->window_list.prev, &window->session_link);
+		}
+	}
+}
+
+void
+session_remove_window(struct session *session, const char *toplevel_id)
+{
+	struct window *window, *tmp;
+
+	if (toplevel_id == NULL)
+		return;
+
+	wl_list_for_each_safe(window, tmp, &session->window_list, session_link)
+	{
+		if (window->xdg_toplevel_session == NULL || window->toplevel_id == NULL)
+			continue;
+		if (strcmp(window->toplevel_id, toplevel_id) == 0)
+		{
+			window_session_destroy_internal(window);
+			break;
+		}
+	}
+
+	if (session->xdg_session)
+		xdg_session_v1_remove_toplevel(session->xdg_session,
+					       toplevel_id);
+}
+
+struct window *
+window_create_restore(struct display *display, struct session *session, const char *toplevel_id)
+{
+	struct window *window;
+
+	window = window_create_internal(display, 0);
+
+	if (window->display->xdg_shell) {
+		window->xdg_surface =
+			xdg_wm_base_get_xdg_surface(window->display->xdg_shell,
+						    window->main_surface->surface);
+		abort_oom_if_null(window->xdg_surface);
+
+		xdg_surface_add_listener(window->xdg_surface,
+					 &xdg_surface_listener, window);
+
+		window->xdg_toplevel =
+			xdg_surface_get_toplevel(window->xdg_surface);
+		abort_oom_if_null(window->xdg_toplevel);
+
+		xdg_toplevel_add_listener(window->xdg_toplevel,
+					  &xdg_toplevel_listener, window);
+
+		window_inhibit_redraw(window);
+
+		if (session)
+		{
+			if (toplevel_id == NULL)
+			{
+				session_add_window(session, window);
+			} else {
+				window->xdg_toplevel_session =
+					xdg_session_v1_restore_toplevel(session->xdg_session,
+									window->xdg_toplevel,
+									toplevel_id);
+				if (window->xdg_toplevel_session)
+				{
+					window->toplevel_id = xstrdup(toplevel_id);
+					xdg_toplevel_session_v1_add_listener(window->xdg_toplevel_session,
+									     &xdg_toplevel_session_listener,
+									     window);
+					wl_list_insert(session->window_list.prev, &window->session_link);
+				}
+			}
+		} else {
+			wl_surface_commit(window->main_surface->surface);
+		}
 	}
 
 	return window;
@@ -6553,6 +6779,10 @@ registry_handle_global(void *data, struct wl_registry *registry, uint32_t id,
 					&wp_viewporter_interface, 1);
 	} else if (strcmp(interface, "zwp_tablet_manager_v2") == 0) {
 		display_bind_tablets(d, id);
+	} else if (strcmp(interface, xdg_session_manager_v1_interface.name) == 0) {
+		d->xdg_session_manager = wl_registry_bind(registry, id,
+							  &xdg_session_manager_v1_interface,
+							  MIN(version, 1));
 	}
 
 	if (d->global_handler)
@@ -6663,6 +6893,7 @@ display_create(int *argc, char *argv[])
 	wl_list_init(&d->input_list);
 	wl_list_init(&d->output_list);
 	wl_list_init(&d->global_list);
+	wl_list_init(&d->session_list);
 
 	d->display = wl_display_connect(NULL);
 	if (d->display == NULL) {
@@ -6724,6 +6955,16 @@ display_destroy_inputs(struct display *display)
 		input_destroy(input);
 }
 
+static void
+display_destroy_sessions(struct display *display)
+{
+	struct session *tmp;
+	struct session *session;
+
+	wl_list_for_each_safe(session, tmp, &display->session_list, link)
+		session_destroy(session);
+}
+
 void
 display_destroy(struct display *display)
 {
@@ -6743,6 +6984,7 @@ display_destroy(struct display *display)
 
 	display_destroy_outputs(display);
 	display_destroy_inputs(display);
+	display_destroy_sessions(display);
 
 	wl_list_for_each_safe(global, tmp, &display->global_list, link)
 		global_destroy(display, global);
@@ -6806,6 +7048,82 @@ struct wl_display *
 display_get_display(struct display *display)
 {
 	return display->display;
+}
+
+struct session *
+display_get_session(struct display *display, const char *session_id)
+{
+	struct session *session;
+
+	if (!display->xdg_session_manager)
+		return NULL;
+
+	session = xzalloc(sizeof *session);
+	wl_list_init(&session->window_list);
+	wl_list_insert(&display->session_list, &session->link);
+
+	if (session_id)
+		session->session_id = xstrdup(session_id);
+
+	if (display->xdg_session_manager == NULL)
+	{
+		return NULL;
+	}
+
+	session->xdg_session =
+		xdg_session_manager_v1_get_session(display->xdg_session_manager,
+						   session_id);
+
+	xdg_session_v1_add_listener(session->xdg_session, &xdg_session_listener, session);
+
+	return session;
+}
+
+void
+session_remove(struct session *session)
+{
+	struct window *window, *tmp;
+	wl_list_for_each_safe(window, tmp, &session->window_list, session_link)
+		window_session_destroy_internal(window);
+	wl_list_remove(&session->link);
+	xdg_session_v1_remove(session->xdg_session);
+	free(session->session_id);
+	free(session);
+}
+
+void
+session_destroy(struct session *session)
+{
+	struct window *window, *tmp;
+	wl_list_for_each_safe(window, tmp, &session->window_list, session_link)
+		window_session_destroy_internal(window);
+	wl_list_remove(&session->link);
+	xdg_session_v1_destroy(session->xdg_session);
+	free(session->session_id);
+	free(session);
+}
+
+const char *
+session_get_session_id(struct session *session)
+{
+	return session->session_id;
+}
+
+void
+session_set_user_data(struct session *session, void *data)
+{
+	session->user_data = data;
+}
+
+void
+session_set_created_handler(struct session *session, session_created_handler_t handler)
+{
+	session->created_handler = handler;
+}
+void
+session_set_restored_handler(struct session *session, session_restored_handler_t handler)
+{
+	session->restored_handler = handler;
 }
 
 int

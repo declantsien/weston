@@ -6,6 +6,8 @@ srcs_toytoolkit = [
 	'window.c',
 	xdg_shell_client_protocol_h,
 	xdg_shell_protocol_c,
+	xdg_session_management_client_protocol_h,
+	xdg_session_management_protocol_c,
 	text_cursor_position_client_protocol_h,
 	text_cursor_position_protocol_c,
 	relative_pointer_unstable_v1_client_protocol_h,
@@ -334,7 +336,13 @@ demo_clients = [
 		]
 	},
 	{ 'basename': 'smoke' },
-	{ 'basename': 'stacking' },
+	{
+		'basename': 'stacking',
+		'add_sources': [
+			xdg_session_management_client_protocol_h,
+			xdg_session_management_protocol_c,
+		]
+	},
 	{
 		'basename': 'subsurfaces',
 		'deps': [ 'egl', 'glesv2', 'wayland-egl' ]
