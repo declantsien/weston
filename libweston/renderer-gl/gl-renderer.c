@@ -2089,23 +2089,6 @@ gl_renderer_read_pixels(struct weston_output *output,
 	return 0;
 }
 
-static GLenum
-gl_format_from_internal(GLenum internal_format)
-{
-	switch (internal_format) {
-	case GL_R8_EXT:
-		return GL_RED_EXT;
-	case GL_RG8_EXT:
-		return GL_RG_EXT;
-	case GL_RGBA16_EXT:
-	case GL_RGBA16F:
-	case GL_RGB10_A2:
-		return GL_RGBA;
-	default:
-		return internal_format;
-	}
-}
-
 static void
 gl_renderer_flush_damage(struct weston_surface *surface,
 			 struct weston_buffer *buffer,
@@ -2181,7 +2164,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					     buffer->width / hsub,
 					     buffer->height / vsub,
 					     0,
-					     gl_format_from_internal(gb->gl_format[j]),
+					     gb->gl_format[j],
 					     gb->gl_pixel_type,
 					     data + gb->offset[j]);
 			} else {
@@ -2190,7 +2173,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					     buffer->width / hsub,
 					     buffer->height / vsub,
 					     0,
-					     gl_format_from_internal(gb->gl_format[j]),
+					     gb->gl_format[j],
 					     gb->gl_pixel_type,
 					     data + gb->offset[j]);
 			}
@@ -2220,7 +2203,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					r.y1 / vsub,
 					(r.x2 - r.x1) / hsub,
 					(r.y2 - r.y1) / vsub,
-					gl_format_from_internal(gb->gl_format[j]),
+					gb->gl_format[j],
 					gb->gl_pixel_type,
 					data + gb->offset[j]);
 		}
