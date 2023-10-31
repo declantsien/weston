@@ -728,6 +728,16 @@ gl_renderer_create_fbo(struct weston_output *output,
 		if (!gr->has_rgb8_rgba8)
 			return NULL;
 		break;
+	case GL_BGRA_EXT:
+	case GL_BGRA8_EXT:
+		/* Whilst BGRA is supposed to be color-renderable per
+		 * GL_EXT_texture_format_BGRA8888, this was only added in an
+		 * ambiguous spec update and wasn't supported by Mesa until
+		 * very recently */
+		if (!gr->has_rgb8_rgba8)
+			return NULL;
+		intf = GL_RGBA8;
+		break;
 	case GL_RGB10_A2:
 		if (!gr->has_texture_type_2_10_10_10_rev ||
 		    !gr->has_texture_storage)
