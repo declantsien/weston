@@ -2175,7 +2175,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 				      gb->pitch / hsub);
 
 			/* GLES2 only allows us to use base formats */
-			if (using_glesv2 || gb->gl_internalformat[j] == 0) {
+			if (using_glesv2) {
 				glTexImage2D(GL_TEXTURE_2D, 0,
 					     gb->gl_format[j],
 					     buffer->width / hsub,
@@ -3370,7 +3370,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	gl_shader_config_set_input_textures(&sconf, gs);
 
-	if (using_glesv2 || format->gl_internalformat == 0)
+	if (using_glesv2)
 		internalformat = format->gl_format;
 	else
 		internalformat = format->gl_internalformat;
@@ -3659,16 +3659,14 @@ gl_renderer_resize_output(struct weston_output *output,
 	if (shadow_exists(go))
 		gl_fbo_texture_fini(&go->shadow);
 
-	/* As some formats only have one or the other of internal or base
-	 * formats declared, just use what we have. This will be removed in a
-	 * couple of commits. */
-	if (using_glesv2 || shfmt->gl_internalformat == 0)
+	if (using_glesv2)
 		internalformat = shfmt->gl_format;
 	else
 		internalformat = shfmt->gl_internalformat;
 
 	ret = gl_fbo_texture_init(&go->shadow, area->width, area->height,
-				  internalformat, GL_RGBA, shfmt->gl_type);
+				  internalformat, shfmt->gl_format,
+				  shfmt->gl_type);
 
 	return ret;
 }
