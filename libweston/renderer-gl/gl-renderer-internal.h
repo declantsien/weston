@@ -189,7 +189,11 @@ struct gl_renderer {
 	bool has_rgb8_rgba8;
 
 	bool has_texture_storage;
+	bool has_texture_storage_compression;
+	GLint texture_compression_rate;
 	PFNGLTEXSTORAGE2DEXTPROC tex_storage_2d;
+	PFNGLTEXSTORAGEATTRIBS2DEXTPROC tex_storage_attribs_2d;
+
 	bool has_image_storage;
 	bool has_image_storage_compression;
 	PFNGLEGLIMAGETARGETTEXTURESTORAGEEXTPROC image_target_storage_2d;

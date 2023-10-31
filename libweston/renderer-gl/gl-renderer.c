@@ -2439,10 +2439,25 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 			int vsub = pixel_format_vsub(buffer->pixel_format, i);
 
 			glBindTexture(GL_TEXTURE_2D, gb->textures[i]);
-			gr->tex_storage_2d(GL_TEXTURE_2D, 1,
-					   gb->gl_internalformat[i],
-					   buffer->width / hsub,
-					   buffer->height / vsub);
+
+			if (gr->has_texture_storage_compression) {
+				const GLint attribs[3] = {
+					GL_SURFACE_COMPRESSION_EXT,
+					gr->texture_compression_rate,
+					GL_NONE,
+				};
+
+				gr->tex_storage_attribs_2d(GL_TEXTURE_2D, 1,
+							   gb->gl_internalformat[i],
+							   buffer->width / hsub,
+							   buffer->height / vsub,
+							   attribs);
+			} else {
+				gr->tex_storage_2d(GL_TEXTURE_2D, 1,
+						   gb->gl_internalformat[i],
+						   buffer->width / hsub,
+						   buffer->height / vsub);
+			}
 		}
 	}
 
@@ -4336,6 +4351,15 @@ gl_renderer_setup(struct weston_compositor *ec)
 		gr->has_image_storage_compression = true;
 	}
 
+	if (weston_check_egl_extension(extensions,
+				       "GL_EXT_texture_storage_compression")) {
+		gr->has_texture_storage_compression = true;
+		gr->tex_storage_attribs_2d =
+			(void *) eglGetProcAddress("glTexStorageAttribs2DEXT");
+	}
+
+	gr->texture_compression_rate = GL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT;
+
 	glActiveTexture(GL_TEXTURE0);
 
 	gr->fallback_shader = gl_renderer_create_fallback_shader(gr);
@@ -4370,6 +4394,8 @@ gl_renderer_setup(struct weston_compositor *ec)
 			    yesno(gr->has_gl_texture_rg));
 	weston_log_continue(STAMP_SPACE "OES_EGL_image_external: %s\n",
 			    yesno(gr->has_egl_image_external));
+	weston_log_continue(STAMP_SPACE "fixed-rate texture compression: %s\n",
+			    yesno(gr->has_texture_compression));
 
 	return 0;
 }
