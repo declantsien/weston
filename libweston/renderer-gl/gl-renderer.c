@@ -719,9 +719,10 @@ gl_renderer_create_fbo(struct weston_output *output,
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
 	struct gl_renderbuffer *renderbuffer;
+	GLenum intf = format->gl_internalformat;
 	int fb_status;
 
-	switch (format->gl_internalformat) {
+	switch (intf) {
 	case GL_RGB8:
 	case GL_RGBA8:
 		if (!gr->has_rgb8_rgba8)
@@ -743,8 +744,7 @@ gl_renderer_create_fbo(struct weston_output *output,
 
 	glGenRenderbuffers(1, &renderbuffer->rb);
 	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer->rb);
-	glRenderbufferStorage(GL_RENDERBUFFER, format->gl_internalformat,
-			      width, height);
+	glRenderbufferStorage(GL_RENDERBUFFER, intf, width, height);
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 				  GL_RENDERBUFFER, renderbuffer->rb);
@@ -2103,9 +2103,11 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 {
 	const struct weston_testsuite_quirks *quirks =
 		&surface->compositor->test_data.test_quirks;
+	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
 	struct weston_paint_node *pnode;
+	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	bool texture_used;
 	pixman_box32_t *rectangles;
 	uint8_t *data;
@@ -2161,14 +2163,27 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 			glBindTexture(GL_TEXTURE_2D, gb->textures[j]);
 			glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT,
 				      gb->pitch / hsub);
-			glTexImage2D(GL_TEXTURE_2D, 0,
-				     gb->gl_format[j],
-				     buffer->width / hsub,
-				     buffer->height / vsub,
-				     0,
-				     gl_format_from_internal(gb->gl_format[j]),
-				     gb->gl_pixel_type,
-				     data + gb->offset[j]);
+
+			/* GLES2 only allows us to use base formats */
+			if (using_glesv2 || gb->gl_internalformat[j] == 0) {
+				glTexImage2D(GL_TEXTURE_2D, 0,
+					     gb->gl_format[j],
+					     buffer->width / hsub,
+					     buffer->height / vsub,
+					     0,
+					     gl_format_from_internal(gb->gl_format[j]),
+					     gb->gl_pixel_type,
+					     data + gb->offset[j]);
+			} else {
+				glTexImage2D(GL_TEXTURE_2D, 0,
+					     gb->gl_internalformat[j],
+					     buffer->width / hsub,
+					     buffer->height / vsub,
+					     0,
+					     gl_format_from_internal(gb->gl_format[j]),
+					     gb->gl_pixel_type,
+					     data + gb->offset[j]);
+			}
 		}
 		wl_shm_buffer_end_access(buffer->shm_buffer);
 		goto done;
