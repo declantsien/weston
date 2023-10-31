@@ -2586,8 +2586,17 @@ gl_renderer_attach_egl(struct weston_surface *es, struct weston_buffer *buffer)
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(target, gb->textures[i]);
 		if (gr->has_image_storage) {
+			EGLint attribs[3] = { GL_NONE, GL_NONE, GL_NONE };
+
+			/* Without this, we can't import buffers from clients
+			 * using fixed-rate compression; it doesn't change the
+			 * content handling, but just allows compression. */
+			if (gr->has_image_storage_compression) {
+				attribs[0] = GL_SURFACE_COMPRESSION_EXT;
+				attribs[1] = GL_SURFACE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
+			}
 			gr->image_target_storage_2d(target, gb->images[i],
-						    NULL);
+						    attribs);
 		} else {
 			gr->image_target_texture_2d(target, gb->images[i]);
 		}
@@ -3139,8 +3148,17 @@ gl_renderer_attach_dmabuf(struct weston_surface *surface,
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(target, gb->textures[i]);
 		if (gr->has_texture_storage) {
+			EGLint attribs[3] = { GL_NONE, GL_NONE, GL_NONE };
+
+			/* Without this, we can't import buffers from clients
+			 * using fixed-rate compression; it doesn't change the
+			 * content handling, but just allows compression. */
+			if (gr->has_image_storage_compression) {
+				attribs[0] = GL_SURFACE_COMPRESSION_EXT;
+				attribs[1] = GL_SURFACE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
+			}
 			gr->image_target_storage_2d(target, gb->images[i],
-						    NULL);
+						    attribs);
 		} else {
 			gr->image_target_texture_2d(target, gb->images[i]);
 		}
@@ -4311,6 +4329,11 @@ gl_renderer_setup(struct weston_compositor *ec)
 		gr->has_image_storage = true;
 		gr->image_target_storage_2d =
 			(void *) eglGetProcAddress("glEGLImageTargetTexStorageEXT");
+	}
+
+	if (weston_check_egl_extension(extensions,
+				       "GL_EXT_EGL_image_storage_compression")) {
+		gr->has_image_storage_compression = true;
 	}
 
 	glActiveTexture(GL_TEXTURE0);

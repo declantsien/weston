@@ -191,6 +191,7 @@ struct gl_renderer {
 	bool has_texture_storage;
 	PFNGLTEXSTORAGE2DEXTPROC tex_storage_2d;
 	bool has_image_storage;
+	bool has_image_storage_compression;
 	PFNGLEGLIMAGETARGETTEXTURESTORAGEEXTPROC image_target_storage_2d;
 
 	struct gl_shader *current_shader;
