@@ -3596,8 +3596,11 @@ gl_renderer_resize_output(struct weston_output *output,
 			  const struct weston_size *fb_size,
 			  const struct weston_geometry *area)
 {
+	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
+	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	const struct pixel_format_info *shfmt = go->shadow_format;
+	GLenum internalformat;
 	bool ret;
 
 	check_compositing_area(fb_size, area);
@@ -3623,8 +3626,16 @@ gl_renderer_resize_output(struct weston_output *output,
 	if (shadow_exists(go))
 		gl_fbo_texture_fini(&go->shadow);
 
+	/* As some formats only have one or the other of internal or base
+	 * formats declared, just use what we have. This will be removed in a
+	 * couple of commits. */
+	if (using_glesv2 || shfmt->gl_internalformat == 0)
+		internalformat = shfmt->gl_format;
+	else
+		internalformat = shfmt->gl_internalformat;
+
 	ret = gl_fbo_texture_init(&go->shadow, area->width, area->height,
-				  shfmt->gl_format, GL_RGBA, shfmt->gl_type);
+				  internalformat, GL_RGBA, shfmt->gl_type);
 
 	return ret;
 }
