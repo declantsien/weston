@@ -165,7 +165,7 @@ struct gl_buffer_state {
 
 	/* Only needed between attach() and flush_damage() */
 	int pitch; /* plane 0 pitch in pixels */
-	GLenum gl_pixel_type;
+	GLenum gl_pixel_type[3];
 	GLenum gl_format[3];
 	GLenum gl_internalformat[3];
 	int offset[3]; /* per-plane pitch in bytes */
@@ -2165,7 +2165,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					     buffer->height / vsub,
 					     0,
 					     gb->gl_format[j],
-					     gb->gl_pixel_type,
+					     gb->gl_pixel_type[j],
 					     data + gb->offset[j]);
 			} else {
 				glTexImage2D(GL_TEXTURE_2D, 0,
@@ -2174,7 +2174,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					     buffer->height / vsub,
 					     0,
 					     gb->gl_format[j],
-					     gb->gl_pixel_type,
+					     gb->gl_pixel_type[j],
 					     data + gb->offset[j]);
 			}
 		}
@@ -2204,7 +2204,7 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					(r.x2 - r.x1) / hsub,
 					(r.y2 - r.y1) / vsub,
 					gb->gl_format[j],
-					gb->gl_pixel_type,
+					gb->gl_pixel_type[j],
 					data + gb->offset[j]);
 		}
 	}
@@ -2279,7 +2279,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	struct weston_buffer *old_buffer = gs->buffer_ref.buffer;
 	GLenum gl_format[3] = {0, 0, 0};
 	GLenum gl_internalformat[3] = {0, 0, 0};
-	GLenum gl_pixel_type;
+	GLenum gl_pixel_type[3] = {0, 0, 0};
 	enum gl_shader_texture_variant shader_variant;
 	int pitch;
 	int offset[3] = { 0, 0, 0 };
@@ -2315,8 +2315,6 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 			bpp = pixel_format_get_info(yuv->plane[0].format)->bpp;
 		pitch = wl_shm_buffer_get_stride(shm_buffer) / (bpp / 8);
 
-		/* well, they all are so far ... */
-		gl_pixel_type = GL_UNSIGNED_BYTE;
 		shader_variant = yuv->shader_variant;
 
 		/* pre-compute all plane offsets in shm buffer */
@@ -2341,6 +2339,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 
 			gl_internalformat[out] = sub_info->gl_internalformat;
 			gl_format[out] = sub_info->gl_format;
+			gl_pixel_type[out] = sub_info->gl_type;
 			offset[out] = shm_offset[yuv->plane[out].plane_index];
 		}
 	} else {
@@ -2359,7 +2358,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 
 		gl_internalformat[0] = buffer->pixel_format->gl_internalformat;
 		gl_format[0] = buffer->pixel_format->gl_format;
-		gl_pixel_type = buffer->pixel_format->gl_type;
+		gl_pixel_type[0] = buffer->pixel_format->gl_type;
 	}
 
 	for (i = 0; i < ARRAY_LENGTH(gb->gl_format); i++) {
@@ -2368,14 +2367,14 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 		 * two-component formats. */
 		if (!gr->has_gl_texture_rg && gl_internalformat[i] == GL_R8_EXT) {
 			assert(gl_format[i] == GL_RED_EXT);
-			assert(gl_pixel_type == GL_UNSIGNED_BYTE);
+			assert(gl_pixel_type[i] == GL_UNSIGNED_BYTE);
 			assert(shader_variant == SHADER_VARIANT_Y_U_V ||
 			       shader_variant == SHADER_VARIANT_Y_UV);
 			gl_format[i] = GL_LUMINANCE;
 		}
 		if (!gr->has_gl_texture_rg && gl_internalformat[i] == GL_RG8_EXT) {
 			assert(gl_format[i] == GL_RG_EXT);
-			assert(gl_pixel_type == GL_UNSIGNED_BYTE);
+			assert(gl_pixel_type[i] == GL_UNSIGNED_BYTE);
 			assert(shader_variant == SHADER_VARIANT_Y_UV ||
 			       shader_variant == SHADER_VARIANT_Y_XUXV);
 			shader_variant = SHADER_VARIANT_Y_XUXV;
@@ -2414,7 +2413,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	ARRAY_COPY(gb->offset, offset);
 	ARRAY_COPY(gb->gl_format, gl_format);
 	ARRAY_COPY(gb->gl_internalformat, gl_internalformat);
-	gb->gl_pixel_type = gl_pixel_type;
+	ARRAY_COPY(gb->gl_pixel_type, gl_pixel_type);
 	gb->needs_full_upload = true;
 
 	gs->buffer = gb;
