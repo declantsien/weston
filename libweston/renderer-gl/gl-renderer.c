@@ -2157,8 +2157,15 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 			glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT,
 				      gb->pitch / hsub);
 
-			/* GLES2 only allows us to use base formats */
-			if (using_glesv2) {
+			if (gr->has_texture_storage) {
+				glTexSubImage2D(GL_TEXTURE_2D, 0,
+						0, 0,
+						buffer->width / hsub,
+						buffer->height / vsub,
+						gb->gl_format[j],
+						gb->gl_pixel_type[j],
+						data + gb->offset[j]);
+			} else if (using_glesv2) {
 				glTexImage2D(GL_TEXTURE_2D, 0,
 					     gb->gl_format[j],
 					     buffer->width / hsub,
@@ -2420,6 +2427,21 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	gs->surface = es;
 
 	ensure_textures(gb, GL_TEXTURE_2D, num_planes);
+
+	/* Completely specify the texture up front. This will make it
+	 * immutable. */
+	if (gr->has_texture_storage) {
+		for (i = 0; i < num_planes; i++) {
+			int hsub = pixel_format_hsub(buffer->pixel_format, i);
+			int vsub = pixel_format_vsub(buffer->pixel_format, i);
+
+			glBindTexture(GL_TEXTURE_2D, gb->textures[i]);
+			gr->tex_storage_2d(GL_TEXTURE_2D, 1,
+					   gb->gl_internalformat[i],
+					   buffer->width / hsub,
+					   buffer->height / vsub);
+		}
+	}
 
 	return true;
 }
@@ -4194,9 +4216,20 @@ gl_renderer_setup(struct weston_compositor *ec)
 	if (weston_check_egl_extension(extensions, "GL_EXT_texture_norm16"))
 		gr->has_texture_norm16 = true;
 
-	if (gr->gl_version >= gr_gl_version(3, 0) ||
-	    weston_check_egl_extension(extensions, "GL_EXT_texture_storage"))
+	/* The EXT and core versions have compatible signatures, so we use the same
+	 * pointer; however, we only use it if the texture_storage extension is
+	 * _also_ present, due to a bad bug in Mesa which would prevent us from
+	 * using it: https://github.com/KhronosGroup/OpenGL-API/issues/92 */
+	if (gr->gl_version >= gr_gl_version(3, 0) &&
+	    weston_check_egl_extension(extensions, "GL_EXT_texture_storage")) {
 		gr->has_texture_storage = true;
+		gr->tex_storage_2d =
+			(void *) eglGetProcAddress("glTexStorage2D");
+	} else if (weston_check_egl_extension(extensions, "GL_EXT_texture_storage")) {
+		gr->has_texture_storage = true;
+		gr->tex_storage_2d =
+			(void *) eglGetProcAddress("glTexStorage2DEXT");
+	}
 
 	if (weston_check_egl_extension(extensions, "GL_ANGLE_pack_reverse_row_order"))
 		gr->has_pack_reverse = true;
