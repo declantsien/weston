@@ -167,6 +167,7 @@ struct gl_buffer_state {
 	int pitch; /* plane 0 pitch in pixels */
 	GLenum gl_pixel_type;
 	GLenum gl_format[3];
+	GLenum gl_internalformat[3];
 	int offset[3]; /* per-plane pitch in bytes */
 
 	EGLImageKHR images[3];
@@ -2269,6 +2270,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	struct wl_shm_buffer *shm_buffer = buffer->shm_buffer;
 	struct weston_buffer *old_buffer = gs->buffer_ref.buffer;
 	GLenum gl_format[3] = {0, 0, 0};
+	GLenum gl_internalformat[3] = {0, 0, 0};
 	GLenum gl_pixel_type;
 	enum gl_shader_texture_variant shader_variant;
 	int pitch;
@@ -2330,6 +2332,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 			assert(sub_info);
 			assert(yuv->plane[out].plane_index < (int) shm_plane_count);
 
+			gl_internalformat[out] = sub_info->gl_internalformat;
 			gl_format[out] = sub_info->gl_format;
 			offset[out] = shm_offset[yuv->plane[out].plane_index];
 		}
@@ -2347,6 +2350,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 		assert(bpp > 0 && !(bpp & 7));
 		pitch = wl_shm_buffer_get_stride(shm_buffer) / (bpp / 8);
 
+		gl_internalformat[0] = buffer->pixel_format->gl_internalformat;
 		gl_format[0] = buffer->pixel_format->gl_format;
 		gl_pixel_type = buffer->pixel_format->gl_type;
 	}
@@ -2406,6 +2410,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	gb->shader_variant = shader_variant;
 	ARRAY_COPY(gb->offset, offset);
 	ARRAY_COPY(gb->gl_format, gl_format);
+	ARRAY_COPY(gb->gl_internalformat, gl_internalformat);
 	gb->gl_pixel_type = gl_pixel_type;
 	gb->needs_full_upload = true;
 
