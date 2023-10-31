@@ -2285,7 +2285,6 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	int offset[3] = { 0, 0, 0 };
 	unsigned int num_planes;
 	unsigned int i;
-	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	const struct yuv_format_descriptor *yuv = NULL;
 
 	/* When sampling YUV input textures and converting to RGB by hand, we
@@ -2364,22 +2363,18 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	}
 
 	for (i = 0; i < ARRAY_LENGTH(gb->gl_format); i++) {
-		/* Fall back to GL_RGBA for 10bpc formats on ES2 */
-		if (using_glesv2 && gl_format[i] == GL_RGB10_A2) {
-			assert(gl_pixel_type == GL_UNSIGNED_INT_2_10_10_10_REV_EXT);
-			gl_format[i] = GL_RGBA;
-		}
-
 		/* Fall back to old luminance-based formats if we don't have
 		 * GL_EXT_texture_rg, which requires different sampling for
 		 * two-component formats. */
-		if (!gr->has_gl_texture_rg && gl_format[i] == GL_R8_EXT) {
+		if (!gr->has_gl_texture_rg && gl_internalformat[i] == GL_R8_EXT) {
+			assert(gl_format[i] == GL_RED_EXT);
 			assert(gl_pixel_type == GL_UNSIGNED_BYTE);
 			assert(shader_variant == SHADER_VARIANT_Y_U_V ||
 			       shader_variant == SHADER_VARIANT_Y_UV);
 			gl_format[i] = GL_LUMINANCE;
 		}
-		if (!gr->has_gl_texture_rg && gl_format[i] == GL_RG8_EXT) {
+		if (!gr->has_gl_texture_rg && gl_internalformat[i] == GL_RG8_EXT) {
+			assert(gl_format[i] == GL_RG_EXT);
 			assert(gl_pixel_type == GL_UNSIGNED_BYTE);
 			assert(shader_variant == SHADER_VARIANT_Y_UV ||
 			       shader_variant == SHADER_VARIANT_Y_XUXV);
