@@ -3310,13 +3310,14 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		.view_alpha = 1.0f,
 		.input_tex_filter = GL_NEAREST,
 	};
-	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
+	const struct pixel_format_info *format =
+		pixel_format_get_info_by_pixman(PIXMAN_a8b8g8r8);
+	GLenum internalformat;
 	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
 	struct weston_buffer *buffer = gs->buffer_ref.buffer;
+	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	int cw, ch;
 	GLuint fbo;
 	GLuint tex;
@@ -3324,13 +3325,15 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	int ret = -1;
 
 	assert(buffer);
+	assert(format);
+	assert(format->bpp);
 
 	cw = buffer->width;
 	ch = buffer->height;
 
 	switch (buffer->type) {
 	case WESTON_BUFFER_SOLID:
-		*(uint32_t *)target = pack_color(format, gb->color);
+		*(uint32_t *)target = pack_color(format->pixman_format, gb->color);
 		return 0;
 	case WESTON_BUFFER_SHM:
 		gl_renderer_flush_damage(surface, buffer, NULL);
@@ -3342,11 +3345,16 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	gl_shader_config_set_input_textures(&sconf, gs);
 
+	if (using_glesv2 || format->gl_internalformat == 0)
+		internalformat = format->gl_format;
+	else
+		internalformat = format->gl_internalformat;
+
 	glActiveTexture(GL_TEXTURE0);
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cw, ch,
-		     0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glTexImage2D(GL_TEXTURE_2D, 0, internalformat, cw, ch,
+		     0, format->gl_format, format->gl_type, NULL);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glGenFramebuffers(1, &fbo);
@@ -3387,9 +3395,9 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	if (gr->has_pack_reverse)
 		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_FALSE);
-	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
-	glReadPixels(src_x, src_y, width, height, gl_format,
-		     GL_UNSIGNED_BYTE, target);
+	glPixelStorei(GL_PACK_ALIGNMENT, format->bpp / 8);
+	glReadPixels(src_x, src_y, width, height, format->gl_format,
+		     format->gl_type, target);
 	ret = 0;
 
 out:
