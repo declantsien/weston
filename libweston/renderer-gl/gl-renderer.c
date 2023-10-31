@@ -2582,7 +2582,12 @@ gl_renderer_attach_egl(struct weston_surface *es, struct weston_buffer *buffer)
 	for (i = 0; i < gb->num_images; i++) {
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(target, gb->textures[i]);
-		gr->image_target_texture_2d(target, gb->images[i]);
+		if (gr->has_image_storage) {
+			gr->image_target_storage_2d(target, gb->images[i],
+						    NULL);
+		} else {
+			gr->image_target_texture_2d(target, gb->images[i]);
+		}
 	}
 
 	return true;
@@ -3130,7 +3135,12 @@ gl_renderer_attach_dmabuf(struct weston_surface *surface,
 	for (i = 0; i < gb->num_images; ++i) {
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(target, gb->textures[i]);
-		gr->image_target_texture_2d(target, gb->images[i]);
+		if (gr->has_texture_storage) {
+			gr->image_target_storage_2d(target, gb->images[i],
+						    NULL);
+		} else {
+			gr->image_target_texture_2d(target, gb->images[i]);
+		}
 	}
 
 	return true;
@@ -4291,6 +4301,13 @@ gl_renderer_setup(struct weston_compositor *ec)
 	} else if (gr->has_native_fence_sync)  {
 		weston_log("warning: Disabling render GPU timeline due to "
 			   "missing GL_EXT_disjoint_timer_query extension\n");
+	}
+
+	if (weston_check_egl_extension(extensions,
+				       "GL_EXT_EGL_image_storage")) {
+		gr->has_image_storage = true;
+		gr->image_target_storage_2d =
+			(void *) eglGetProcAddress("glEGLImageTargetTexStorageEXT");
 	}
 
 	glActiveTexture(GL_TEXTURE0);
