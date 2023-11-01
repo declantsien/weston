@@ -2714,6 +2714,10 @@ weston_compositor_load_icc_file(struct weston_compositor *compositor,
 const char *
 weston_fixed_compression_rate_to_str(enum weston_fixed_compression_rate rate);
 
+bool
+weston_fixed_compression_rate_from_str(const char *str,
+				       enum weston_fixed_compression_rate *rate);
+
 /** Describes who is trying to capture and which output */
 struct weston_output_capture_client {
 	struct wl_client *client;

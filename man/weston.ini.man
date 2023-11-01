@@ -152,6 +152,13 @@ target vertical blank, increasing output latency. The default value is 7
 milliseconds. The allowed range is from -10 to 1000 milliseconds. Using a
 negative value will force the compositor to always miss the target vblank.
 .TP 7
+.BI "texture-compression="rate
+Enable fixed-rate (i.e. lossy) texture compression if supported by the
+renderer and driver. The default value of "none" will disable lossy
+compression. A value of "default" will allow the driver to choose a rate it
+considers appropriate. A value between 1 and 12 will instruct the driver to
+use that rate if supported.
+.TP 7
 .BI "idle-time="seconds
 sets Weston's idle timeout in seconds. This idle timeout is the time
 after which Weston will enter an "inactive" mode and screen will fade to

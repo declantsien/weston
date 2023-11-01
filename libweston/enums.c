@@ -65,3 +65,33 @@ weston_fixed_compression_rate_to_str(enum weston_fixed_compression_rate rate)
 		unreachable("invalid enum");
 	}
 }
+
+WL_EXPORT bool
+weston_fixed_compression_rate_from_str(const char *str,
+				       enum weston_fixed_compression_rate *rate)
+{
+#define CASE(s,e) do { \
+		if (strcmp(str, s) == 0) { \
+			*rate = WESTON_COMPRESSION_ ## e; \
+			return true; \
+		} \
+	} while(0)
+	CASE("none", NONE);
+	CASE("default", DEFAULT);
+	CASE("1bpc", 1BPC);
+	CASE("2bpc", 2BPC);
+	CASE("3bpc", 3BPC);
+	CASE("4bpc", 4BPC);
+	CASE("5bpc", 5BPC);
+	CASE("6bpc", 6BPC);
+	CASE("7bpc", 7BPC);
+	CASE("8bpc", 8BPC);
+	CASE("9bpc", 9BPC);
+	CASE("10bpc", 10BPC);
+	CASE("11bpc", 11BPC);
+	CASE("12bpc", 12BPC);
+#undef CASE
+
+	*rate = WESTON_COMPRESSION_NONE;
+	return false;
+}

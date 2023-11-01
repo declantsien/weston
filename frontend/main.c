@@ -1153,6 +1153,7 @@ weston_compositor_init_config(struct weston_compositor *ec,
 	struct wet_compositor *compositor = to_wet_compositor(ec);
 	struct xkb_rule_names xkb_names;
 	struct weston_config_section *s;
+	char *texture_compression;
 	int repaint_msec;
 	bool color_management;
 	bool cal;
@@ -1202,6 +1203,17 @@ weston_compositor_init_config(struct weston_compositor *ec,
 		else
 			compositor->use_color_manager = true;
 	}
+
+	weston_config_section_get_string(s, "texture-compression",
+					 &texture_compression,
+					 "none");
+	if (!weston_fixed_compression_rate_from_str(texture_compression,
+						    &ec->texture_compression)) {
+		weston_log("Invalid texture compression rate in config: %s\n",
+			   texture_compression);
+		return -1;
+	}
+	free(texture_compression);
 
 	/* weston.ini [libinput] */
 	s = weston_config_get_section(config, "libinput", NULL, NULL);
