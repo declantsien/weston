@@ -197,13 +197,36 @@ create_gbm_surface(struct gbm_device *gbm, struct drm_output *output)
 		return;
 	}
 
-	if (!weston_drm_format_has_modifier(fmt, DRM_FORMAT_MOD_INVALID)) {
-		modifiers = weston_drm_format_get_modifiers(fmt, &num_modifiers);
+	modifiers = weston_drm_format_get_modifiers(fmt, &num_modifiers);
+	if (num_modifiers > 0) {
+		uint32_t flags = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
+
+		switch (output->surface_compression_rate) {
+		case WESTON_COMPRESSION_NONE:
+			break;
+#define CASE(x) case WESTON_COMPRESSION_##x: flags |= GBM_BO_COMPRESSION_##x; break;
+		CASE(DEFAULT);
+		CASE(1BPC);
+		CASE(2BPC);
+		CASE(3BPC);
+		CASE(4BPC);
+		CASE(5BPC);
+		CASE(6BPC);
+		CASE(7BPC);
+		CASE(8BPC);
+		CASE(9BPC);
+		CASE(10BPC);
+		CASE(11BPC);
+		CASE(12BPC);
+#undef CASE
+		}
+
 		output->gbm_surface =
-			gbm_surface_create_with_modifiers(gbm,
-							  mode->width, mode->height,
-							  output->format->format,
-							  modifiers, num_modifiers);
+			gbm_surface_create_with_modifiers2(gbm,
+							   mode->width, mode->height,
+							   output->format->format,
+							   modifiers, num_modifiers,
+							   flags);
 	}
 
 	/*

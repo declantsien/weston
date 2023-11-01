@@ -2154,6 +2154,8 @@ drm_backend_output_configure(struct weston_output *output,
 	char *gbm_format = NULL;
 	char *content_type = NULL;
 	char *seat = NULL;
+	char *surface_compression = NULL;
+	enum weston_fixed_compression_rate surface_rate;
 
 	api = weston_drm_output_get_api(output->compositor);
 	if (!api) {
@@ -2220,6 +2222,20 @@ drm_backend_output_configure(struct weston_output *output,
 
 	api->set_seat(output, seat);
 	free(seat);
+
+	weston_config_section_get_string(section,
+					 "surface-compression",
+					 &surface_compression, "none");
+	if (!weston_fixed_compression_rate_from_str(surface_compression,
+						    &surface_rate)) {
+		weston_log("Invalid surface compression \"%s\" specified\n",
+			   surface_compression);
+		free(surface_compression);
+		return -1;
+	}
+	free(surface_compression);
+	if (api->set_surface_compression(output, surface_rate) < 0)
+		return -1;
 
 	allow_content_protection(output, section);
 

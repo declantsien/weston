@@ -104,6 +104,12 @@ struct weston_drm_output_api {
 	 */
 	int (*set_content_type)(struct weston_output *output,
 				const char *content_type);
+
+	/** Set the fixed-rate compression mode to use for any composition
+	 *  performed by Weston on this output.
+	 */
+	int (*set_surface_compression)(struct weston_output *output,
+				       enum weston_fixed_compression_rate rate);
 };
 
 static inline const struct weston_drm_output_api *
