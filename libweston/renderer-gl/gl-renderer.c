@@ -235,6 +235,43 @@ dump_format(uint32_t format, char out[4])
 	return out;
 }
 
+static GLint
+weston_fixed_compression_rate_to_gl(enum weston_fixed_compression_rate w)
+{
+	switch (w) {
+	case WESTON_COMPRESSION_NONE:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT;
+	case WESTON_COMPRESSION_DEFAULT:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
+	case WESTON_COMPRESSION_1BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_1BPC_EXT;
+	case WESTON_COMPRESSION_2BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_2BPC_EXT;
+	case WESTON_COMPRESSION_3BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_3BPC_EXT;
+	case WESTON_COMPRESSION_4BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_4BPC_EXT;
+	case WESTON_COMPRESSION_5BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_5BPC_EXT;
+	case WESTON_COMPRESSION_6BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_6BPC_EXT;
+	case WESTON_COMPRESSION_7BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_7BPC_EXT;
+	case WESTON_COMPRESSION_8BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_8BPC_EXT;
+	case WESTON_COMPRESSION_9BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_9BPC_EXT;
+	case WESTON_COMPRESSION_10BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_10BPC_EXT;
+	case WESTON_COMPRESSION_11BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_11BPC_EXT;
+	case WESTON_COMPRESSION_12BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_12BPC_EXT;
+	default:
+		unreachable("invalid enum");
+	}
+}
+
 static inline struct gl_output_state *
 get_output_state(struct weston_output *output)
 {
@@ -4356,9 +4393,16 @@ gl_renderer_setup(struct weston_compositor *ec)
 		gr->has_texture_storage_compression = true;
 		gr->tex_storage_attribs_2d =
 			(void *) eglGetProcAddress("glTexStorageAttribs2DEXT");
+		gr->texture_compression_rate =
+			weston_fixed_compression_rate_to_gl(ec->texture_compression);
+	} else if (ec->texture_compression > WESTON_COMPRESSION_DEFAULT) {
+		weston_log("Error: fixed-rate texture compression requested, "
+			   "but extension not available\n");
+		return -1;
+	} else {
+		gr->texture_compression_rate =
+			GL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT;
 	}
-
-	gr->texture_compression_rate = GL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT;
 
 	glActiveTexture(GL_TEXTURE0);
 
@@ -4395,7 +4439,7 @@ gl_renderer_setup(struct weston_compositor *ec)
 	weston_log_continue(STAMP_SPACE "OES_EGL_image_external: %s\n",
 			    yesno(gr->has_egl_image_external));
 	weston_log_continue(STAMP_SPACE "fixed-rate texture compression: %s\n",
-			    yesno(gr->has_texture_compression));
+			    weston_fixed_compression_rate_to_str(ec->texture_compression));
 
 	return 0;
 }
