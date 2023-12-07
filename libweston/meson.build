@@ -127,17 +127,9 @@ dep_libweston_private = declare_dependency(
 	dependencies: deps_for_libweston_users
 )
 
-# XXX: We should be able to use dep_libweston_private.partial_dependency() instead
-# of this, but a Meson bug makes it not work. It will be fixed with
-# https://github.com/mesonbuild/meson/pull/5167
-# in hopefully Meson 0.51.
-dep_libweston_private_h_deps = []
-foreach d : deps_for_libweston_users
-	dep_libweston_private_h_deps += d.partial_dependency(compile_args: true)
-endforeach
 dep_libweston_private_h = declare_dependency(
 	include_directories: [ include_directories('.'), public_inc ],
-	dependencies: dep_libweston_private_h_deps
+	dependencies: dep_libweston_private.partial_dependency(compile_args : true)
 )
 
 pkgconfig.generate(
