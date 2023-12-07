@@ -12,7 +12,7 @@ lib_test_runner = static_library(
 	'test-runner',
 	'weston-test-runner.c',
 	dependencies: [
-		dep_libweston_private_h_deps,
+		dep_libweston_private_h,
 		dep_wayland_client,
                 dep_libdl,
                 dep_threads,
