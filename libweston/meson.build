@@ -1,6 +1,6 @@
 deps_libweston = [
 	dep_wayland_server,
-	dep_pixman,
+	dep_pixman, 
 	dep_libm,
 	dep_libdl,
 	dep_libdrm,
