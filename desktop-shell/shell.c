@@ -2280,18 +2280,16 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf)
 				 WESTON_ACTIVATE_FLAG_FULLSCREEN : 0));
 	}
 
-	if (!shsurf->state.fullscreen && !shsurf->state.maximized) {
-		switch (shell->win_animation_type) {
-		case ANIMATION_FADE:
-			weston_fade_run(shsurf->view, 0.0, 1.0, 300.0, NULL, NULL);
-			break;
-		case ANIMATION_ZOOM:
-			weston_zoom_run(shsurf->view, 0.5, 1.0, NULL, NULL);
-			break;
-		case ANIMATION_NONE:
-		default:
-			break;
-		}
+	switch (shell->win_animation_type) {
+	case ANIMATION_FADE:
+		weston_fade_run(shsurf->view, 0.0, 1.0, 300.0, NULL, NULL);
+		break;
+	case ANIMATION_ZOOM:
+		weston_zoom_run(shsurf->view, 0.5, 1.0, NULL, NULL);
+		break;
+	case ANIMATION_NONE:
+	default:
+		break;
 	}
 }
 
