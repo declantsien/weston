@@ -86,6 +86,16 @@ Make a screenshot of the desktop
 .B Super + R
 .RS 4
 Start or stop recording video of the desktop
+.P
+.RE
+.B mod + Shift + KEY_S
+.RS 4
+Decrease the alpha value of the active window
+.P
+.RE
+.B mod + Shift + KEY_W
+.RS 4
+Increase the alpha value of the active window
 
 .SS "TOUCH / MOUSE BINDINGS"
 

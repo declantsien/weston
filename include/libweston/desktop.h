@@ -52,6 +52,11 @@ enum weston_top_level_tiled_orientation {
 	WESTON_TOP_LEVEL_TILED_ORIENTATION_BOTTOM 	= 1 << 4,
 };
 
+enum weston_top_level_alpha {
+	WESTON_TOP_LEVEL_ALPHA_DOWN 	= 0 << 0,
+	WESTON_TOP_LEVEL_ALPHA_UP 	= 1 << 1,
+};
+
 struct weston_desktop;
 struct weston_desktop_client;
 struct weston_desktop_surface;
