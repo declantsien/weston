@@ -60,6 +60,7 @@
 #include "shared/xalloc.h"
 #include "fullscreen-shell-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
+#include "presentation-time-client-protocol.h"
 #include "presentation-time-server-protocol.h"
 #include "linux-dmabuf.h"
 #include <libweston/pixel-formats.h>
@@ -88,6 +89,7 @@ struct wayland_backend {
 		struct xdg_wm_base *xdg_wm_base;
 		struct zwp_fullscreen_shell_v1 *fshell;
 		struct wl_shm *shm;
+		struct wp_presentation *presentation;
 
 		struct wl_list output_list;
 
@@ -414,22 +416,39 @@ frame_done(void *data, struct wl_callback *callback, uint32_t time)
 {
 	struct wayland_output *output = data;
 	struct timespec ts;
+	uint32_t flags = 0;
+	struct wp_presentation *pres;
+	struct wayland_backend *wb;
+
+	wb = to_wayland_backend(output->base.compositor);
+	pres = wb->parent.presentation;
+	if (pres)
+		flags = WP_PRESENTATION_FEEDBACK_INVALID;
 
 	assert(callback == output->frame_cb);
 	wl_callback_destroy(callback);
 	output->frame_cb = NULL;
 
-	/* XXX: use the presentation extension for proper timings */
-
 	/*
-	 * This is the fallback case, where Presentation extension is not
-	 * available from the parent compositor. We do not know the base for
-	 * 'time', so we cannot feed it to finish_frame(). Do the only thing
-	 * we can, and pretend finish_frame time is when we process this
-	 * event.
+	 * Either this is the fallback case, where Presentation extension is
+	 * not available from the parent compositor, or we're starting a
+	 * repaint loop with Presentation available.
+	 *
+	 * If it's fallback,  We do not know the base for 'time', so we cannot
+	 * feed it to finish_frame(). Do the only thing we can, and pretend
+	 * finish_frame time is when we process this event.
+	 *
+	 * Either way, we never have both presentation feedback and frame
+	 * callbacks in flight at the same time, so we don't have to worry
+	 * about accidentally calling weston_output_finish_frame() twice for
+	 * the same update.
+	 *
+	 * If Presentation is available, we received the frame callback at a
+	 * good time to render, and can use the presentation clock (which we
+	 * set up earlier) to find out what time it really is.
 	 */
 	weston_compositor_read_presentation_clock(output->base.compositor, &ts);
-	weston_output_finish_frame(&output->base, &ts, 0);
+	weston_output_finish_frame(&output->base, &ts, flags);
 }
 
 static const struct wl_callback_listener frame_listener = {
@@ -467,11 +486,88 @@ wayland_output_update_gl_border(struct wayland_output *output)
 }
 #endif
 
+static void
+feedback_sync_output(void *data,
+		     struct wp_presentation_feedback *presentation_feedback,
+		     struct wl_output *output)
+{
+	/* When sync output changes, it tells clients that what they learnt
+	 * about the timings must be forgotten. But in a nested compositor,
+	 * the application only ever sees the nested output and never knows
+	 * about the real output. If the nested output window moves to a
+	 * different parent (real) output, the learnt timings should be
+	 * forgotten, but we have no way to tell the application that.
+	 */
+}
+
+static void
+feedback_presented(void *data,
+		   struct wp_presentation_feedback *feedback,
+		   uint32_t tv_sec_hi,
+		   uint32_t tv_sec_lo,
+		   uint32_t tv_nsec,
+		   uint32_t refresh_nsec,
+		   uint32_t seq_hi,
+		   uint32_t seq_lo,
+		   uint32_t flags)
+{
+	struct timespec presentation_time;
+	struct wayland_output *output = data;
+	uint64_t seq;
+
+	wp_presentation_feedback_destroy(feedback);
+	seq = u64_from_u32s(seq_hi, seq_lo);
+	output->base.msc = seq;
+	timespec_from_proto(&presentation_time, tv_sec_hi, tv_sec_lo, tv_nsec);
+
+	/* Even if the parent compositor performed a zero copy update for us,
+	 * we still composited the image ourselves.
+	 */
+	flags &= ~WP_PRESENTATION_FEEDBACK_KIND_ZERO_COPY;
+	weston_output_finish_frame(&output->base, &presentation_time, flags);
+}
+
+static void
+feedback_discarded(void *data, struct wp_presentation_feedback *feedback)
+{
+	/* We should never replace a frame before it's displayed, so this
+	 * can't happen.
+	 */
+	assert(false);
+	wp_presentation_feedback_destroy(feedback);
+}
+
+static const struct wp_presentation_feedback_listener feedback_listener = {
+	feedback_sync_output,
+	feedback_presented,
+	feedback_discarded
+};
+
+static bool
+feedback_request(struct wayland_output *output)
+{
+	struct wp_presentation *pres;
+	struct wayland_backend *wb;
+	struct wp_presentation_feedback *feedback;
+
+	wb = to_wayland_backend(output->base.compositor);
+	pres = wb->parent.presentation;
+	if (pres) {
+		feedback = wp_presentation_feedback(pres, output->parent.surface);
+		wp_presentation_feedback_add_listener(feedback, &feedback_listener, output);
+
+		return true;
+	}
+
+	return false;
+}
+
 static int
 wayland_output_start_repaint_loop(struct weston_output *output_base)
 {
 	struct wayland_output *output = to_wayland_output(output_base);
 	struct wayland_backend *wb;
+	bool need_frame = true;
 
 	assert(output);
 
@@ -486,10 +582,13 @@ wayland_output_start_repaint_loop(struct weston_output *output_base)
 		output->parent.draw_initial_frame = false;
 
 		draw_initial_frame(output);
+		need_frame = !feedback_request(output);
 	}
 
-	output->frame_cb = wl_surface_frame(output->parent.surface);
-	wl_callback_add_listener(output->frame_cb, &frame_listener, output);
+	if (need_frame) {
+		output->frame_cb = wl_surface_frame(output->parent.surface);
+		wl_callback_add_listener(output->frame_cb, &frame_listener, output);
+	}
 	wl_surface_commit(output->parent.surface);
 	wl_display_flush(wb->parent.wl_display);
 
@@ -508,8 +607,10 @@ wayland_output_repaint_gl(struct weston_output *output_base,
 
 	ec = output->base.compositor;
 
-	output->frame_cb = wl_surface_frame(output->parent.surface);
-	wl_callback_add_listener(output->frame_cb, &frame_listener, output);
+	if (!feedback_request(output)) {
+		output->frame_cb = wl_surface_frame(output->parent.surface);
+		wl_callback_add_listener(output->frame_cb, &frame_listener, output);
+	}
 
 	wayland_output_update_gl_border(output);
 
@@ -629,8 +730,10 @@ wayland_output_repaint_pixman(struct weston_output *output_base,
 
 	wayland_shm_buffer_attach(sb, damage);
 
-	output->frame_cb = wl_surface_frame(output->parent.surface);
-	wl_callback_add_listener(output->frame_cb, &frame_listener, output);
+	if (!feedback_request(output)) {
+		output->frame_cb = wl_surface_frame(output->parent.surface);
+		wl_callback_add_listener(output->frame_cb, &frame_listener, output);
+	}
 	wl_surface_commit(output->parent.surface);
 	wl_display_flush(b->parent.wl_display);
 
@@ -2675,6 +2778,24 @@ xdg_wm_base_ping(void *data, struct xdg_wm_base *shell, uint32_t serial)
 	xdg_wm_base_pong(shell, serial);
 }
 
+static void
+presentation_clock_id(void *data, struct wp_presentation *presentation,
+		      uint32_t clk_id)
+{
+	struct wayland_backend *b = data;
+	int err;
+
+	err = weston_compositor_set_presentation_clock(b->compositor, clk_id);
+	if (err) {
+		wp_presentation_destroy(b->parent.presentation);
+		b->parent.presentation = NULL;
+	}
+}
+
+static const struct wp_presentation_listener presentation_listener = {
+	presentation_clock_id
+};
+
 static const struct xdg_wm_base_listener wm_base_listener = {
 	xdg_wm_base_ping,
 };
@@ -2707,6 +2828,11 @@ registry_handle_global(void *data, struct wl_registry *registry, uint32_t name,
 	} else if (strcmp(interface, "wl_shm") == 0) {
 		b->parent.shm =
 			wl_registry_bind(registry, name, &wl_shm_interface, 1);
+	} else if (strcmp(interface, "wp_presentation") == 0) {
+		b->parent.presentation =
+			wl_registry_bind(registry, name, &wp_presentation_interface, 1);
+		wp_presentation_add_listener(b->parent.presentation,
+					     &presentation_listener, b);
 	}
 }
 
