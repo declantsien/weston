@@ -2280,18 +2280,16 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf)
 				 WESTON_ACTIVATE_FLAG_FULLSCREEN : 0));
 	}
 
-	if (!shsurf->state.fullscreen && !shsurf->state.maximized) {
-		switch (shell->win_animation_type) {
-		case ANIMATION_FADE:
-			weston_fade_run(shsurf->view, 0.0, 1.0, 300.0, NULL, NULL);
-			break;
-		case ANIMATION_ZOOM:
-			weston_zoom_run(shsurf->view, 0.5, 1.0, NULL, NULL);
-			break;
-		case ANIMATION_NONE:
-		default:
-			break;
-		}
+	switch (shell->win_animation_type) {
+	case ANIMATION_FADE:
+		weston_fade_run(shsurf->view, 0.0, 1.0, 300.0, NULL, NULL);
+		break;
+	case ANIMATION_ZOOM:
+		weston_zoom_run(shsurf->view, 0.5, 1.0, NULL, NULL);
+		break;
+	case ANIMATION_NONE:
+	default:
+		break;
 	}
 }
 
@@ -3260,6 +3258,48 @@ set_tiled_orientation_down(struct weston_keyboard *keyboard,
 			   uint32_t button, void *data)
 {
 	set_tiled_orientation(keyboard->focus, WESTON_TOP_LEVEL_TILED_ORIENTATION_BOTTOM);
+}
+
+static void
+set_window_alpha(struct weston_surface *focus, enum weston_top_level_alpha type)
+{
+	struct weston_surface *surface;
+	struct shell_surface *shsurf;
+	float alpha;
+	float step = 0.2;
+	float value = 0.45;
+
+	surface = weston_surface_get_main_surface(focus);
+	if (surface == NULL)
+		return;
+
+	shsurf = get_shell_surface(surface);
+	if (shsurf == NULL)
+		return;
+
+	if (type == WESTON_TOP_LEVEL_ALPHA_DOWN)
+		alpha = shsurf->view->alpha - (value * step);
+	else
+		alpha = shsurf->view->alpha + (value * step);
+
+	alpha = CLIP(alpha, step, 1.0);
+
+	weston_view_set_alpha(shsurf->view, alpha);
+	weston_view_update_transform(shsurf->view);
+}
+
+static void
+set_window_alpha_up(struct weston_keyboard *keyboard,
+		    const struct timespec *time, uint32_t button, void *data)
+{
+	set_window_alpha(keyboard->focus, WESTON_TOP_LEVEL_ALPHA_UP);
+}
+
+static void
+set_window_alpha_down(struct weston_keyboard *keyboard,
+		      const struct timespec *time, uint32_t button, void *data)
+{
+	set_window_alpha(keyboard->focus, WESTON_TOP_LEVEL_ALPHA_DOWN);
 }
 
 static void
@@ -4854,6 +4894,11 @@ shell_add_bindings(struct weston_compositor *ec, struct desktop_shell *shell)
 					  set_tiled_orientation_up, NULL);
 	weston_compositor_add_key_binding(ec, KEY_DOWN, mod | MODIFIER_SHIFT,
 					  set_tiled_orientation_down, NULL);
+
+	weston_compositor_add_key_binding(ec, KEY_W, mod | MODIFIER_SHIFT,
+					  set_window_alpha_up, NULL);
+	weston_compositor_add_key_binding(ec, KEY_S, mod | MODIFIER_SHIFT,
+					  set_window_alpha_down, NULL);
 
 	if (ec->capabilities & WESTON_CAP_ROTATION_ANY)
 		weston_compositor_add_button_binding(ec, BTN_MIDDLE, mod,
