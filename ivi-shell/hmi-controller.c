@@ -2030,6 +2030,49 @@ ivi_hmi_controller_home(struct wl_client *client,
 	hmi_ctrl->interface->commit_changes();
 }
 
+static void
+ivi_hmi_controller_take_surface_dump(struct wl_client *client,
+				     struct wl_resource *resource,
+				     struct wl_resource *buffer_resource,
+				     uint32_t surface_id)
+{
+    int32_t result = IVI_FAILED;
+   struct hmi_controller *hmi_ctrl = wl_resource_get_user_data(resource);
+    struct weston_surface *weston_surface = NULL;
+    int32_t width = 0, height = 0, stride = 0;
+    const struct ivi_layout_interface *lyt = hmi_ctrl->interface;
+    struct ivi_layout_surface *layout_surface;
+    struct weston_compositor *compositor = hmi_ctrl->compositor;
+    struct weston_buffer *weston_buffer = NULL;
+
+    layout_surface = lyt->get_surface_from_id(surface_id);
+    if (!layout_surface) {
+        ivi_hmi_controller_send_surface_dump_error(resource, IVI_HMI_CONTROLLER_SURFACE_DUMP_ERROR_NO_SURFACE);
+        return;
+    }
+
+    lyt->surface_get_size(layout_surface, &width, &height, &stride);
+    if (!width || !height || !stride) {
+        ivi_hmi_controller_send_surface_dump_error(resource, IVI_HMI_CONTROLLER_SURFACE_DUMP_ERROR_NO_OUTPUT);
+        return;
+    }
+
+    weston_buffer = weston_buffer_from_resource(compositor, buffer_resource);
+    if (weston_buffer == NULL) {
+        ivi_hmi_controller_send_surface_dump_error(resource, IVI_HMI_CONTROLLER_SURFACE_DUMP_ERROR_BAD_BUFFER);
+        return;
+    }
+
+    weston_surface = lyt->surface_get_weston_surface(layout_surface);
+    result = lyt->surface_dump(weston_surface, weston_buffer, 0, 0);
+
+    if (result != IVI_SUCCEEDED) {
+        ivi_hmi_controller_send_surface_dump_error(resource, IVI_HMI_CONTROLLER_SURFACE_DUMP_ERROR_NOT_SUPPORTED);
+        return;
+    }
+    ivi_hmi_controller_send_surface_dump_done(resource);
+}
+
 /**
  * binding ivi-hmi-controller implementation
  */
@@ -2037,7 +2080,8 @@ static const struct ivi_hmi_controller_interface ivi_hmi_controller_implementati
 	ivi_hmi_controller_UI_ready,
 	ivi_hmi_controller_workspace_control,
 	ivi_hmi_controller_switch_mode,
-	ivi_hmi_controller_home
+	ivi_hmi_controller_home,
+	ivi_hmi_controller_take_surface_dump
 };
 
 static void
@@ -2052,16 +2096,16 @@ bind_hmi_controller(struct wl_client *client,
 	struct wl_resource *resource = NULL;
 	struct hmi_controller *hmi_ctrl = data;
 
-	if (hmi_ctrl->user_interface != client) {
-		struct wl_resource *res = wl_client_get_object(client, 1);
-		wl_resource_post_error(res,
-				WL_DISPLAY_ERROR_INVALID_OBJECT,
-				"hmi-controller failed: permission denied");
-		return;
-	}
+       if (hmi_ctrl->user_interface != client) {
+               struct wl_resource *res = wl_client_get_object(client, 1);
+               wl_resource_post_error(res,
+                               WL_DISPLAY_ERROR_INVALID_OBJECT,
+                               "hmi-controller failed: permission denied");
+               return;
+       }
 
 	resource = wl_resource_create(
-		client, &ivi_hmi_controller_interface, 1, id);
+		client, &ivi_hmi_controller_interface, 2, id);
 
 	wl_resource_set_implementation(
 		resource, &ivi_hmi_controller_implementation,
@@ -2147,7 +2191,7 @@ wet_module_init(struct weston_compositor *ec,
 	}
 
 	if (wl_global_create(ec->wl_display,
-			     &ivi_hmi_controller_interface, 1,
+			     &ivi_hmi_controller_interface, 2,
 			     hmi_ctrl, bind_hmi_controller) == NULL) {
 		return -1;
 	}
