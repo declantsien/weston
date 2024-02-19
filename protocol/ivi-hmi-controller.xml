@@ -25,7 +25,7 @@
     DEALINGS IN THE SOFTWARE.
   </copyright>
 
-  <interface name="ivi_hmi_controller" version="1">
+  <interface name="ivi_hmi_controller" version="2">
     <description summary="set up and control IVI style UI"/>
 
     <request name="UI_ready">
@@ -93,6 +93,27 @@
       <arg name="is_controlled" type="int"/>
     </event>
 
+    <!-- Version 2 addition -->
+    <enum name="surface_dump_error">
+      <entry name="no_memory" value="0" summary="out of memory"/>
+      <entry name="no_output" value="1" summary="output does not exist"/>
+      <entry name="no_surface" value="2" summary="surface does not exist"/>
+      <entry name="bad_buffer" value="3" summary="bad buffer input"/>
+      <entry name="not_supported" value="4" summary="screenshot is not supported"/>
+      <entry name="failed" value="5" summary="failure to capture content"/>
+    </enum>
+
+    <event name="surface_dump_done" since="2">
+    </event>
+
+    <event name="surface_dump_error" since="2">
+      <arg name="error" type="uint" enum="error" summary="error code"/>
+    </event>
+
+    <request name="take_surface_dump" since="2">
+      <arg name="buffer" type="object" interface="wl_buffer"/>
+      <arg name="surface_id" type="uint"/>
+    </request>
   </interface>
 
 </protocol>
