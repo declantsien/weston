@@ -4163,10 +4163,19 @@ weston_layer_fini(struct weston_layer *layer)
 {
 	wl_list_remove(&layer->link);
 
-	if (!wl_list_empty(&layer->view_list.link))
+	if (!wl_list_empty(&layer->view_list.link)) {
+		struct weston_view *view, *tmp;
+
 		weston_log("BUG: finalizing a layer with views still on it.\n");
 
-	wl_list_remove(&layer->view_list.link);
+		wl_list_for_each_safe(view, tmp, &layer->view_list.link,
+				      layer_link.link) {
+			wl_list_remove(&view->layer_link.link);
+			wl_list_init(&view->layer_link.link);
+			view->layer_link.layer = NULL;
+		}
+
+	}
 }
 
 /** Sets the position of the layer in the layer list. The layer will be placed
