@@ -2103,7 +2103,6 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
 	struct weston_paint_node *pnode;
-	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	bool texture_used;
 	pixman_box32_t *rectangles;
 	uint8_t *data;
@@ -2168,18 +2167,15 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 						gb->gl_format[j],
 						gb->gl_pixel_type[j],
 						data + gb->offset[j]);
-			} else if (using_glesv2) {
-				glTexImage2D(GL_TEXTURE_2D, 0,
-					     gb->gl_format[j],
-					     buffer->width / hsub,
-					     buffer->height / vsub,
-					     0,
-					     gb->gl_format[j],
-					     gb->gl_pixel_type[j],
-					     data + gb->offset[j]);
 			} else {
+				GLenum intf = gb->gl_internalformat[j];
+
+				/* Workaround for Mesa bug */
+				if (intf == GL_BGRA8_EXT)
+					intf = GL_RGBA;
+
 				glTexImage2D(GL_TEXTURE_2D, 0,
-					     gb->gl_internalformat[j],
+					     intf,
 					     buffer->width / hsub,
 					     buffer->height / vsub,
 					     0,
@@ -3354,7 +3350,6 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
 	struct weston_buffer *buffer = gs->buffer_ref.buffer;
-	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	int cw, ch;
 	GLuint fbo;
 	GLuint tex;
@@ -3382,10 +3377,10 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	gl_shader_config_set_input_textures(&sconf, gs);
 
-	if (using_glesv2)
-		internalformat = format->gl_format;
-	else
+	if (gr->has_texture_storage)
 		internalformat = format->gl_internalformat;
+	else
+		internalformat = format->gl_format;
 
 	glActiveTexture(GL_TEXTURE0);
 	glGenTextures(1, &tex);
@@ -3643,7 +3638,6 @@ gl_renderer_resize_output(struct weston_output *output,
 {
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
-	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	const struct pixel_format_info *shfmt = go->shadow_format;
 	GLenum internalformat;
 	bool ret;
@@ -3671,10 +3665,10 @@ gl_renderer_resize_output(struct weston_output *output,
 	if (shadow_exists(go))
 		gl_fbo_texture_fini(&go->shadow);
 
-	if (using_glesv2)
-		internalformat = shfmt->gl_format;
-	else
-		internalformat = shfmt->gl_internalformat;
+	internalformat = shfmt->gl_internalformat;
+	/* Workaround for Mesa bug */
+	if (!gr->has_texture_storage && internalformat == GL_BGRA8_EXT)
+		internalformat = GL_RGBA;
 
 	ret = gl_fbo_texture_init(&go->shadow, area->width, area->height,
 				  internalformat, shfmt->gl_format,
