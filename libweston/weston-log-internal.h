@@ -25,9 +25,11 @@
 #ifndef WESTON_LOG_INTERNAL_H
 #define WESTON_LOG_INTERNAL_H
 
-#include "wayland-util.h"
+#include <wayland-server-core.h>
 
 struct weston_log_subscription;
+struct weston_log_scope;
+struct weston_log_context;
 
 /** Subscriber allows each type of stream to customize or to provide its own
  * methods to manipulate the underlying storage. It follows also an
