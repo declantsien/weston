@@ -470,9 +470,9 @@ shared_output_get_shm_buffer(struct shared_output *so)
 		return sb;
 	}
 
-	fd = os_create_anonymous_file(height * stride);
+	fd = weston_os_create_anonymous_file(height * stride);
 	if (fd < 0) {
-		weston_log("os_create_anonymous_file: %s\n", strerror(errno));
+		weston_log("weston_os_create_anonymous_file: %s\n", strerror(errno));
 		return NULL;
 	}
 

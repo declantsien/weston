@@ -167,7 +167,7 @@ create_shm_buffer(struct window *window, struct buffer *buffer, uint32_t format)
 	size = stride * height;
 	display = window->display;
 
-	fd = os_create_anonymous_file(size);
+	fd = weston_os_create_anonymous_file(size);
 	if (fd < 0) {
 		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
 			size, strerror(errno));

@@ -112,7 +112,7 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 	assert(width == stride / bytes_pp);
 	assert(height == buffer->len / stride);
 
-	fd = os_create_anonymous_file(buffer->len);
+	fd = weston_os_create_anonymous_file(buffer->len);
 	if (fd < 0) {
 		fprintf(stderr, "creating a buffer file for %zd B failed: %s\n",
 			buffer->len, strerror(errno));

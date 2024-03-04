@@ -102,7 +102,7 @@ attach_buffer(struct window *window, int width, int height)
 	stride = width * 4;
 	size = stride * height;
 
-	fd = os_create_anonymous_file(size);
+	fd = weston_os_create_anonymous_file(size);
 	if (fd < 0) {
 		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
 			size, strerror(errno));

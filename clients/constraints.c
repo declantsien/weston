@@ -622,7 +622,7 @@ static int
 shm_pool_init(struct shm_pool *pool, size_t size, struct wl_shm *wl_shm)
 {
 	size_t pool_size = size * ARRAY_LENGTH(pool->buffers);
-	int fd = os_create_anonymous_file(pool_size);
+	int fd = weston_os_create_anonymous_file(pool_size);
 
 	if (fd < 0) {
 		fprintf(stderr, "creating a buffer file for %zu B failed: %s\n",
