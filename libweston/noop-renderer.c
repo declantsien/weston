@@ -133,6 +133,11 @@ noop_renderer_init(struct weston_compositor *ec)
 	if (renderer == NULL)
 		return -1;
 
+	if (ec->texture_compression > WESTON_COMPRESSION_DEFAULT) {
+		weston_log("no-op: Fixed-rate compression not supported\n");
+		return -1;
+	}
+
 	renderer->base.read_pixels = noop_renderer_read_pixels;
 	renderer->base.repaint_output = noop_renderer_repaint_output;
 	renderer->base.resize_output = noop_renderer_resize_output;

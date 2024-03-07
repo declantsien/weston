@@ -1027,6 +1027,11 @@ pixman_renderer_init(struct weston_compositor *ec)
 	ec->capabilities |= WESTON_CAP_ROTATION_ANY;
 	ec->capabilities |= WESTON_CAP_VIEW_CLIP_MASK;
 
+	if (ec->texture_compression > WESTON_COMPRESSION_DEFAULT) {
+		weston_log("pixman: Fixed-rate compression not supported\n");
+		return -1;
+	}
+
 	renderer->debug_binding =
 		weston_compositor_add_debug_binding(ec, KEY_R,
 						    debug_binding, ec);

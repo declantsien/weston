@@ -1809,6 +1809,16 @@ drm_output_set_content_type(struct weston_output *base,
 }
 
 static int
+drm_output_set_surface_compression(struct weston_output *base,
+				   enum weston_fixed_compression_rate rate)
+{
+	struct drm_output *output = to_drm_output(base);
+
+	output->surface_compression_rate = rate;
+	return 0;
+}
+
+static int
 drm_output_init_gamma_size(struct drm_output *output)
 {
 	struct drm_device *device = output->device;
@@ -3874,6 +3884,7 @@ static const struct weston_drm_output_api api = {
 	drm_output_set_seat,
 	drm_output_set_max_bpc,
 	drm_output_set_content_type,
+	drm_output_set_surface_compression,
 };
 
 static struct drm_backend *

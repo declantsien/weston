@@ -369,6 +369,30 @@ struct weston_color_characteristics {
 	float maxFALL;
 };
 
+/** Fixed-rate (i.e. lossy) compression ratios
+ *
+ * None means that only uncompressed or lossless compression may be used;
+ * default allows the driver to select a rate, and the other enums specify
+ * a per-component bitrate, e.g. 1BPC specifies between 1 and 2 bits per
+ * channel.
+ */
+enum weston_fixed_compression_rate {
+	WESTON_COMPRESSION_DEFAULT = 1,
+	WESTON_COMPRESSION_NONE = 0,
+	WESTON_COMPRESSION_1BPC = 2,
+	WESTON_COMPRESSION_2BPC = 3,
+	WESTON_COMPRESSION_3BPC = 4,
+	WESTON_COMPRESSION_4BPC = 5,
+	WESTON_COMPRESSION_5BPC = 6,
+	WESTON_COMPRESSION_6BPC = 7,
+	WESTON_COMPRESSION_7BPC = 8,
+	WESTON_COMPRESSION_8BPC = 9,
+	WESTON_COMPRESSION_9BPC = 10,
+	WESTON_COMPRESSION_10BPC = 11,
+	WESTON_COMPRESSION_11BPC = 12,
+	WESTON_COMPRESSION_12BPC = 13,
+};
+
 /** Represents a head, usually a display connector
  *
  * \rst
@@ -1496,6 +1520,9 @@ struct weston_compositor {
 
 	/* Whether to load multiple backends. */
 	bool multi_backend;
+
+	/* Fixed-rate texture compression */
+	enum weston_fixed_compression_rate texture_compression;
 
 	/* Test suite data */
 	struct weston_testsuite_data test_data;
@@ -2686,6 +2713,13 @@ weston_color_profile_get_description(struct weston_color_profile *cprof);
 struct weston_color_profile *
 weston_compositor_load_icc_file(struct weston_compositor *compositor,
 				const char *path);
+
+const char *
+weston_fixed_compression_rate_to_str(enum weston_fixed_compression_rate rate);
+
+bool
+weston_fixed_compression_rate_from_str(const char *str,
+				       enum weston_fixed_compression_rate *rate);
 
 /** Describes who is trying to capture and which output */
 struct weston_output_capture_client {

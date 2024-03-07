@@ -21,6 +21,7 @@ srcs_libweston = [
 	'content-protection.c',
 	'data-device.c',
 	'drm-formats.c',
+	'enums.c',
 	'id-number-allocator.c',
 	'input.c',
 	'linux-dmabuf.c',

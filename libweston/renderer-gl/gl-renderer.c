@@ -165,8 +165,9 @@ struct gl_buffer_state {
 
 	/* Only needed between attach() and flush_damage() */
 	int pitch; /* plane 0 pitch in pixels */
-	GLenum gl_pixel_type;
+	GLenum gl_pixel_type[3];
 	GLenum gl_format[3];
+	GLenum gl_internalformat[3];
 	int offset[3]; /* per-plane pitch in bytes */
 
 	EGLImageKHR images[3];
@@ -232,6 +233,43 @@ dump_format(uint32_t format, char out[4])
 #endif
 	memcpy(out, &format, 4);
 	return out;
+}
+
+static GLint
+weston_fixed_compression_rate_to_gl(enum weston_fixed_compression_rate w)
+{
+	switch (w) {
+	case WESTON_COMPRESSION_NONE:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT;
+	case WESTON_COMPRESSION_DEFAULT:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
+	case WESTON_COMPRESSION_1BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_1BPC_EXT;
+	case WESTON_COMPRESSION_2BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_2BPC_EXT;
+	case WESTON_COMPRESSION_3BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_3BPC_EXT;
+	case WESTON_COMPRESSION_4BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_4BPC_EXT;
+	case WESTON_COMPRESSION_5BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_5BPC_EXT;
+	case WESTON_COMPRESSION_6BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_6BPC_EXT;
+	case WESTON_COMPRESSION_7BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_7BPC_EXT;
+	case WESTON_COMPRESSION_8BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_8BPC_EXT;
+	case WESTON_COMPRESSION_9BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_9BPC_EXT;
+	case WESTON_COMPRESSION_10BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_10BPC_EXT;
+	case WESTON_COMPRESSION_11BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_11BPC_EXT;
+	case WESTON_COMPRESSION_12BPC:
+		return GL_SURFACE_COMPRESSION_FIXED_RATE_12BPC_EXT;
+	default:
+		unreachable("invalid enum");
+	}
 }
 
 static inline struct gl_output_state *
@@ -630,13 +668,27 @@ gl_renderer_create_fbo(struct weston_output *output,
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
 	struct gl_renderbuffer *renderbuffer;
+	GLenum intf = format->gl_internalformat;
 	int fb_status;
 
-	switch (format->gl_internalformat) {
+	switch (intf) {
 	case GL_RGB8:
 	case GL_RGBA8:
 		if (!gr->has_rgb8_rgba8)
 			return NULL;
+		break;
+	case GL_BGRA_EXT:
+	case GL_BGRA8_EXT:
+		/* Whilst BGRA is supposed to be color-renderable per
+		 * GL_EXT_texture_format_BGRA8888, this was only added in an
+		 * ambiguous spec update and wasn't supported by Mesa until
+		 * very recently; full support was added around the same time
+		 * as EXT_texture_storage, so we use that to gate */
+		if (!gr->has_texture_storage) {
+			if (!gr->has_rgb8_rgba8)
+				return NULL;
+			intf = GL_RGBA8;
+		}
 		break;
 	case GL_RGB10_A2:
 		if (!gr->has_texture_type_2_10_10_10_rev ||
@@ -654,8 +706,7 @@ gl_renderer_create_fbo(struct weston_output *output,
 
 	glGenRenderbuffers(1, &renderbuffer->rb);
 	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer->rb);
-	glRenderbufferStorage(GL_RENDERBUFFER, format->gl_internalformat,
-			      width, height);
+	glRenderbufferStorage(GL_RENDERBUFFER, intf, width, height);
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 				  GL_RENDERBUFFER, renderbuffer->rb);
@@ -2104,23 +2155,6 @@ gl_renderer_read_pixels(struct weston_output *output,
 	return 0;
 }
 
-static GLenum
-gl_format_from_internal(GLenum internal_format)
-{
-	switch (internal_format) {
-	case GL_R8_EXT:
-		return GL_RED_EXT;
-	case GL_RG8_EXT:
-		return GL_RG_EXT;
-	case GL_RGBA16_EXT:
-	case GL_RGBA16F:
-	case GL_RGB10_A2:
-		return GL_RGBA;
-	default:
-		return internal_format;
-	}
-}
-
 static void
 gl_renderer_flush_damage(struct weston_surface *surface,
 			 struct weston_buffer *buffer,
@@ -2128,9 +2162,11 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 {
 	const struct weston_testsuite_quirks *quirks =
 		&surface->compositor->test_data.test_quirks;
+	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
 	struct weston_paint_node *pnode;
+	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	bool texture_used;
 	pixman_box32_t *rectangles;
 	uint8_t *data;
@@ -2186,14 +2222,34 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 			glBindTexture(GL_TEXTURE_2D, gb->textures[j]);
 			glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT,
 				      gb->pitch / hsub);
-			glTexImage2D(GL_TEXTURE_2D, 0,
-				     gb->gl_format[j],
-				     buffer->width / hsub,
-				     buffer->height / vsub,
-				     0,
-				     gl_format_from_internal(gb->gl_format[j]),
-				     gb->gl_pixel_type,
-				     data + gb->offset[j]);
+
+			if (gr->has_texture_storage) {
+				glTexSubImage2D(GL_TEXTURE_2D, 0,
+						0, 0,
+						buffer->width / hsub,
+						buffer->height / vsub,
+						gb->gl_format[j],
+						gb->gl_pixel_type[j],
+						data + gb->offset[j]);
+			} else if (using_glesv2) {
+				glTexImage2D(GL_TEXTURE_2D, 0,
+					     gb->gl_format[j],
+					     buffer->width / hsub,
+					     buffer->height / vsub,
+					     0,
+					     gb->gl_format[j],
+					     gb->gl_pixel_type[j],
+					     data + gb->offset[j]);
+			} else {
+				glTexImage2D(GL_TEXTURE_2D, 0,
+					     gb->gl_internalformat[j],
+					     buffer->width / hsub,
+					     buffer->height / vsub,
+					     0,
+					     gb->gl_format[j],
+					     gb->gl_pixel_type[j],
+					     data + gb->offset[j]);
+			}
 		}
 		wl_shm_buffer_end_access(buffer->shm_buffer);
 		goto done;
@@ -2220,8 +2276,8 @@ gl_renderer_flush_damage(struct weston_surface *surface,
 					r.y1 / vsub,
 					(r.x2 - r.x1) / hsub,
 					(r.y2 - r.y1) / vsub,
-					gl_format_from_internal(gb->gl_format[j]),
-					gb->gl_pixel_type,
+					gb->gl_format[j],
+					gb->gl_pixel_type[j],
 					data + gb->offset[j]);
 		}
 	}
@@ -2295,13 +2351,13 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	struct wl_shm_buffer *shm_buffer = buffer->shm_buffer;
 	struct weston_buffer *old_buffer = gs->buffer_ref.buffer;
 	GLenum gl_format[3] = {0, 0, 0};
-	GLenum gl_pixel_type;
+	GLenum gl_internalformat[3] = {0, 0, 0};
+	GLenum gl_pixel_type[3] = {0, 0, 0};
 	enum gl_shader_texture_variant shader_variant;
 	int pitch;
 	int offset[3] = { 0, 0, 0 };
 	unsigned int num_planes;
 	unsigned int i;
-	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	const struct yuv_format_descriptor *yuv = NULL;
 
 	/* When sampling YUV input textures and converting to RGB by hand, we
@@ -2332,8 +2388,6 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 			bpp = pixel_format_get_info(yuv->plane[0].format)->bpp;
 		pitch = wl_shm_buffer_get_stride(shm_buffer) / (bpp / 8);
 
-		/* well, they all are so far ... */
-		gl_pixel_type = GL_UNSIGNED_BYTE;
 		shader_variant = yuv->shader_variant;
 
 		/* pre-compute all plane offsets in shm buffer */
@@ -2356,7 +2410,9 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 			assert(sub_info);
 			assert(yuv->plane[out].plane_index < (int) shm_plane_count);
 
+			gl_internalformat[out] = sub_info->gl_internalformat;
 			gl_format[out] = sub_info->gl_format;
+			gl_pixel_type[out] = sub_info->gl_type;
 			offset[out] = shm_offset[yuv->plane[out].plane_index];
 		}
 	} else {
@@ -2373,28 +2429,25 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 		assert(bpp > 0 && !(bpp & 7));
 		pitch = wl_shm_buffer_get_stride(shm_buffer) / (bpp / 8);
 
+		gl_internalformat[0] = buffer->pixel_format->gl_internalformat;
 		gl_format[0] = buffer->pixel_format->gl_format;
-		gl_pixel_type = buffer->pixel_format->gl_type;
+		gl_pixel_type[0] = buffer->pixel_format->gl_type;
 	}
 
 	for (i = 0; i < ARRAY_LENGTH(gb->gl_format); i++) {
-		/* Fall back to GL_RGBA for 10bpc formats on ES2 */
-		if (using_glesv2 && gl_format[i] == GL_RGB10_A2) {
-			assert(gl_pixel_type == GL_UNSIGNED_INT_2_10_10_10_REV_EXT);
-			gl_format[i] = GL_RGBA;
-		}
-
 		/* Fall back to old luminance-based formats if we don't have
 		 * GL_EXT_texture_rg, which requires different sampling for
 		 * two-component formats. */
-		if (!gr->has_gl_texture_rg && gl_format[i] == GL_R8_EXT) {
-			assert(gl_pixel_type == GL_UNSIGNED_BYTE);
+		if (!gr->has_gl_texture_rg && gl_internalformat[i] == GL_R8_EXT) {
+			assert(gl_format[i] == GL_RED_EXT);
+			assert(gl_pixel_type[i] == GL_UNSIGNED_BYTE);
 			assert(shader_variant == SHADER_VARIANT_Y_U_V ||
 			       shader_variant == SHADER_VARIANT_Y_UV);
 			gl_format[i] = GL_LUMINANCE;
 		}
-		if (!gr->has_gl_texture_rg && gl_format[i] == GL_RG8_EXT) {
-			assert(gl_pixel_type == GL_UNSIGNED_BYTE);
+		if (!gr->has_gl_texture_rg && gl_internalformat[i] == GL_RG8_EXT) {
+			assert(gl_format[i] == GL_RG_EXT);
+			assert(gl_pixel_type[i] == GL_UNSIGNED_BYTE);
 			assert(shader_variant == SHADER_VARIANT_Y_UV ||
 			       shader_variant == SHADER_VARIANT_Y_XUXV);
 			shader_variant = SHADER_VARIANT_Y_XUXV;
@@ -2432,13 +2485,44 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	gb->shader_variant = shader_variant;
 	ARRAY_COPY(gb->offset, offset);
 	ARRAY_COPY(gb->gl_format, gl_format);
-	gb->gl_pixel_type = gl_pixel_type;
+	ARRAY_COPY(gb->gl_internalformat, gl_internalformat);
+	ARRAY_COPY(gb->gl_pixel_type, gl_pixel_type);
 	gb->needs_full_upload = true;
 
 	gs->buffer = gb;
 	gs->surface = es;
 
 	ensure_textures(gb, GL_TEXTURE_2D, num_planes);
+
+	/* Completely specify the texture up front. This will make it
+	 * immutable. */
+	if (gr->has_texture_storage) {
+		for (i = 0; i < num_planes; i++) {
+			int hsub = pixel_format_hsub(buffer->pixel_format, i);
+			int vsub = pixel_format_vsub(buffer->pixel_format, i);
+
+			glBindTexture(GL_TEXTURE_2D, gb->textures[i]);
+
+			if (gr->has_texture_storage_compression) {
+				const GLint attribs[3] = {
+					GL_SURFACE_COMPRESSION_EXT,
+					gr->texture_compression_rate,
+					GL_NONE,
+				};
+
+				gr->tex_storage_attribs_2d(GL_TEXTURE_2D, 1,
+							   gb->gl_internalformat[i],
+							   buffer->width / hsub,
+							   buffer->height / vsub,
+							   attribs);
+			} else {
+				gr->tex_storage_2d(GL_TEXTURE_2D, 1,
+						   gb->gl_internalformat[i],
+						   buffer->width / hsub,
+						   buffer->height / vsub);
+			}
+		}
+	}
 
 	return true;
 }
@@ -2579,7 +2663,21 @@ gl_renderer_attach_egl(struct weston_surface *es, struct weston_buffer *buffer)
 	for (i = 0; i < gb->num_images; i++) {
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(target, gb->textures[i]);
-		gr->image_target_texture_2d(target, gb->images[i]);
+		if (gr->has_image_storage) {
+			EGLint attribs[3] = { GL_NONE, GL_NONE, GL_NONE };
+
+			/* Without this, we can't import buffers from clients
+			 * using fixed-rate compression; it doesn't change the
+			 * content handling, but just allows compression. */
+			if (gr->has_image_storage_compression) {
+				attribs[0] = GL_SURFACE_COMPRESSION_EXT;
+				attribs[1] = GL_SURFACE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
+			}
+			gr->image_target_storage_2d(target, gb->images[i],
+						    attribs);
+		} else {
+			gr->image_target_texture_2d(target, gb->images[i]);
+		}
 	}
 
 	return true;
@@ -3127,7 +3225,21 @@ gl_renderer_attach_dmabuf(struct weston_surface *surface,
 	for (i = 0; i < gb->num_images; ++i) {
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(target, gb->textures[i]);
-		gr->image_target_texture_2d(target, gb->images[i]);
+		if (gr->has_texture_storage) {
+			EGLint attribs[3] = { GL_NONE, GL_NONE, GL_NONE };
+
+			/* Without this, we can't import buffers from clients
+			 * using fixed-rate compression; it doesn't change the
+			 * content handling, but just allows compression. */
+			if (gr->has_image_storage_compression) {
+				attribs[0] = GL_SURFACE_COMPRESSION_EXT;
+				attribs[1] = GL_SURFACE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
+			}
+			gr->image_target_storage_2d(target, gb->images[i],
+						    attribs);
+		} else {
+			gr->image_target_texture_2d(target, gb->images[i]);
+		}
 	}
 
 	return true;
@@ -3331,13 +3443,14 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		.view_alpha = 1.0f,
 		.input_tex_filter = GL_NEAREST,
 	};
-	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
+	const struct pixel_format_info *format =
+		pixel_format_get_info_by_pixman(PIXMAN_a8b8g8r8);
+	GLenum internalformat;
 	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs = get_surface_state(surface);
 	struct gl_buffer_state *gb = gs->buffer;
 	struct weston_buffer *buffer = gs->buffer_ref.buffer;
+	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	int cw, ch;
 	GLuint fbo;
 	GLuint tex;
@@ -3345,13 +3458,15 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	int ret = -1;
 
 	assert(buffer);
+	assert(format);
+	assert(format->bpp);
 
 	cw = buffer->width;
 	ch = buffer->height;
 
 	switch (buffer->type) {
 	case WESTON_BUFFER_SOLID:
-		*(uint32_t *)target = pack_color(format, gb->color);
+		*(uint32_t *)target = pack_color(format->pixman_format, gb->color);
 		return 0;
 	case WESTON_BUFFER_SHM:
 		gl_renderer_flush_damage(surface, buffer, NULL);
@@ -3363,11 +3478,16 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	gl_shader_config_set_input_textures(&sconf, gs);
 
+	if (using_glesv2)
+		internalformat = format->gl_format;
+	else
+		internalformat = format->gl_internalformat;
+
 	glActiveTexture(GL_TEXTURE0);
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cw, ch,
-		     0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glTexImage2D(GL_TEXTURE_2D, 0, internalformat, cw, ch,
+		     0, format->gl_format, format->gl_type, NULL);
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glGenFramebuffers(1, &fbo);
@@ -3408,9 +3528,9 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	if (gr->has_pack_reverse)
 		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_FALSE);
-	glPixelStorei(GL_PACK_ALIGNMENT, bytespp);
-	glReadPixels(src_x, src_y, width, height, gl_format,
-		     GL_UNSIGNED_BYTE, target);
+	glPixelStorei(GL_PACK_ALIGNMENT, format->bpp / 8);
+	glReadPixels(src_x, src_y, width, height, format->gl_format,
+		     format->gl_type, target);
 	ret = 0;
 
 out:
@@ -3617,8 +3737,11 @@ gl_renderer_resize_output(struct weston_output *output,
 			  const struct weston_size *fb_size,
 			  const struct weston_geometry *area)
 {
+	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
+	bool using_glesv2 = gr->gl_version < gr_gl_version(3, 0);
 	const struct pixel_format_info *shfmt = go->shadow_format;
+	GLenum internalformat;
 	bool ret;
 
 	check_compositing_area(fb_size, area);
@@ -3644,8 +3767,14 @@ gl_renderer_resize_output(struct weston_output *output,
 	if (shadow_exists(go))
 		gl_fbo_texture_fini(&go->shadow);
 
+	if (using_glesv2)
+		internalformat = shfmt->gl_format;
+	else
+		internalformat = shfmt->gl_internalformat;
+
 	ret = gl_fbo_texture_init(&go->shadow, area->width, area->height,
-				  shfmt->gl_format, GL_RGBA, shfmt->gl_type);
+				  internalformat, shfmt->gl_format,
+				  shfmt->gl_type);
 
 	return ret;
 }
@@ -4196,9 +4325,20 @@ gl_renderer_setup(struct weston_compositor *ec)
 	if (weston_check_egl_extension(extensions, "GL_EXT_texture_norm16"))
 		gr->has_texture_norm16 = true;
 
-	if (gr->gl_version >= gr_gl_version(3, 0) ||
-	    weston_check_egl_extension(extensions, "GL_EXT_texture_storage"))
+	/* The EXT and core versions have compatible signatures, so we use the same
+	 * pointer; however, we only use it if the texture_storage extension is
+	 * _also_ present, due to a bad bug in Mesa which would prevent us from
+	 * using it: https://github.com/KhronosGroup/OpenGL-API/issues/92 */
+	if (gr->gl_version >= gr_gl_version(3, 0) &&
+	    weston_check_egl_extension(extensions, "GL_EXT_texture_storage")) {
 		gr->has_texture_storage = true;
+		gr->tex_storage_2d =
+			(void *) eglGetProcAddress("glTexStorage2D");
+	} else if (weston_check_egl_extension(extensions, "GL_EXT_texture_storage")) {
+		gr->has_texture_storage = true;
+		gr->tex_storage_2d =
+			(void *) eglGetProcAddress("glTexStorage2DEXT");
+	}
 
 	if (weston_check_egl_extension(extensions, "GL_ANGLE_pack_reverse_row_order"))
 		gr->has_pack_reverse = true;
@@ -4262,6 +4402,34 @@ gl_renderer_setup(struct weston_compositor *ec)
 			   "missing GL_EXT_disjoint_timer_query extension\n");
 	}
 
+	if (weston_check_egl_extension(extensions,
+				       "GL_EXT_EGL_image_storage")) {
+		gr->has_image_storage = true;
+		gr->image_target_storage_2d =
+			(void *) eglGetProcAddress("glEGLImageTargetTexStorageEXT");
+	}
+
+	if (weston_check_egl_extension(extensions,
+				       "GL_EXT_EGL_image_storage_compression")) {
+		gr->has_image_storage_compression = true;
+	}
+
+	if (weston_check_egl_extension(extensions,
+				       "GL_EXT_texture_storage_compression")) {
+		gr->has_texture_storage_compression = true;
+		gr->tex_storage_attribs_2d =
+			(void *) eglGetProcAddress("glTexStorageAttribs2DEXT");
+		gr->texture_compression_rate =
+			weston_fixed_compression_rate_to_gl(ec->texture_compression);
+	} else if (ec->texture_compression > WESTON_COMPRESSION_DEFAULT) {
+		weston_log("Error: fixed-rate texture compression requested, "
+			   "but extension not available\n");
+		return -1;
+	} else {
+		gr->texture_compression_rate =
+			GL_SURFACE_COMPRESSION_FIXED_RATE_NONE_EXT;
+	}
+
 	glActiveTexture(GL_TEXTURE0);
 
 	gr->fallback_shader = gl_renderer_create_fallback_shader(gr);
@@ -4296,6 +4464,8 @@ gl_renderer_setup(struct weston_compositor *ec)
 			    yesno(gr->has_gl_texture_rg));
 	weston_log_continue(STAMP_SPACE "OES_EGL_image_external: %s\n",
 			    yesno(gr->has_egl_image_external));
+	weston_log_continue(STAMP_SPACE "fixed-rate texture compression: %s\n",
+			    weston_fixed_compression_rate_to_str(ec->texture_compression));
 
 	return 0;
 }

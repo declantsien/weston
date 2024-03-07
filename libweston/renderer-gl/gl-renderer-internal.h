@@ -185,9 +185,18 @@ struct gl_renderer {
 	bool has_texture_type_2_10_10_10_rev;
 	bool has_gl_texture_rg;
 	bool has_texture_norm16;
-	bool has_texture_storage;
 	bool has_pack_reverse;
 	bool has_rgb8_rgba8;
+
+	bool has_texture_storage;
+	bool has_texture_storage_compression;
+	GLint texture_compression_rate;
+	PFNGLTEXSTORAGE2DEXTPROC tex_storage_2d;
+	PFNGLTEXSTORAGEATTRIBS2DEXTPROC tex_storage_attribs_2d;
+
+	bool has_image_storage;
+	bool has_image_storage_compression;
+	PFNGLEGLIMAGETARGETTEXTURESTORAGEEXTPROC image_target_storage_2d;
 
 	struct gl_shader *current_shader;
 	struct gl_shader *fallback_shader;

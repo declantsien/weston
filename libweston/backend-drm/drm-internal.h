@@ -69,6 +69,22 @@
 #define GBM_BO_USE_LINEAR (1 << 4)
 #endif
 
+#ifndef GBM_BO_COMPRESSION_DEFAULT
+#define GBM_BO_COMPRESSION_DEFAULT	(1 << 7)
+#define GBM_BO_COMPRESSION_1BPC		(2 << 7)
+#define GBM_BO_COMPRESSION_2BPC		(3 << 7)
+#define GBM_BO_COMPRESSION_3BPC		(4 << 7)
+#define GBM_BO_COMPRESSION_4BPC		(5 << 7)
+#define GBM_BO_COMPRESSION_5BPC		(6 << 7)
+#define GBM_BO_COMPRESSION_6BPC		(7 << 7)
+#define GBM_BO_COMPRESSION_7BPC		(8 << 7)
+#define GBM_BO_COMPRESSION_8BPC		(9 << 7)
+#define GBM_BO_COMPRESSION_9BPC		(10 << 7)
+#define GBM_BO_COMPRESSION_10BPC	(11 << 7)
+#define GBM_BO_COMPRESSION_11BPC	(12 << 7)
+#define GBM_BO_COMPRESSION_12BPC	(13 << 7)
+#endif
+
 #ifndef DRM_PLANE_ZPOS_INVALID_PLANE
 #define DRM_PLANE_ZPOS_INVALID_PLANE	0xffffffffffffffffULL
 #endif
@@ -670,6 +686,8 @@ struct drm_output {
 
 	bool deprecated_gamma_is_set;
 	bool legacy_gamma_not_supported;
+
+	enum weston_fixed_compression_rate surface_compression_rate;
 
 	/* Plane being displayed directly on the CRTC */
 	struct drm_plane *scanout_plane;

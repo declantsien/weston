@@ -1155,6 +1155,7 @@ weston_compositor_init_config(struct weston_compositor *ec,
 	struct wet_compositor *compositor = to_wet_compositor(ec);
 	struct xkb_rule_names xkb_names;
 	struct weston_config_section *s;
+	char *texture_compression;
 	int repaint_msec;
 	bool color_management;
 	bool cal;
@@ -1204,6 +1205,17 @@ weston_compositor_init_config(struct weston_compositor *ec,
 		else
 			compositor->use_color_manager = true;
 	}
+
+	weston_config_section_get_string(s, "texture-compression",
+					 &texture_compression,
+					 "none");
+	if (!weston_fixed_compression_rate_from_str(texture_compression,
+						    &ec->texture_compression)) {
+		weston_log("Invalid texture compression rate in config: %s\n",
+			   texture_compression);
+		return -1;
+	}
+	free(texture_compression);
 
 	/* weston.ini [libinput] */
 	s = weston_config_get_section(config, "libinput", NULL, NULL);
@@ -2144,6 +2156,8 @@ drm_backend_output_configure(struct weston_output *output,
 	char *gbm_format = NULL;
 	char *content_type = NULL;
 	char *seat = NULL;
+	char *surface_compression = NULL;
+	enum weston_fixed_compression_rate surface_rate;
 
 	api = weston_drm_output_get_api(output->compositor);
 	if (!api) {
@@ -2210,6 +2224,20 @@ drm_backend_output_configure(struct weston_output *output,
 
 	api->set_seat(output, seat);
 	free(seat);
+
+	weston_config_section_get_string(section,
+					 "surface-compression",
+					 &surface_compression, "none");
+	if (!weston_fixed_compression_rate_from_str(surface_compression,
+						    &surface_rate)) {
+		weston_log("Invalid surface compression \"%s\" specified\n",
+			   surface_compression);
+		free(surface_compression);
+		return -1;
+	}
+	free(surface_compression);
+	if (api->set_surface_compression(output, surface_rate) < 0)
+		return -1;
 
 	allow_content_protection(output, section);
 
