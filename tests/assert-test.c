@@ -30,7 +30,7 @@
 
 #define custom_assert_fail_ test_assert_report
 
-#include "shared/weston-assert.h"
+#include <libweston/weston-assert.h>
 #include "weston-test-runner.h"
 
 __attribute__((format(printf, 2, 3)))

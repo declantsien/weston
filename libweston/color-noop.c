@@ -28,9 +28,9 @@
 #include <libweston/libweston.h>
 
 #include "color.h"
+#include <libweston/weston-assert.h>
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
 
 struct cmnoop_color_profile {
 	struct weston_color_profile base;
