@@ -4,6 +4,7 @@
   <copyright>
     Copyright (C) 2013 DENSO CORPORATION
     Copyright (c) 2013 BMW Car IT GmbH
+    Copyright (c) 2024 Robert Bosch GmbH
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the "Software"),
@@ -25,7 +26,7 @@
     DEALINGS IN THE SOFTWARE.
   </copyright>
 
-  <interface name="ivi_hmi_controller" version="2">
+  <interface name="ivi_hmi_controller" version="3">
     <description summary="set up and control IVI style UI"/>
 
     <request name="UI_ready">
@@ -114,6 +115,34 @@
       <arg name="buffer" type="object" interface="wl_buffer"/>
       <arg name="surface_id" type="uint"/>
     </request>
+
+    <!-- Verson 3 addition -->
+    <request name="get_panel_height" since="3">
+      <description summary="request bottom panel height"/>
+    </request>
+
+    <request name="enable_surface_dump_overlay" since="3">
+      <description summary="request enabling/disabling surface dump overlay">
+        Surface dump overlay is a surface covering the background,
+        prevents pointer events from being forwarded to clients.
+      </description>
+      <arg name="enable" type="int"/>
+    </request>
+
+    <request name="get_client_surfaces" since="3">
+      <description summary="request info of client surfaces"/>
+    </request>
+
+    <event name="panel_height" since="3">
+      <description summary="bottom panel height"/>
+      <arg name="panel_height" type="uint"/>
+    </event>
+
+    <event name="client_surfaces" since="3">
+      <description summary="information to support taking surface dump"/>
+      <arg name="client_surfaces" type="array"/>
+    </event>
+
   </interface>
 
 </protocol>
