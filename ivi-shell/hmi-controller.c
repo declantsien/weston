@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2014 DENSO CORPORATION
- *
+ * Copyright (C) 2024 Robert Bosch GmbH
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -110,8 +111,11 @@ struct ui_setting {
 	uint32_t sidebyside_id;
 	uint32_t fullscreen_id;
 	uint32_t random_id;
+	uint32_t surfacedump_id;
 	uint32_t home_id;
 	uint32_t workspace_background_id;
+	uint32_t surface_dump_overlay_id;
+	uint32_t surface_dump_hint_id;
 	uint32_t surface_id_offset;
 };
 
@@ -157,6 +161,16 @@ struct launcher_info {
 	uint32_t surface_id;
 	uint32_t workspace_id;
 	int32_t index;
+};
+
+struct client_surface {
+	uint32_t id;
+	uint32_t source_width;
+	uint32_t source_height;
+	uint32_t dest_width;
+	uint32_t dest_height;
+	uint32_t dest_x;
+	uint32_t dest_y;
 };
 
 /*****************************************************************************
@@ -618,8 +632,10 @@ set_notification_configure_surface(struct wl_listener *listener, void *data)
 	int32_t length = 0;
 	int32_t i;
 
+	uint32_t id_surface = hmi_ctrl->interface->get_id_of_surface(ivisurf);
 	/* return if the surface is not application content */
-	if (is_surf_in_ui_widget(hmi_ctrl, ivisurf)) {
+	if (is_surf_in_ui_widget(hmi_ctrl, ivisurf)
+	    && id_surface != hmi_ctrl->ui_setting.surface_dump_overlay_id) {
 		return;
 	}
 
@@ -1270,6 +1286,72 @@ ivi_hmi_controller_set_workspacebackground(struct hmi_controller *hmi_ctrl,
 	hmi_ctrl->interface->surface_set_visibility(ivisurf, true);
 }
 
+static void
+ivi_hmi_controller_set_surface_dump_overlay(struct hmi_controller *hmi_ctrl,
+					    uint32_t id_surface)
+{
+	struct ivi_layout_surface *ivisurf = NULL;
+	struct ivi_layout_layer   *ivilayer = NULL;
+	const int32_t width  = hmi_ctrl->workspace_background_layer.width;
+	const int32_t height = hmi_ctrl->workspace_background_layer.height;
+
+	uint32_t *add_surface_id = wl_array_add(&hmi_ctrl->ui_widgets,
+						sizeof(*add_surface_id));
+	*add_surface_id = id_surface;
+
+	ivilayer = hmi_ctrl->interface->get_layer_from_id(hmi_ctrl->hmi_setting->application_layer_id);
+
+	ivisurf = hmi_ctrl->interface->get_surface_from_id(id_surface);
+	assert(ivisurf != NULL);
+
+	hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
+
+	hmi_ctrl->interface->surface_set_destination_rectangle(ivisurf,
+							       0,
+							       0,
+							       width,
+							       height);
+
+	hmi_ctrl->interface->surface_set_visibility(ivisurf, false);
+}
+
+static void
+ivi_hmi_controller_set_surface_dump_hint(struct hmi_controller *hmi_ctrl,
+					 uint32_t id_surface)
+{
+	struct ivi_layout_surface *ivisurf  = NULL;
+	struct hmi_controller_layer *base_layer;
+	struct ivi_layout_layer   *ivilayer = NULL;
+	int32_t width;
+	int32_t height;
+	int32_t panel_height = hmi_ctrl->hmi_setting->panel_height;
+	int32_t dstx = 0;
+	int32_t dsty = 0;
+
+	wl_list_for_each_reverse(base_layer, &hmi_ctrl->base_layer_list, link) {
+		uint32_t *add_surface_id = wl_array_add(&hmi_ctrl->ui_widgets,
+							sizeof(*add_surface_id));
+		*add_surface_id = id_surface;
+
+		ivilayer = base_layer->ivilayer;
+		ivisurf = hmi_ctrl->interface->get_surface_from_id(id_surface);
+
+		assert(ivisurf != NULL);
+
+		hmi_ctrl->interface->layer_add_surface(ivilayer, ivisurf);
+
+		dstx = base_layer->width / 1.5;
+		dsty = base_layer->height - panel_height / 1.5 ;
+		width = base_layer->width / 3;
+		height = panel_height / 1.5;
+
+		hmi_ctrl->interface->surface_set_destination_rectangle(
+					    ivisurf, dstx, dsty, width, height);
+
+		hmi_ctrl->interface->surface_set_visibility(ivisurf, false);
+	}
+}
+
 /**
  * A list of ivi_surfaces drawing launchers in workspace is identified by
  * id_surfaces. Properties of the ivi_surface is set by using ivi_layout
@@ -1450,8 +1532,11 @@ ivi_hmi_controller_UI_ready(struct wl_client *client,
 	ivi_hmi_controller_set_button(hmi_ctrl, hmi_ctrl->ui_setting.sidebyside_id, 1);
 	ivi_hmi_controller_set_button(hmi_ctrl, hmi_ctrl->ui_setting.fullscreen_id, 2);
 	ivi_hmi_controller_set_button(hmi_ctrl, hmi_ctrl->ui_setting.random_id, 3);
+	ivi_hmi_controller_set_button(hmi_ctrl, hmi_ctrl->ui_setting.surfacedump_id, 4);
 	ivi_hmi_controller_set_home_button(hmi_ctrl, hmi_ctrl->ui_setting.home_id);
 	ivi_hmi_controller_set_workspacebackground(hmi_ctrl, hmi_ctrl->ui_setting.workspace_background_id);
+	ivi_hmi_controller_set_surface_dump_overlay(hmi_ctrl, hmi_ctrl->ui_setting.surface_dump_overlay_id);
+	ivi_hmi_controller_set_surface_dump_hint(hmi_ctrl, hmi_ctrl->ui_setting.surface_dump_hint_id);
 	hmi_ctrl->interface->commit_changes();
 
 	ivi_hmi_controller_add_launchers(hmi_ctrl, 256);
@@ -2073,6 +2158,134 @@ ivi_hmi_controller_take_surface_dump(struct wl_client *client,
     ivi_hmi_controller_send_surface_dump_done(resource);
 }
 
+static void
+ivi_hmi_controller_get_panel_height(struct wl_client *client,
+				    struct wl_resource *resource)
+{
+	struct hmi_controller *hmi_ctrl = wl_resource_get_user_data(resource);
+	int32_t panel_height = hmi_ctrl->hmi_setting->panel_height;
+	ivi_hmi_controller_send_panel_height(resource, panel_height);
+}
+
+static void
+ivi_hmi_controller_enable_surface_dump_overlay(struct wl_client *client,
+					       struct wl_resource *resource,
+					       int32_t enable)
+{
+	struct hmi_controller_layer *layer = NULL;
+	struct hmi_controller *hmi_ctrl = wl_resource_get_user_data(resource);
+	struct ivi_layout_surface *ivisurf  = NULL;
+	struct ivi_layout_surface *surface_dump_overlay  = NULL;
+	struct ivi_layout_surface *surface_dump_hint  = NULL;
+	const uint32_t duration = hmi_ctrl->hmi_setting->transition_duration;
+
+	surface_dump_overlay = hmi_ctrl->interface->get_surface_from_id(hmi_ctrl->ui_setting.surface_dump_overlay_id);
+	surface_dump_hint = hmi_ctrl->interface->get_surface_from_id(hmi_ctrl->ui_setting.surface_dump_hint_id);
+
+	if (enable) {
+		// set order of surface dump overlay on top
+		struct hmi_controller *hmi_ctrl = wl_resource_get_user_data(resource);
+
+		int32_t surface_length = 0;
+		struct ivi_layout_surface **pp_surface = NULL;
+		int32_t i = 0;
+		struct ivi_layout_surface **surfaces;
+		struct ivi_layout_surface **new_order;
+		struct ivi_layout_layer *ivilayer = NULL;
+		int32_t surf_num = 0;
+		int32_t idx = 0;
+		struct wl_list *layer_list = &hmi_ctrl->application_layer_list;
+
+		hmi_ctrl->interface->get_surfaces(&surface_length, &pp_surface);
+
+		surfaces = xcalloc(surface_length, sizeof(*surfaces));
+		new_order = xcalloc(surface_length, sizeof(*surfaces));
+
+		for (i = 0; i < surface_length; i++) {
+			ivisurf = pp_surface[i];
+
+			/* skip ui widgets */
+			if (is_surf_in_ui_widget(hmi_ctrl, ivisurf))
+				continue;
+
+			surfaces[surf_num++] = ivisurf;
+		}
+		surfaces[surf_num++] = surface_dump_overlay;
+
+		wl_list_for_each_reverse(layer, layer_list, link) {
+			if (idx >= surf_num)
+				break;
+
+			ivilayer = layer->ivilayer;
+
+			for (i = 0; i < surf_num; i++, idx++) {
+				if (idx >= surf_num)
+					break;
+
+				ivisurf = surfaces[idx];
+				new_order[i] = ivisurf;
+			}
+			hmi_ctrl->interface->surface_set_transition
+					(surface_dump_overlay,
+					 IVI_LAYOUT_TRANSITION_VIEW_DEFAULT,
+					 duration);
+			hmi_ctrl->interface->surface_set_visibility(surface_dump_overlay, true);
+			hmi_ctrl->interface->surface_set_destination_rectangle(surface_dump_overlay, 0, 0,
+									       hmi_ctrl->workspace_background_layer.width,
+									       hmi_ctrl->workspace_background_layer.height);
+			hmi_ctrl->interface->layer_set_render_order(ivilayer, new_order, i);
+		}
+		free(surfaces);
+		free(new_order);
+		hmi_ctrl->interface->surface_set_visibility(surface_dump_hint, true);
+	} else {
+		hmi_ctrl->interface->surface_set_visibility(surface_dump_overlay, false);
+		hmi_ctrl->interface->surface_set_visibility(surface_dump_hint, false);
+	}
+	hmi_ctrl->interface->commit_changes();
+}
+
+static void
+ivi_hmi_controller_get_client_surfaces(struct wl_client *client,
+				       struct wl_resource *resource)
+{
+	struct hmi_controller *hmi_ctrl = wl_resource_get_user_data(resource);
+	struct ivi_layout_surface **pp_surface = NULL;
+	struct ivi_layout_surface *ivisurf  = NULL;
+	struct wl_array client_surfaces;
+	struct client_surface *client_surf;
+	int32_t surface_length = 0;
+	int32_t i = 0;
+
+	hmi_ctrl->interface->get_surfaces(&surface_length, &pp_surface);
+	client_surf = xcalloc(1, sizeof(struct client_surface));
+	wl_array_init(&client_surfaces);
+
+	for (i = 0; i < surface_length; i++) {
+		ivisurf = pp_surface[i];
+
+		/* skip ui widgets */
+		if (is_surf_in_ui_widget(hmi_ctrl, ivisurf))
+			continue;
+
+		uint32_t id = hmi_ctrl->interface->get_id_of_surface(ivisurf);
+		const struct ivi_layout_surface_properties *props = 
+			hmi_ctrl->interface->get_properties_of_surface(ivisurf);
+		client_surf = wl_array_add(&client_surfaces, sizeof(struct client_surface));
+		client_surf->id = id;
+		client_surf->source_width = props->source_width;
+		client_surf->source_height = props->source_height;
+		client_surf->dest_width = props->dest_width;
+		client_surf->dest_height = props->dest_height;
+		client_surf->dest_x = props->dest_x;
+		client_surf->dest_y = props->dest_y;
+	}
+
+	ivi_hmi_controller_send_client_surfaces(resource,
+						&client_surfaces);
+	wl_array_release(&client_surfaces);
+}
+
 /**
  * binding ivi-hmi-controller implementation
  */
@@ -2081,7 +2294,10 @@ static const struct ivi_hmi_controller_interface ivi_hmi_controller_implementati
 	ivi_hmi_controller_workspace_control,
 	ivi_hmi_controller_switch_mode,
 	ivi_hmi_controller_home,
-	ivi_hmi_controller_take_surface_dump
+	ivi_hmi_controller_take_surface_dump,
+	ivi_hmi_controller_get_panel_height,
+	ivi_hmi_controller_enable_surface_dump_overlay,
+	ivi_hmi_controller_get_client_surfaces,
 };
 
 static void
@@ -2105,7 +2321,7 @@ bind_hmi_controller(struct wl_client *client,
        }
 
 	resource = wl_resource_create(
-		client, &ivi_hmi_controller_interface, 2, id);
+		client, &ivi_hmi_controller_interface, 3, id);
 
 	wl_resource_set_implementation(
 		resource, &ivi_hmi_controller_implementation,
@@ -2132,8 +2348,11 @@ initialize(struct hmi_controller *hmi_ctrl)
 		{ "sidebyside-id", &hmi_ctrl->ui_setting.sidebyside_id },
 		{ "fullscreen-id", &hmi_ctrl->ui_setting.fullscreen_id },
 		{ "random-id", &hmi_ctrl->ui_setting.random_id },
+		{ "surfacedump-id", &hmi_ctrl->ui_setting.surfacedump_id },
 		{ "home-id", &hmi_ctrl->ui_setting.home_id },
 		{ "workspace-background-id", &hmi_ctrl->ui_setting.workspace_background_id },
+		{ "surfacedump-overlay-id", &hmi_ctrl->ui_setting.surface_dump_overlay_id },
+		{ "surfacedump-hint-id", &hmi_ctrl->ui_setting.surface_dump_hint_id },
 		{ "surface-id-offset", &hmi_ctrl->ui_setting.surface_id_offset },
 		{ NULL, NULL }
 	};
@@ -2191,7 +2410,7 @@ wet_module_init(struct weston_compositor *ec,
 	}
 
 	if (wl_global_create(ec->wl_display,
-			     &ivi_hmi_controller_interface, 2,
+			     &ivi_hmi_controller_interface, 3,
 			     hmi_ctrl, bind_hmi_controller) == NULL) {
 		return -1;
 	}
