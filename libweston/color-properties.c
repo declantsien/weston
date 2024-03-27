@@ -398,6 +398,19 @@ weston_color_primaries_info_from(struct weston_compositor *compositor,
 	weston_assert_not_reached(compositor, "unknown primaries");
 }
 
+WL_EXPORT const struct weston_color_primaries_info *
+weston_color_primaries_info_from_protocol(struct weston_compositor *compositor,
+                                          uint32_t protocol_primaries)
+{
+        unsigned int i;
+
+        for (i = 0; i < ARRAY_LENGTH(color_primaries_info_table); i++)
+                if (color_primaries_info_table[i].protocol_primaries == protocol_primaries)
+                        return &color_primaries_info_table[i];
+
+	return NULL;
+}
+
 WL_EXPORT const struct weston_color_tf_info *
 weston_color_tf_info_from(struct weston_compositor *compositor,
 			  enum weston_transfer_function tf)
@@ -409,4 +422,22 @@ weston_color_tf_info_from(struct weston_compositor *compositor,
 			return &color_tf_info_table[i];
 
 	weston_assert_not_reached(compositor, "unknown tf");
+}
+
+WL_EXPORT const struct weston_color_tf_info *
+weston_color_tf_info_from_protocol(struct weston_compositor *compositor,
+                                   uint32_t protocol_tf)
+{
+        unsigned int i;
+
+        for (i = 0; i < ARRAY_LENGTH(color_tf_info_table); i++) {
+                /* TF with custom params do not have a protocol TF. */
+                if (color_tf_info_table[i].has_parameters)
+                        continue;
+
+                if (color_tf_info_table[i].protocol_tf == protocol_tf)
+                        return &color_tf_info_table[i];
+        }
+
+        return NULL;
 }
