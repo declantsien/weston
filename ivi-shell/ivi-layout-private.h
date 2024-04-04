@@ -130,7 +130,7 @@ struct ivi_layout {
 	struct wl_list pending_transition_list;	/* transition_node::link */
 
 	struct wl_listener output_created;
-	struct wl_listener output_destroyed;
+	struct wl_listener output_disabled;
 
 	struct {
 		struct ivi_layout_surface *ivisurf;

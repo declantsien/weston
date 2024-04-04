@@ -53,7 +53,7 @@
 
 struct shared_output {
 	struct weston_output *output;
-	struct wl_listener output_destroyed;
+	struct wl_listener output_disabled;
 	struct wl_list seat_list;
 	struct wl_list output_link;	/** screen_share::output_list */
 
@@ -785,11 +785,11 @@ shared_output_handle_event(int fd, uint32_t mask, void *data)
 }
 
 static void
-output_destroyed(struct wl_listener *l, void *data)
+output_disabled(struct wl_listener *l, void *data)
 {
 	struct shared_output *so;
 
-	so = container_of(l, struct shared_output, output_destroyed);
+	so = container_of(l, struct shared_output, output_disabled);
 
 	shared_output_destroy(so);
 }
@@ -1034,8 +1034,8 @@ shared_output_create(struct weston_output *output, struct screen_share *ss, int 
 	wl_list_init(&so->shm.free_buffers);
 
 	so->output = output;
-	so->output_destroyed.notify = output_destroyed;
-	wl_signal_add(&so->output->destroy_signal, &so->output_destroyed);
+	so->output_disabled.notify = output_disabled;
+	wl_signal_add(&so->output->disable_signal, &so->output_disabled);
 
 	so->frame_listener.notify = shared_output_repainted;
 	wl_signal_add(&output->frame_signal, &so->frame_listener);
@@ -1076,7 +1076,7 @@ shared_output_destroy(struct shared_output *so)
 	wl_display_disconnect(so->parent.display);
 	wl_event_source_remove(so->event_source);
 
-	wl_list_remove(&so->output_destroyed.link);
+	wl_list_remove(&so->output_disabled.link);
 	wl_list_remove(&so->frame_listener.link);
 
 	pixman_image_unref(so->cache_image);

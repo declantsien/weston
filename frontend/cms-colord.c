@@ -61,7 +61,7 @@ struct cms_output {
 	struct cms_colord		*cms;
 	struct weston_color_profile	*p;
 	struct weston_output		*o;
-	struct wl_listener		 destroy_listener;
+	struct wl_listener		 output_disable_listener;
 };
 
 static gint
@@ -225,10 +225,10 @@ colord_device_changed_cb(CdDevice *device, struct cms_output *ocms)
 }
 
 static void
-colord_notifier_output_destroy(struct wl_listener *listener, void *data)
+colord_notifier_output_disable(struct wl_listener *listener, void *data)
 {
 	struct cms_output *ocms =
-		container_of(listener, struct cms_output, destroy_listener);
+		container_of(listener, struct cms_output, output_disable_listener);
 	struct weston_output *o = (struct weston_output *) data;
 	struct cms_colord *cms = ocms->cms;
 	gchar *device_id;
@@ -317,8 +317,8 @@ colord_output_created(struct cms_colord *cms, struct weston_output *o)
 	ocms->cms = cms;
 	ocms->o = o;
 	ocms->device = g_object_ref(device);
-	ocms->destroy_listener.notify = colord_notifier_output_destroy;
-	wl_signal_add(&o->destroy_signal, &ocms->destroy_listener);
+	ocms->output_disable_listener.notify = colord_notifier_output_disable;
+	wl_signal_add(&o->disable_signal, &ocms->output_disable_listener);
 
 	/* add to local cache */
 	g_hash_table_insert (cms->devices, g_strdup(device_id), ocms);
@@ -492,7 +492,7 @@ colord_cms_output_destroy(gpointer data)
 	device_id = get_output_id(cms, o);
 	weston_log("colord: output unplugged %s\n", device_id);
 
-	wl_list_remove(&ocms->destroy_listener.link);
+	wl_list_remove(&ocms->output_disable_listener.link);
 	g_signal_handlers_disconnect_by_data(ocms->device, ocms);
 
 	ret = cd_client_delete_device_sync (cms->client,

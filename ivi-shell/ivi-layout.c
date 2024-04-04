@@ -284,12 +284,12 @@ destroy_screen(struct ivi_layout_screen *iviscrn)
 }
 
 static void
-output_destroyed_event(struct wl_listener *listener, void *data)
+output_disabled_event(struct wl_listener *listener, void *data)
 {
-	struct weston_output *destroyed_output = data;
+	struct weston_output *disabled_output = data;
 	struct ivi_layout_screen *iviscrn;
 
-	iviscrn = get_screen_from_output(destroyed_output);
+	iviscrn = get_screen_from_output(disabled_output);
 	assert(iviscrn != NULL);
 	destroy_screen(iviscrn);
 
@@ -2131,8 +2131,8 @@ ivi_layout_init(struct weston_compositor *ec, struct ivi_shell *shell)
 	layout->output_created.notify = output_created_event;
 	wl_signal_add(&ec->output_created_signal, &layout->output_created);
 
-	layout->output_destroyed.notify = output_destroyed_event;
-	wl_signal_add(&ec->output_destroyed_signal, &layout->output_destroyed);
+	layout->output_disabled.notify = output_disabled_event;
+	wl_signal_add(&ec->output_disabled_signal, &layout->output_disabled);
 
 	layout->transitions = ivi_layout_transition_set_create(ec);
 	wl_list_init(&layout->pending_transition_list);
@@ -2151,7 +2151,7 @@ ivi_layout_fini(void)
 
 	/* XXX: tear down everything else */
 	wl_list_remove(&layout->output_created.link);
-	wl_list_remove(&layout->output_destroyed.link);
+	wl_list_remove(&layout->output_disabled.link);
 }
 
 static struct ivi_layout_interface ivi_layout_interface = {

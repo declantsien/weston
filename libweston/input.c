@@ -1253,7 +1253,7 @@ weston_pointer_reset_state(struct weston_pointer *pointer)
 }
 
 static void
-weston_pointer_handle_output_destroy(struct wl_listener *listener, void *data);
+weston_pointer_handle_output_disable(struct wl_listener *listener, void *data);
 
 static struct weston_pointer *
 weston_pointer_create(struct weston_seat *seat)
@@ -1282,10 +1282,10 @@ weston_pointer_create(struct weston_seat *seat)
 	/* FIXME: Pick better co-ords. */
 	pointer->pos.c = weston_coord(100, 100);
 
-	pointer->output_destroy_listener.notify =
-		weston_pointer_handle_output_destroy;
-	wl_signal_add(&seat->compositor->output_destroyed_signal,
-		      &pointer->output_destroy_listener);
+	pointer->output_disable_listener.notify =
+		weston_pointer_handle_output_disable;
+	wl_signal_add(&seat->compositor->output_disabled_signal,
+		      &pointer->output_disable_listener);
 
 	return pointer;
 }
@@ -1308,7 +1308,7 @@ weston_pointer_destroy(struct weston_pointer *pointer)
 
 	wl_list_remove(&pointer->focus_resource_listener.link);
 	wl_list_remove(&pointer->focus_view_listener.link);
-	wl_list_remove(&pointer->output_destroy_listener.link);
+	wl_list_remove(&pointer->output_disable_listener.link);
 	wl_list_remove(&pointer->timestamps_list);
 	free(pointer);
 }
@@ -2206,7 +2206,7 @@ weston_pointer_move(struct weston_pointer *pointer,
 /** Verify if the pointer is in a valid position and move it if it isn't.
  */
 static void
-weston_pointer_handle_output_destroy(struct wl_listener *listener, void *data)
+weston_pointer_handle_output_disable(struct wl_listener *listener, void *data)
 {
 	struct weston_pointer *pointer;
 	struct weston_compositor *ec;
@@ -2215,7 +2215,7 @@ weston_pointer_handle_output_destroy(struct wl_listener *listener, void *data)
 	struct weston_coord_global pos;
 
 	pointer = container_of(listener, struct weston_pointer,
-			       output_destroy_listener);
+			       output_disable_listener);
 	ec = pointer->seat->compositor;
 
 	x = pointer->pos.c.x;

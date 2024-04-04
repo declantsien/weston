@@ -134,7 +134,7 @@ static const char *xwayland_surface_role = "xwayland";
 
 struct weston_output_weak_ref {
 	struct weston_output *output;
-	struct wl_listener destroy_listener;
+	struct wl_listener output_disable_listener;
 };
 
 struct weston_wm_window {
@@ -253,7 +253,7 @@ weston_output_weak_ref_clear(struct weston_output_weak_ref *ref)
 	if (!ref->output)
 		return;
 
-	wl_list_remove(&ref->destroy_listener.link);
+	wl_list_remove(&ref->output_disable_listener.link);
 	ref->output = NULL;
 }
 
@@ -262,7 +262,7 @@ weston_output_weak_ref_handle_destroy(struct wl_listener *listener, void *data)
 {
 	struct weston_output_weak_ref *ref;
 
-	ref = wl_container_of(listener, ref, destroy_listener);
+	ref = wl_container_of(listener, ref, output_disable_listener);
 	assert(ref->output == data);
 
 	weston_output_weak_ref_clear(ref);
@@ -277,8 +277,9 @@ weston_output_weak_ref_set(struct weston_output_weak_ref *ref,
 	if (!output)
 		return;
 
-	ref->destroy_listener.notify = weston_output_weak_ref_handle_destroy;
-	wl_signal_add(&output->destroy_signal, &ref->destroy_listener);
+	ref->output_disable_listener.notify =
+		weston_output_weak_ref_handle_destroy;
+	wl_signal_add(&output->disable_signal, &ref->output_disable_listener);
 	ref->output = output;
 }
 

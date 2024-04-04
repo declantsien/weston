@@ -36,7 +36,7 @@
 struct test_output {
        struct weston_compositor *compositor;
        struct weston_output *output;
-       struct wl_listener output_destroy_listener;
+       struct wl_listener output_disable_listener;
        struct weston_curtain *curtain;
 };
 
@@ -57,20 +57,20 @@ static void
 output_destroy(struct test_output *t_output)
 {
        t_output->output = NULL;
-       t_output->output_destroy_listener.notify = NULL;
+       t_output->output_disable_listener.notify = NULL;
 
        if (t_output->curtain)
                weston_shell_utils_curtain_destroy(t_output->curtain);
 
-       wl_list_remove(&t_output->output_destroy_listener.link);
+       wl_list_remove(&t_output->output_disable_listener.link);
        free(t_output);
 }
 
 static void
-notify_output_destroy(struct wl_listener *listener, void *data)
+notify_output_disable(struct wl_listener *listener, void *data)
 {
        struct test_output *t_output =
-               container_of(listener, struct test_output, output_destroy_listener);
+               container_of(listener, struct test_output, output_disable_listener);
 
        output_destroy(t_output);
 }
@@ -108,9 +108,9 @@ output_create(struct weston_output *output)
        t_output->output = output;
        t_output->compositor = output->compositor;
 
-       t_output->output_destroy_listener.notify = notify_output_destroy;
-       wl_signal_add(&t_output->output->destroy_signal,
-                     &t_output->output_destroy_listener);
+       t_output->output_disable_listener.notify = notify_output_disable;
+       wl_signal_add(&t_output->output->disable_signal,
+                     &t_output->output_disable_listener);
 
        output_create_view(t_output);
 }

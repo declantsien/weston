@@ -63,7 +63,7 @@ struct workspace {
 struct shell_output {
 	struct desktop_shell  *shell;
 	struct weston_output  *output;
-	struct wl_listener    destroy_listener;
+	struct wl_listener    output_disable_listener;
 	struct wl_list        link;
 
 	struct weston_surface *panel_surface;
