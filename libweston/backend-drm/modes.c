@@ -927,6 +927,11 @@ drm_output_get_modes(struct weston_output *base,
 		modelines[i].refresh = mode->refresh;
 		modelines[i].aspect_ratio = mode->aspect_ratio;
 
+		modelines[i].driver = !!(drm_mode->mode_info.type & DRM_MODE_TYPE_DRIVER);
+		modelines[i].preferred = !!(drm_mode->mode_info.type & DRM_MODE_TYPE_PREFERRED);
+
+		modelines[i].current = !!(mode->flags & WL_OUTPUT_MODE_CURRENT);
+
 		i++;
 	}
 	*out = modelines;

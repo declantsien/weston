@@ -82,6 +82,16 @@ struct weston_drm_modeline {
 	 */
 	bool has_mode_info;
 	drmModeModeInfo mode_info;
+
+	/* This mode is currently used by the output */
+	bool current;
+	/* This mode is marked as preferred mode by the driver */
+	bool preferred;
+	/*
+	 * If true, this mode was created by the display driver. Otherwise, the
+	 * mode is a custom mode set by user space or kernel command line.
+	 */
+	bool driver;
 };
 
 struct weston_drm_output_api {
