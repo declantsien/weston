@@ -53,7 +53,7 @@
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
 #include "linux-explicit-synchronization.h"
 #include "output-capture.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 
 #include "shared/fd-util.h"
 #include "shared/helpers.h"

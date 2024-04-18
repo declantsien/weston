@@ -36,11 +36,11 @@
 #include <sys/uio.h>
 
 #include <libweston/libweston.h>
+#include <libweston/pixel-formats.h>
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "backend.h"
 #include "libweston-internal.h"
-#include "pixel-formats.h"
 
 #include "wcap/wcap-decode.h"
 

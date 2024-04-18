@@ -77,7 +77,7 @@
 #include "git-version.h"
 #include <libweston/version.h>
 #include <libweston/plugin-registry.h>
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 #include "backend.h"
 #include "libweston-internal.h"
 #include "color.h"

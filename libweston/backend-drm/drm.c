@@ -51,6 +51,7 @@
 #include <libweston/libweston.h>
 #include <libweston/backend-drm.h>
 #include <libweston/weston-log.h>
+#include <libweston/pixel-formats.h>
 #include "drm-internal.h"
 #include "shared/hash.h"
 #include "shared/helpers.h"
@@ -59,7 +60,6 @@
 #include "shared/weston-drm-fourcc.h"
 #include "output-capture.h"
 #include "pixman-renderer.h"
-#include "pixel-formats.h"
 #include "libbacklight.h"
 #include "libinput-seat.h"
 #include "launcher-util.h"

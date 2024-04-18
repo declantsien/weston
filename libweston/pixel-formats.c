@@ -37,12 +37,12 @@
 
 #include <xf86drm.h>
 
+#include <libweston/pixel-formats.h>
 #include "shared/helpers.h"
 #include "shared/string-helpers.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/xalloc.h"
 #include "wayland-util.h"
-#include "pixel-formats.h"
 
 #ifdef ENABLE_EGL
 #include <EGL/egl.h>

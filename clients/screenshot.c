@@ -44,7 +44,7 @@
 #include "shared/os-compatibility.h"
 #include "shared/xalloc.h"
 #include "shared/file-util.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 
 struct screenshooter_app {
 	struct wl_registry *registry;

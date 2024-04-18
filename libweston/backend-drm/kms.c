@@ -39,7 +39,7 @@
 #include "shared/helpers.h"
 #include "shared/weston-drm-fourcc.h"
 #include "drm-internal.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 #include "presentation-time-server-protocol.h"
 
 struct drm_property_enum_info plane_type_enums[] = {

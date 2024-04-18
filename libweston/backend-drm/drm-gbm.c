@@ -36,9 +36,9 @@
 #include <string.h>
 #include <dlfcn.h>
 
+#include <libweston/pixel-formats.h>
 #include "drm-internal.h"
 #include "pixman-renderer.h"
-#include "pixel-formats.h"
 #include "renderer-gl/gl-renderer.h"
 #include "shared/weston-egl-ext.h"
 #include "linux-dmabuf.h"
