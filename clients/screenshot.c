@@ -38,6 +38,9 @@
 #include <pixman.h>
 #include <cairo.h>
 #include <assert.h>
+#include <getopt.h>
+#include <xf86drm.h>
+#include <gbm.h>
 
 #include <wayland-client.h>
 #include "weston-output-capture-client-protocol.h"
@@ -45,17 +48,35 @@
 #include "shared/xalloc.h"
 #include "shared/file-util.h"
 #include "pixel-formats.h"
+#include "shared/weston-drm-fourcc.h"
+#include "linux-dmabuf-unstable-v1-client-protocol.h"
 
+#define DRM_RENDER_NODE "/dev/dri/card0"
+#define MAX_BUFFER_PLANES 4
+
+#define SHM_BUFFER 0
+#define DMA_BUFFER 1
+
+#define FRAMEBUFFER_SOURCE 0
+#define WRITEBACK_SOURCE 1
+ 
 struct screenshooter_app {
 	struct wl_registry *registry;
 	struct wl_shm *shm;
+	struct zwp_linux_dmabuf_v1 *dmabuf;
 	struct weston_capture_v1 *capture_factory;
+	int buffer_type;
+	int source_type;
 
 	struct wl_list output_list; /* struct screenshooter_output::link */
 
 	bool retry;
 	bool failed;
 	int waitcount;
+	struct {
+		int drm_fd;
+		struct gbm_device *device;
+	} gbm;
 };
 
 struct screenshooter_buffer {
@@ -63,6 +84,16 @@ struct screenshooter_buffer {
 	void *data;
 	struct wl_buffer *wl_buffer;
 	pixman_image_t *image;
+	int buffer_type; /* Indicate SHM_BUFFER or DMA_BUFFER */
+	struct {
+		struct gbm_bo *bo;
+		uint64_t modifier;
+		int plane_count;
+		int plain_fds[MAX_BUFFER_PLANES];
+		uint32_t strides[MAX_BUFFER_PLANES];
+		uint32_t offsets[MAX_BUFFER_PLANES];
+		int release_fence_fd;
+	} dma_buffer;
 };
 
 struct screenshooter_output {
@@ -87,6 +118,26 @@ struct buffer_size {
 	int max_x, max_y;
 };
 
+static void
+create_succeeded(void *data,
+                 struct zwp_linux_buffer_params_v1 *params,
+                 struct wl_buffer *new_buffer)
+{
+	/* not used for zwp_linux_buffer_params_v1_create_immed() */
+}
+
+static void
+create_failed(void *data, struct zwp_linux_buffer_params_v1 *params)
+{
+	fprintf(stderr, "%s: error: zwp_linux_buffer_params.create failed.\n",
+		__func__);
+}
+
+static const struct zwp_linux_buffer_params_v1_listener params_listener = {
+	create_succeeded,
+	create_failed
+};
+
 static struct screenshooter_buffer *
 screenshot_create_shm_buffer(struct screenshooter_app *app,
 			     size_t width, size_t height,
@@ -108,7 +159,7 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 	bytes_pp = fmt->bpp / 8;
 	stride = width * bytes_pp;
 	buffer->len = stride * height;
-
+	buffer->buffer_type = SHM_BUFFER;
 	assert(width == stride / bytes_pp);
 	assert(height == buffer->len / stride);
 
@@ -144,6 +195,103 @@ screenshot_create_shm_buffer(struct screenshooter_app *app,
 	return buffer;
 }
 
+
+static struct screenshooter_buffer *
+screenshot_create_dma_buffer(struct screenshooter_app *app,
+			     int width, int height,
+			     const struct pixel_format_info *fmt)
+{
+	struct zwp_linux_buffer_params_v1 *params;
+	struct screenshooter_buffer* buffer = NULL;
+	uint32_t format = fmt->format;
+	int ret;
+	buffer = xzalloc(sizeof *buffer);
+	if (buffer == NULL) {
+		fprintf(stderr, "%s: error: failed allocate screenshooter_buffer\n", __func__);
+		return NULL;
+	}
+
+	buffer->buffer_type = DMA_BUFFER;
+
+	for (int i = 0 ; i < MAX_BUFFER_PLANES ; i++)
+		buffer->dma_buffer.plain_fds[i] = -1;
+	
+	buffer->dma_buffer.bo = gbm_bo_create(app->gbm.device, width,
+					      height, format, GBM_BO_USE_RENDERING);
+
+	if (!buffer->dma_buffer.bo) {
+		fprintf(stderr, "%s: error: unable to create gbm bo, error %s\n",
+			__func__, strerror(errno));
+		free(buffer);
+		buffer = NULL;
+		return buffer;
+	}
+
+	buffer->dma_buffer.modifier = gbm_bo_get_modifier(buffer->dma_buffer.bo);
+	
+	params = zwp_linux_dmabuf_v1_create_params(app->dmabuf);
+	buffer->dma_buffer.plane_count = gbm_bo_get_plane_count(buffer->dma_buffer.bo);
+
+	for (int i = 0 ; i < buffer->dma_buffer.plane_count ; i++) {
+		ret = drmPrimeHandleToFD(app->gbm.drm_fd,
+			gbm_bo_get_handle_for_plane(buffer->dma_buffer.bo, i).u32,
+			0, &buffer->dma_buffer.plain_fds[i]);
+		if (ret < 0 || buffer->dma_buffer.plain_fds[i] < 0) {
+			fprintf(stderr, "%s: error: failed to get dma buffer fd\n",
+				__func__);
+			goto error;
+		}
+
+		buffer->dma_buffer.offsets[i] = gbm_bo_get_offset(buffer->dma_buffer.bo, i);
+		buffer->dma_buffer.strides[i] = gbm_bo_get_stride_for_plane(buffer->dma_buffer.bo, i);
+
+		zwp_linux_buffer_params_v1_add(params,
+					       buffer->dma_buffer.plain_fds[i], i,
+					       buffer->dma_buffer.offsets[i],
+					       buffer->dma_buffer.strides[i],
+					       buffer->dma_buffer.modifier >> 32,
+					       buffer->dma_buffer.modifier & 0xffffffff);
+	}
+
+	zwp_linux_buffer_params_v1_add_listener(params, &params_listener, app);
+
+	buffer->data = gbm_bo_map(buffer->dma_buffer.bo, 0, 0, width, height, 0,
+				      buffer->dma_buffer.strides, &buffer->data);
+	if (!buffer->data) {
+		fprintf(stderr, "%s: error: failed to map DMA buffer\n", __func__);
+		goto error;
+	}
+
+	buffer->wl_buffer = zwp_linux_buffer_params_v1_create_immed(
+			params, width, height, format, 0);
+	
+	buffer->image = pixman_image_create_bits(fmt->pixman_format,
+						 width, height,
+						 buffer->data, 
+						 buffer->dma_buffer.strides[0]);
+error:
+	zwp_linux_buffer_params_v1_destroy(params);
+	return buffer;
+}
+
+static void
+dmabuf_modifiers(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
+		 uint32_t format, uint32_t modifier_hi, uint32_t modifier_lo)
+{
+	/* XXX: unimplemented */
+}
+
+static void
+dmabuf_format(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf, uint32_t format)
+{
+	/* XXX: unimplemented */
+}
+
+static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
+        dmabuf_format,
+        dmabuf_modifiers
+};
+
 static void
 screenshooter_buffer_destroy(struct screenshooter_buffer *buffer)
 {
@@ -151,7 +299,20 @@ screenshooter_buffer_destroy(struct screenshooter_buffer *buffer)
 		return;
 
 	pixman_image_unref(buffer->image);
-	munmap(buffer->data, buffer->len);
+	if (buffer->buffer_type == SHM_BUFFER) {
+		if (buffer->data)
+			munmap(buffer->data, buffer->len);
+	} else {
+		if (buffer->buffer_type == DMA_BUFFER) {
+			if (buffer->data)
+				gbm_bo_unmap(buffer->dma_buffer.bo, buffer->data);
+			for (int i = 0; i < MAX_BUFFER_PLANES; i++)
+				if (buffer->dma_buffer.plain_fds[i] >= 0)
+					close(buffer->dma_buffer.plain_fds[i]);
+			if (buffer->dma_buffer.bo)
+				gbm_bo_destroy(buffer->dma_buffer.bo);
+		}
+	}
 	wl_buffer_destroy(buffer->wl_buffer);
 	free(buffer);
 }
@@ -237,7 +398,9 @@ create_output(struct screenshooter_app *app, uint32_t output_name, uint32_t vers
 
 	output->source = weston_capture_v1_create(app->capture_factory,
 						  output->wl_output,
-						  WESTON_CAPTURE_V1_SOURCE_FRAMEBUFFER);
+						  ((!app->source_type) ?
+						  WESTON_CAPTURE_V1_SOURCE_FRAMEBUFFER :
+						  WESTON_CAPTURE_V1_SOURCE_WRITEBACK));
 	abort_oom_if_null(output->source);
 	weston_capture_source_v1_add_listener(output->source,
 					      &capture_source_handlers, output);
@@ -278,6 +441,13 @@ handle_global(void *data, struct wl_registry *registry,
 		app->capture_factory = wl_registry_bind(registry, name,
 							&weston_capture_v1_interface,
 							1);
+	} else if (strcmp(interface, zwp_linux_dmabuf_v1_interface.name) == 0) {
+		if (version < 3)
+			return;
+		app->dmabuf = wl_registry_bind(registry, name,
+							&zwp_linux_dmabuf_v1_interface,
+							3);
+		zwp_linux_dmabuf_v1_add_listener(app->dmabuf, &dmabuf_listener, app);
 	}
 }
 
@@ -296,10 +466,17 @@ static void
 screenshooter_output_capture(struct screenshooter_output *output)
 {
 	screenshooter_buffer_destroy(output->buffer);
-	output->buffer = screenshot_create_shm_buffer(output->app,
-						      output->buffer_width,
-						      output->buffer_height,
-						      output->fmt);
+	if (output->app->buffer_type == SHM_BUFFER) {
+		output->buffer = screenshot_create_shm_buffer(output->app,
+							      output->buffer_width,
+							      output->buffer_height,
+							      output->fmt);
+	} else if (output->app->buffer_type == DMA_BUFFER) {
+		output->buffer = screenshot_create_dma_buffer(output->app,
+							      output->buffer_width,
+							      output->buffer_height,
+							      output->fmt);
+	}
 	abort_oom_if_null(output->buffer);
 
 	weston_capture_source_v1_capture(output->source,
@@ -344,6 +521,7 @@ screenshot_write_png(const struct buffer_size *buff_size,
 	if (fp) {
 		fclose (fp);
 		cairo_surface_write_to_png(surface, filepath);
+		printf("Take screenshoot done!\n");
 	}
 	cairo_surface_destroy(surface);
 	pixman_image_unref(shot);
@@ -382,6 +560,66 @@ screenshot_set_buffer_size(struct buffer_size *buff_size,
 	return 0;
 }
 
+static void
+cleanup_gbm(struct screenshooter_app *app)
+{
+	if (app->gbm.device)
+		gbm_device_destroy(app->gbm.device);
+
+	if (app->gbm.drm_fd >= 0)
+		close(app->gbm.drm_fd);
+}
+
+static int
+setup_gbm(struct screenshooter_app *app, const char *drm_render_node)
+{
+	app->gbm.drm_fd = open(drm_render_node, O_RDWR);
+	if (app->gbm.drm_fd < 0) {
+		fprintf(stderr, "failed to open drm render node %s\n",
+			drm_render_node);
+		return -1;
+	}
+
+	app->gbm.device = gbm_create_device(app->gbm.drm_fd);
+	if (app->gbm.device == NULL) {
+		fprintf(stderr, "failed to create gbm device %s\n", strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+static void
+print_usage_and_exit(void)
+{
+	printf("usage flags:\n"
+	       "\t'-b,--buffer-type=<>'"
+	       "\n\t\t0 to generate screenshot using SHM buffer (default), "
+	       "\n\t\t1 to generate screenshot using DMA buffer\n"
+	       "\t'-s,--source-type=<>'"
+	       "\n\t\t0 to use framebuffer source (default), "
+	       "\n\t\t1 to use writeback source\n"
+	       "\t'-d,--drm-render-node=<>'"
+	       "\n\t\tthe full path to the drm render node to use, "
+	       "default=%s\n",
+	       DRM_RENDER_NODE);
+	exit(0);
+}
+
+static int
+check_arg(const char* c)
+{
+	if (!strcmp(c, "1"))
+		return 1;
+
+	if (!strcmp(c, "0"))
+		return 0;
+
+	print_usage_and_exit();
+
+	return 0;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -390,6 +628,35 @@ main(int argc, char *argv[])
 	struct screenshooter_output *tmp_output;
 	struct buffer_size buff_size = {};
 	struct screenshooter_app app = {};
+
+	int c, option_index;
+	char *drm_device_node = DRM_RENDER_NODE;
+	app.buffer_type = SHM_BUFFER;
+	app.source_type = FRAMEBUFFER_SOURCE;
+	
+	static struct option long_options[] = {
+		{"buffer-type", required_argument, 0,  'b' },
+		{"source-type", required_argument, 0,  's' },
+		{"drm-render-node", required_argument, 0, 'd'},
+		{0, 0, 0, 0}
+	};
+
+	while ((c = getopt_long(argc, argv, "hb:s:d:",
+			long_options, &option_index)) != -1) {
+		switch(c) {
+		case 'b':
+			app.buffer_type = check_arg(optarg);
+			break;
+		case 's':
+			app.source_type = check_arg(optarg);
+			break;
+		case 'd':
+			drm_device_node = optarg;
+			break;
+		default:
+			print_usage_and_exit();
+		}
+	}
 
 	wl_list_init(&app.output_list);
 
@@ -406,12 +673,27 @@ main(int argc, char *argv[])
 	/* Process wl_registry advertisements */
 	wl_display_roundtrip(display);
 
-	if (!app.shm) {
-		fprintf(stderr, "Error: display does not support wl_shm\n");
-		return -1;
-	}
 	if (!app.capture_factory) {
 		fprintf(stderr, "Error: display does not support weston_capture_v1\n");
+		return -1;
+	}
+	if (app.source_type == FRAMEBUFFER_SOURCE) {
+		printf("Info: Only support shm buffer with framebuffer source\n");
+		app.buffer_type = SHM_BUFFER;
+	} else {
+		if ((app.buffer_type == DMA_BUFFER) && (app.dmabuf) && (setup_gbm(&app, drm_device_node))) {
+			printf("Warn: failed to set up gbm device => Try to use shm buffer!\n");
+			app.buffer_type = SHM_BUFFER;
+		} else if ((app.buffer_type == DMA_BUFFER) && (!app.dmabuf)) {
+			printf("Warn: display does not support dma buffer => Try to use shm buffer!\n");
+			app.buffer_type = SHM_BUFFER;
+		}
+		printf("Info: take screenshot with %s and writeback source\n", 
+				(app.buffer_type == DMA_BUFFER) ? "dma buffer" : "shm buffer");
+	}
+
+	if((app.buffer_type == SHM_BUFFER) && (!app.shm)) {
+		fprintf(stderr, "Error: display does not support wl_shm\n");
 		return -1;
 	}
 
@@ -442,8 +724,13 @@ main(int argc, char *argv[])
 	wl_list_for_each_safe(output, tmp_output, &app.output_list, link)
 		destroy_output(output);
 
+	if (app.buffer_type == DMA_BUFFER)
+		cleanup_gbm(&app);
 	weston_capture_v1_destroy(app.capture_factory);
-	wl_shm_destroy(app.shm);
+	if (app.shm)
+		wl_shm_destroy(app.shm);
+	if (app.dmabuf)
+		zwp_linux_dmabuf_v1_destroy(app.dmabuf);
 	wl_registry_destroy(app.registry);
 	wl_display_disconnect(display);
 
