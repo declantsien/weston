@@ -601,6 +601,8 @@ struct drm_writeback {
 	struct drm_device *device;
 	struct drm_connector connector;
 
+	struct drm_crtc *crtc;
+
 	struct weston_drm_format_array formats;
 };
 
@@ -628,6 +630,9 @@ struct drm_crtc {
 
 	uint32_t crtc_id; /* object ID to pass to DRM functions */
 	int pipe; /* index of CRTC in resource array / bitmasks */
+
+	/* writeback connector is connected to this crtc*/
+	struct drm_writeback *writeback;
 
 	/* Holds the properties for the CRTC */
 	struct drm_property_info props_crtc[WDRM_CRTC__COUNT];

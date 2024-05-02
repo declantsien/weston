@@ -588,15 +588,21 @@ drm_output_pick_writeback_capture_task(struct drm_output *output)
 			msg = "drm: failed to create dumb buffer for writeback state";
 			goto err_fb;
 		}
-	}
-	else if (buffer->type == WESTON_BUFFER_DMABUF) {
+	} else if (buffer->type == WESTON_BUFFER_DMABUF) {
+#ifdef BUILD_DRM_GBM
 		uint32_t failure_reasons = 0;
 		output->wb_state->fb = drm_fb_get_from_dmabuf(buffer->dmabuf,
 							      output->device, false, &failure_reasons);
 		if (!output->wb_state->fb) {
+			weston_log("failed get frambuffer from dmabuf with reason 0x%x\n",
+				   failure_reasons);
 			msg = "drm: failed to attach dma buffer from client for writeback state";
 			goto err_fb;
 		}
+#else
+		msg = "drm: pixman-renderer doesn't support dma buffer";
+		goto err_fb;
+#endif
 	} else {
 		msg = "drm: Invalid buffer type";
 		goto err_fb;
@@ -1971,6 +1977,9 @@ drm_crtc_destroy(struct drm_crtc *crtc)
 {
 	assert(!crtc->output);
 
+	if(crtc->writeback)
+		crtc->writeback->crtc = NULL;
+
 	wl_list_remove(&crtc->link);
 	drm_property_info_free(crtc->props_crtc, WDRM_CRTC__COUNT);
 	free(crtc);
@@ -3008,6 +3017,8 @@ err:
 static void
 drm_writeback_destroy(struct drm_writeback *writeback)
 {
+	if(writeback->crtc)
+		writeback->crtc->writeback = NULL;
 	drm_connector_fini(&writeback->connector);
 	weston_drm_format_array_fini(&writeback->formats);
 	wl_list_remove(&writeback->link);
