@@ -119,7 +119,7 @@ input_panel_slide_done(struct weston_view_animation *animation, void *data)
 
 	ipsurf->anim = NULL;
 
-	if (ipsurf->shell->input_panel_shrink && !ipsurf->panel)
+	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
 		handle_overlap(ipsurf, true);
 }
 
@@ -145,10 +145,9 @@ input_panel_unslide_done(struct weston_view_animation *animation, void *data)
 			      layer_link.link)
 		weston_view_move_to_layer(view, NULL);
 
-	if (ipsurf->shell->input_panel_shrink && !ipsurf->panel)
+	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
 		handle_overlap(ipsurf, false);
 }
-
 
 static int
 calc_input_panel_position(struct input_panel_surface *ip_surface, struct weston_coord_global *out_pos)

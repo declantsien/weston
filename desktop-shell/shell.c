@@ -145,7 +145,6 @@ struct shell_surface {
 
 	struct input_panel_shrink {
 		bool active;
-		double x, y;
 		int32_t width, height;
 		bool maximized, fullscreen;
 		struct weston_output *fullscreen_output;
@@ -524,6 +523,19 @@ get_animation_type(char *animation)
 		return ANIMATION_NONE;
 }
 
+static enum input_panel_shrink_mode
+get_input_panel_shrink(char *s) {
+	if (!strcmp("none", s))
+		return INPUT_PANEL_SHRINK_NONE;
+	if (!strcmp("focus", s))
+		return INPUT_PANEL_SHRINK_FOCUS;
+	if (!strcmp("all", s))
+		return INPUT_PANEL_SHRINK_ALL;
+
+	weston_log("invalid input-panel-shrink mode %s\n", s);
+	return INPUT_PANEL_SHRINK_NONE;
+}
+
 static bool
 shell_configuration(struct desktop_shell *shell)
 {
@@ -572,8 +584,9 @@ shell_configuration(struct desktop_shell *shell)
 	}
 	free(s);
 
-	weston_config_section_get_bool(section, "input-panel-shrink",
-								   &shell->input_panel_shrink, false);
+	weston_config_section_get_string(section, "input-panel-shrink", &s, "none");
+	shell->input_panel_shrink_mode = get_input_panel_shrink(s);
+	free(s);
 
 	return true;
 }
@@ -3258,21 +3271,25 @@ shrink_for_input_panel(struct desktop_shell *shell,
 					   int32_t input_panel_height,
 					   struct shell_surface *shsurf)
 {
+	struct weston_surface *surf;
 	struct weston_geometry geom;
 	struct weston_coord_global pos;
 	pixman_rectangle32_t area;
 
-	geom = weston_desktop_surface_get_geometry(shsurf->desktop_surface);
+	surf = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	geom = weston_surface_get_bounding_box(surf);
 	pos = weston_view_get_pos_offset_global(shsurf->view);
 	get_output_work_area(shell, shsurf->output, &area);
 
+	if (shell->input_panel_shrink_mode == INPUT_PANEL_SHRINK_FOCUS &&
+		shell->text_input.surface != surf)
+			return;
+
 	if (!(shsurf->state.maximized || shsurf->state.fullscreen ||
 	      pos.c.y + geom.height > area.height - input_panel_height))
-		return;
+			return;
 
 	shsurf->input_panel_shrink.active = true;
-	shsurf->input_panel_shrink.x = pos.c.x;
-	shsurf->input_panel_shrink.y = pos.c.y;
 	shsurf->input_panel_shrink.width = geom.width;
 	shsurf->input_panel_shrink.height = geom.height;
 	shsurf->input_panel_shrink.fullscreen = shsurf->state.fullscreen;
@@ -3302,25 +3319,19 @@ restore_after_input_panel(struct desktop_shell *shell,
 
 	shsurf->input_panel_shrink.active = false;
 
-	if (shsurf->state.maximized || shsurf->state.fullscreen)
+	if (shsurf->input_panel_shrink.fullscreen) {
+		set_fullscreen(shsurf, true, shsurf->input_panel_shrink.fullscreen_output);
 		return;
+	}
+
+	if (shsurf->input_panel_shrink.maximized) {
+		set_maximized(shsurf, true);
+		return;
+	}
 
 	set_size_clamped(shsurf->desktop_surface,
 		shsurf->input_panel_shrink.width,
 		shsurf->input_panel_shrink.height);
-
-	if (shsurf->input_panel_shrink.maximized || shsurf->input_panel_shrink.fullscreen) {
-		struct weston_coord_global pos;
-		pos.c = weston_coord(shsurf->input_panel_shrink.x, shsurf->input_panel_shrink.y);
-
-		weston_view_set_position(shsurf->view, pos);
-	}
-
-	if (shsurf->input_panel_shrink.maximized)
-		set_maximized(shsurf, true);
-
-	if (shsurf->input_panel_shrink.fullscreen)
-		set_fullscreen(shsurf, true, shsurf->input_panel_shrink.fullscreen_output);
 }
 
 static void
@@ -5106,6 +5117,8 @@ wet_shell_init(struct weston_compositor *ec,
 	shell_fade_init(shell);
 
 	clock_gettime(CLOCK_MONOTONIC, &shell->startup_time);
+
+	weston_log("desktop shell initialized\n");
 
 	return 0;
 }
