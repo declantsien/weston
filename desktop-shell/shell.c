@@ -3312,17 +3312,24 @@ shrink_for_input_panel(struct desktop_shell *shell,
 
 void
 restore_after_input_panel(struct desktop_shell *shell,
-						  struct shell_surface *shsurf)
+						  struct shell_surface *shsurf, bool pre)
 {
 	if (!shsurf->input_panel_shrink.active)
 		return;
 
-	shsurf->input_panel_shrink.active = false;
-
 	if (shsurf->input_panel_shrink.fullscreen) {
-		set_fullscreen(shsurf, true, shsurf->input_panel_shrink.fullscreen_output);
+		if (pre) {
+			pixman_rectangle32_t area;
+			get_output_work_area(shell, shsurf->output, &area);
+			set_size_clamped(shsurf->desktop_surface, area.width, area.height);
+		} else {
+			set_fullscreen(shsurf, true, shsurf->input_panel_shrink.fullscreen_output);
+			shsurf->input_panel_shrink.active = false;
+		}
 		return;
 	}
+
+	shsurf->input_panel_shrink.active = false;
 
 	if (shsurf->input_panel_shrink.maximized) {
 		set_maximized(shsurf, true);

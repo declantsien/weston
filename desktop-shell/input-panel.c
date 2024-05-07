@@ -83,8 +83,14 @@ input_panel_height(struct input_panel_surface *ipsurf)
 	return ipsurf->surface->height - min_y;
 }
 
+enum handle_overlap_phase {
+	HANDLE_OVERLAP_SHRINK,
+	HANDLE_OVERLAP_PRE_RESTORE,
+	HANDLE_OVERLAP_RESTORE,
+};
+
 static void
-handle_overlap(struct input_panel_surface *ipsurf, bool show)
+handle_overlap(struct input_panel_surface *ipsurf, enum handle_overlap_phase phase)
 {
 	int32_t ip_height = input_panel_height(ipsurf);
 	struct desktop_shell *shell	= ipsurf->shell;
@@ -105,10 +111,17 @@ handle_overlap(struct input_panel_surface *ipsurf, bool show)
 		if (shsurf == NULL)
 			continue;
 
-		if (show)
+		switch (phase) {
+		case HANDLE_OVERLAP_SHRINK:
 			shrink_for_input_panel(shell, ip_height, shsurf);
-		else
-			restore_after_input_panel(shell, shsurf);
+			break;
+		case HANDLE_OVERLAP_PRE_RESTORE:
+			restore_after_input_panel(shell, shsurf, true);
+			break;
+		case HANDLE_OVERLAP_RESTORE:
+			restore_after_input_panel(shell, shsurf, false);
+			break;
+		}
 	}
 }
 
@@ -120,7 +133,7 @@ input_panel_slide_done(struct weston_view_animation *animation, void *data)
 	ipsurf->anim = NULL;
 
 	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
-		handle_overlap(ipsurf, true);
+		handle_overlap(ipsurf, HANDLE_OVERLAP_SHRINK);
 }
 
 static void
@@ -144,6 +157,9 @@ input_panel_unslide_done(struct weston_view_animation *animation, void *data)
 			      &shell->input_panel_layer.view_list.link,
 			      layer_link.link)
 		weston_view_move_to_layer(view, NULL);
+
+	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
+		handle_overlap(ipsurf, HANDLE_OVERLAP_RESTORE);
 }
 
 static int
@@ -249,7 +265,7 @@ hide_input_panel_surface(struct input_panel_surface *ipsurf)
 				 input_panel_unslide_done, ipsurf);
 
 	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
-		handle_overlap(ipsurf, false);
+		handle_overlap(ipsurf, HANDLE_OVERLAP_PRE_RESTORE);
 }
 
 static void

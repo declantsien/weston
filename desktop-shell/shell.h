@@ -214,4 +214,4 @@ shrink_for_input_panel(struct desktop_shell *shell,
 
 void
 restore_after_input_panel(struct desktop_shell *shell,
-						  struct shell_surface *shsurf);
+						  struct shell_surface *shsurf, bool pre);
