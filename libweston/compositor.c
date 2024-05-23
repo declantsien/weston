@@ -96,6 +96,7 @@
  */
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
+#define DEFAULT_FRAME_RATE_INTERVAL_SEC	3 /* milliseconds */
 
 static void
 weston_output_transform_scale_init(struct weston_output *output,
@@ -3613,9 +3614,15 @@ weston_output_repaint(struct weston_output *output)
 			 * avoid adding pnode's frame callbacks/presented
 			 * feedback to the respective lists if pnode/surface is
 			 * occluded
+			 *
+			 * reset as well the frame counters to avoid printing
+			 * the last instant frame rate counter or fps
 			 */
-			if (!pixman_region32_not_empty(&pnode->visible))
+			if (!pixman_region32_not_empty(&pnode->visible)) {
+				pnode->surface->instant_frame_counter = 0;
+				pnode->surface->instant_fps_counter = 0;
 				continue;
+			}
 
 			wl_list_insert_list(&frame_callback_list,
 					    &pnode->surface->frame_callback_list);
@@ -3753,6 +3760,68 @@ weston_output_schedule_repaint_restart(struct weston_output *output)
 		 TLP_OUTPUT(output), TLP_END);
 	output_repaint_timer_arm(output->compositor);
 	weston_output_damage(output);
+}
+
+static void
+surface_stats(void *data)
+{
+	struct weston_surface *surf = data;
+	struct weston_compositor *compositor = surf->compositor;
+	uint32_t frame_counter_interval =
+		compositor->perf_surface_stats.frame_counter_interval;
+
+	if (surf->resource && surf->frame_counter > 0) {
+		surf->instant_frame_counter = surf->frame_counter;
+		surf->instant_fps_counter =
+			(float) (surf->frame_counter / frame_counter_interval);
+	}
+
+	surf->frame_counter = 0;
+}
+
+static void
+for_each_view_in_each_layer(struct weston_compositor *compositor,
+			    void (*callback)(void *data))
+{
+	struct weston_layer *layer;
+	struct weston_view *view;
+
+	wl_list_for_each(layer, &compositor->layer_list, link)
+		wl_list_for_each(view, &layer->view_list.link, layer_link.link) {
+			struct weston_subsurface *sub;
+			struct weston_view *ev;
+
+			/* the main, parent-surface */
+			callback(view->surface);
+
+			if (wl_list_empty(&view->surface->subsurface_list))
+				continue;
+
+			wl_list_for_each(sub, &view->surface->subsurface_list,
+					 parent_link)
+				wl_list_for_each(ev, &sub->surface->views,
+						 surface_link) {
+					if (ev->parent_view != view)
+						continue;
+
+					callback(ev->surface);
+				}
+		}
+}
+
+static int
+surface_statistics_timer_handler(void *data)
+{
+	struct weston_compositor *comp = data;
+	unsigned frm_cnt_int = comp->perf_surface_stats.frame_counter_interval;
+	struct wl_event_source *frm_cnt_timer =
+		comp->perf_surface_stats.frame_counter_timer;
+
+	for_each_view_in_each_layer(comp, surface_stats);
+
+	wl_event_source_timer_update(frm_cnt_timer, 1000 * frm_cnt_int);
+
+	return 0;
 }
 
 static int
@@ -4696,6 +4765,7 @@ weston_surface_commit_state(struct weston_surface *surface,
 					 state->render_intent);
 
 	wl_signal_emit(&surface->commit_signal, surface);
+	surface->frame_counter++;
 
 	/* Surface is now quiescent */
 	surface->is_unmapping = false;
@@ -9099,6 +9169,13 @@ debug_scene_view_print(FILE *fp, struct weston_view *view, int view_idx)
 	if (view->alpha < 1.0)
 		fprintf(fp, "\t\talpha: %f\n", view->alpha);
 
+	if (weston_surface_is_mapped(view->surface)) {
+		fprintf(fp, "\t\t%d frames counted in %d sec interval, FPS: %5.2f\n",
+				view->surface->instant_frame_counter,
+				ec->perf_surface_stats.frame_counter_interval,
+				view->surface->instant_fps_counter);
+	}
+
 	if (view->output_mask != 0) {
 		bool first_output = true;
 		fprintf(fp, "\t\toutputs: ");
@@ -9409,6 +9486,13 @@ weston_compositor_create(struct wl_display *display,
 		wl_event_loop_add_timer(loop, output_repaint_timer_handler,
 					ec);
 
+	ec->perf_surface_stats.frame_counter_interval = DEFAULT_FRAME_RATE_INTERVAL_SEC;
+	ec->perf_surface_stats.frame_counter_timer =
+		wl_event_loop_add_timer(loop, surface_statistics_timer_handler, ec);
+
+	wl_event_source_timer_update(ec->perf_surface_stats.frame_counter_timer,
+				     1000 * ec->perf_surface_stats.frame_counter_interval);
+
 	weston_layer_init(&ec->fade_layer, ec);
 	weston_layer_init(&ec->cursor_layer, ec);
 
@@ -9451,6 +9535,7 @@ weston_compositor_shutdown(struct weston_compositor *ec)
 
 	wl_event_source_remove(ec->idle_source);
 	wl_event_source_remove(ec->repaint_timer);
+	wl_event_source_remove(ec->perf_surface_stats.frame_counter_timer);
 
 	if (ec->touch_calibration)
 		weston_compositor_destroy_touch_calibrator(ec);
