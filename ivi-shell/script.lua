@@ -11,3 +11,6 @@ function configure_surface(s)
 	--s.x = 200
 	--s.y = 300
 end
+
+-- TODO Register a callback function to a signal
+--ivi:on("configure_surface", configure_surface)
