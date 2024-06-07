@@ -1,0 +1,6 @@
+[core]
+shell=ivi
+modules=lua-controller.so
+
+[shell]
+script=@westondatadir@/script.lua
