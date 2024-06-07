@@ -5,4 +5,9 @@ function configure_surface(s)
 		s.width = 400
 		s.height = 800
 	end
+
+	-- TODO Assign a surface to an output
+	--outputs["wayland-0"]:add(surface)
+	--s.x = 200
+	--s.y = 300
 end
