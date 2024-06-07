@@ -45,9 +45,11 @@ struct kiosk_shell {
 
 	struct wl_list output_list;
 	struct wl_list seat_list;
+	struct wl_list key_state_list;
 
 	const struct weston_xwayland_surface_api *xwayland_surface_api;
 	struct weston_config *config;
+	bool allow_zap;
 };
 
 struct kiosk_shell_surface {
@@ -98,6 +100,7 @@ struct kiosk_shell_output {
 	struct wl_list link;
 
 	char *app_ids;
+	char bind_key;
 
 	struct wl_list *active_surface_tree;
 };

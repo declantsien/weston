@@ -38,6 +38,14 @@
 
 #include <libweston/xwayland-api.h>
 
+struct key_focus_state {
+	struct kiosk_shell_surface *shsurf;
+	char bind_key;
+
+	/* kiosk_shell::key_state_list */
+	struct wl_list link;
+};
+
 static struct kiosk_shell_surface *
 get_kiosk_shell_surface(struct weston_surface *surface)
 {
@@ -165,12 +173,30 @@ static bool
 kiosk_shell_output_has_app_id(struct kiosk_shell_output *shoutput,
 			      const char *app_id);
 
+static struct key_focus_state *
+key_state_create(struct kiosk_shell_surface *shsurf, char bind_key)
+{
+	struct key_focus_state *key_state;
+
+	key_state = zalloc(sizeof *key_state);
+	if (!key_state) {
+		weston_log("no memory to allocate shell surface\n");
+		return NULL;
+	}
+
+	key_state->shsurf = shsurf;
+	key_state->bind_key = bind_key;
+	return key_state;
+}
+
 static struct weston_output *
 kiosk_shell_surface_find_best_output(struct kiosk_shell_surface *shsurf)
 {
 	struct weston_output *output;
 	struct kiosk_shell_output *shoutput;
 	struct kiosk_shell_surface *root;
+	struct key_focus_state *key_state;
+	struct kiosk_shell *shell;
 	const char *app_id;
 
 	/* Always use current output if any. */
@@ -183,6 +209,11 @@ kiosk_shell_surface_find_best_output(struct kiosk_shell_surface *shsurf)
 		wl_list_for_each(shoutput, &shsurf->shell->output_list, link) {
 			if (kiosk_shell_output_has_app_id(shoutput, app_id)) {
 				shsurf->appid_output_assigned = true;
+
+				shell = shsurf->shell;
+				key_state = key_state_create(shsurf, shoutput->bind_key);
+				wl_list_insert(&shell->key_state_list, &key_state->link);
+
 				return shoutput->output;
 			}
 		}
@@ -673,6 +704,13 @@ kiosk_shell_output_destroy(struct kiosk_shell_output *shoutput)
 	free(shoutput);
 }
 
+static void
+kiosk_shell_key_state_destroy(struct key_focus_state *key_state)
+{
+	wl_list_remove(&key_state->link);
+	free(key_state);
+}
+
 static bool
 kiosk_shell_output_has_app_id(struct kiosk_shell_output *shoutput,
 			      const char *app_id)
@@ -688,9 +726,15 @@ kiosk_shell_output_has_app_id(struct kiosk_shell_output *shoutput,
 
 	while ((cur = strstr(cur, app_id))) {
 		/* Check whether we have found a complete match of app_id. */
-		if ((cur[app_id_len] == ',' || cur[app_id_len] == '\0') &&
-		    (cur == shoutput->app_ids || cur[-1] == ','))
+		if ((cur[app_id_len] == ',' || cur[app_id_len] == '\0' || cur[app_id_len] == ':') &&
+		    (cur == shoutput->app_ids || cur[-1] == ',')) {
+			if (cur[app_id_len] == ':' && strncmp(cur, app_id, app_id_len) == 0) {
+				shoutput->bind_key = cur[app_id_len+1];
+			} else {
+				shoutput->bind_key = '\0';
+			}
 			return true;
+}
 		cur++;
 	}
 
@@ -703,6 +747,7 @@ kiosk_shell_output_configure(struct kiosk_shell_output *shoutput)
 	struct weston_config *wc = wet_get_config(shoutput->shell->compositor);
 	struct weston_config_section *section =
 		weston_config_get_section(wc, "output", "name", shoutput->output->name);
+	bool allow_zap;
 
 	assert(shoutput->app_ids == NULL);
 
@@ -710,6 +755,11 @@ kiosk_shell_output_configure(struct kiosk_shell_output *shoutput)
 		weston_config_section_get_string(section, "app-ids",
 						 &shoutput->app_ids, NULL);
 	}
+
+	section = weston_config_get_section(wc, "shell", NULL, NULL);
+	weston_config_section_get_bool(section,
+				       "allow-zap", &allow_zap, true);
+	shoutput->shell->allow_zap = allow_zap;
 }
 
 static void
@@ -1198,6 +1248,44 @@ kiosk_shell_click_to_activate_binding(struct weston_pointer *pointer,
 }
 
 static void
+kiosk_shell_key_activate_binding(struct weston_keyboard *keyboard,
+				      const struct timespec *time,
+				      uint32_t key, void *data)
+{
+	struct kiosk_shell *shell = data;
+	struct key_focus_state *key_state;
+	struct weston_desktop_surface *desktop_surface;
+	struct weston_surface *focus;
+	struct weston_view *view;
+
+	wl_list_for_each(key_state, &shell->key_state_list, link) {
+		desktop_surface = key_state->shsurf->desktop_surface;
+		assert(desktop_surface);
+
+		focus = weston_desktop_surface_get_surface(desktop_surface);
+		assert(focus);
+
+		if ((key == KEY_A && key_state->bind_key == 'a') ||
+		    (key == KEY_B && key_state->bind_key == 'b')) {
+				view = key_state->shsurf->view;
+				assert(view);
+
+				if (view->surface == focus) {
+					weston_keyboard_set_focus(keyboard, focus);
+					kiosk_shell_activate_view(shell, view,
+						keyboard->seat, WESTON_ACTIVATE_FLAG_NONE);
+
+					weston_log("activate key %c binding surface.\n", key_state->bind_key);
+					return;
+				}
+		}
+	}
+
+	weston_log("hot key not match, not activate weston surface.\n");
+}
+
+
+static void
 kiosk_shell_touch_to_activate_binding(struct weston_touch *touch,
 				      const struct timespec *time,
 				      void *data)
@@ -1214,10 +1302,22 @@ kiosk_shell_touch_to_activate_binding(struct weston_touch *touch,
 }
 
 static void
+terminate_binding(struct weston_keyboard *keyboard, const struct timespec *time,
+                  uint32_t key, void *data)
+{
+	struct weston_compositor *compositor = data;
+
+	weston_compositor_exit(compositor);
+}
+
+static void
 kiosk_shell_add_bindings(struct kiosk_shell *shell)
 {
 	uint32_t mod = 0;
-
+	if (shell->allow_zap)
+		weston_compositor_add_key_binding(shell->compositor, KEY_BACKSPACE,
+						  MODIFIER_CTRL | MODIFIER_ALT,
+						  terminate_binding, shell->compositor);
 	mod = weston_config_get_binding_modifier(shell->config, MODIFIER_SUPER);
 
 	weston_compositor_add_button_binding(shell->compositor, BTN_LEFT, 0,
@@ -1231,6 +1331,12 @@ kiosk_shell_add_bindings(struct kiosk_shell *shell)
 					    shell);
 
 	weston_install_debug_key_binding(shell->compositor, mod);
+	weston_compositor_add_key_binding(shell->compositor, KEY_A, MODIFIER_ALT,
+					    kiosk_shell_key_activate_binding,
+					    shell);
+	weston_compositor_add_key_binding(shell->compositor, KEY_B, MODIFIER_ALT,
+					    kiosk_shell_key_activate_binding,
+					    shell);
 }
 
 static void
@@ -1333,6 +1439,7 @@ kiosk_shell_destroy(struct wl_listener *listener, void *data)
 		container_of(listener, struct kiosk_shell, destroy_listener);
 	struct kiosk_shell_output *shoutput, *tmp;
 	struct kiosk_shell_seat *shseat, *shseat_next;
+	struct key_focus_state *key_state;
 
 	wl_list_remove(&shell->destroy_listener.link);
 	wl_list_remove(&shell->output_created_listener.link);
@@ -1354,6 +1461,10 @@ kiosk_shell_destroy(struct wl_listener *listener, void *data)
 
 	wl_list_for_each_safe(shseat, shseat_next, &shell->seat_list, link) {
 		kiosk_shell_seat_destroy(shseat);
+	}
+
+	wl_list_for_each(key_state, &shell->key_state_list, link) {
+		kiosk_shell_key_state_destroy(key_state);
 	}
 
 	weston_desktop_destroy(shell->desktop);
@@ -1413,6 +1524,7 @@ wet_shell_init(struct weston_compositor *ec,
 	shell->seat_created_listener.notify = kiosk_shell_handle_seat_created;
 	wl_signal_add(&ec->seat_created_signal, &shell->seat_created_listener);
 
+	wl_list_init(&shell->key_state_list);
 	wl_list_init(&shell->output_list);
 	wl_list_for_each(output, &ec->output_list, link)
 		kiosk_shell_output_create(shell, output);
