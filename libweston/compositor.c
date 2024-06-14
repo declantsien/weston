@@ -85,6 +85,7 @@
 #include "id-number-allocator.h"
 #include "output-capture.h"
 #include "pixman-renderer.h"
+#include "renderer-etna/etna-renderer.h"
 #include "renderer-gl/gl-renderer.h"
 
 #include "weston-log-internal.h"
@@ -10227,6 +10228,7 @@ weston_compositor_init_renderer(struct weston_compositor *compositor,
 				const struct weston_renderer_options *options)
 {
 	const struct gl_renderer_interface *gl_renderer;
+	const struct etna_renderer_interface *etna_renderer;
 	const struct gl_renderer_display_options *gl_options;
 	int ret;
 
@@ -10253,6 +10255,20 @@ weston_compositor_init_renderer(struct weston_compositor *compositor,
 		if (ret < 0)
 			return ret;
 		weston_log("Using Pixman renderer\n");
+		break;
+	case WESTON_RENDERER_ETNA:
+		etna_renderer = weston_load_module("etna-renderer.so",
+						 "etna_renderer_interface",
+						 LIBWESTON_MODULEDIR);
+		if (!etna_renderer)
+			return -1;
+
+		ret = etna_renderer->display_create(compositor);
+		if (ret < 0)
+			return ret;
+
+		compositor->renderer->etna = etna_renderer;
+		weston_log("Using etnaviv 2D GPU renderer\n");
 		break;
 	default:
 		ret = -1;

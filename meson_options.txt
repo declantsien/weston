@@ -65,6 +65,13 @@ option(
 )
 
 option(
+	'renderer-etna',
+	type: 'boolean',
+	value: false,
+	description: 'Weston renderer: Vivante 2D GPU via etnaviv'
+)
+
+option(
 	'renderer-gl',
 	type: 'boolean',
 	value: true,

@@ -225,6 +225,7 @@ dep_lib_gl_borders = declare_dependency(
 )
 
 subdir('color-lcms')
+subdir('renderer-etna')
 subdir('renderer-gl')
 subdir('backend-drm')
 subdir('backend-headless')

@@ -72,6 +72,7 @@ struct {
 	{ "gl", WESTON_RENDERER_GL },
 	{ "noop", WESTON_RENDERER_NOOP },
 	{ "pixman", WESTON_RENDERER_PIXMAN },
+	{ "etnaviv", WESTON_RENDERER_ETNA },
 };
 
 bool

@@ -713,6 +713,9 @@ usage(int error_code)
 #endif
 			"\t\t\t\tnoop\tNo-op renderer for testing only\n"
 			"\t\t\t\tpixman\tPixman software renderer\n"
+#if defined(ENABLE_ETNA)
+			"\t\t\t\tetnaviv\tEtnaviv 2D GPU\n"
+#endif
 		"  --shell=NAME\tShell to load, defaults to desktop\n"
 		"  -S, --socket=NAME\tName of socket to listen on\n"
 		"  -i, --idle-time=SECS\tIdle time in seconds\n"

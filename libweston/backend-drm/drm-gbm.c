@@ -39,6 +39,7 @@
 #include "drm-internal.h"
 #include "pixman-renderer.h"
 #include "pixel-formats.h"
+#include "renderer-etna/etna-renderer.h"
 #include "renderer-gl/gl-renderer.h"
 #include "shared/weston-egl-ext.h"
 #include "linux-dmabuf.h"
@@ -323,4 +324,102 @@ drm_output_render_gl(struct drm_output_state *state, pixman_region32_t *damage)
 	ret->gbm_surface = output->gbm_surface;
 
 	return ret;
+}
+
+int
+init_etna(struct drm_backend *b)
+{
+	return weston_compositor_init_renderer(b->compositor,
+					       WESTON_RENDERER_ETNA,
+					       NULL);
+}
+
+int
+drm_output_init_etna(struct drm_output *output, struct drm_backend *b)
+{
+	const struct weston_renderer *renderer = b->compositor->renderer;
+	int w = output->base.current_mode->width;
+	int h = output->base.current_mode->height;
+	uint32_t format = output->format->format;
+	int drm_fd = b->drm->drm.fd;
+	int ret;
+
+	ret = renderer->etna->output_create(&output->base);
+	if (ret < 0)
+		return -1;
+
+	for (unsigned int i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
+		int ret, dmabuf;
+
+		output->dumb[i] = drm_fb_create_dumb(b->drm, w, h, format);
+		if (!output->dumb[i])
+			goto err;
+
+		ret = drmPrimeHandleToFD(drm_fd, output->dumb[i]->handles[0],
+					 DRM_CLOEXEC, &dmabuf);
+		if(ret < 0)
+			goto err;
+
+		output->renderbuffer[i] =
+			renderer->etna->renderbuffer_from_dmabuf(
+				&output->base, dmabuf, output->format, w, h,
+				output->dumb[i]->strides[0]);
+		close(dmabuf);
+		if (!output->renderbuffer[i])
+			goto err;
+	}
+
+	return 0;
+
+err:
+	weston_log("failed to create etnaviv renderer output state\n");
+	for (unsigned int i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
+
+		/* FIXME: release renderbuffers */
+
+		if (output->dumb[i])
+			drm_fb_unref(output->dumb[i]);
+
+		output->dumb[i] = NULL;
+	}
+
+	return -1;
+}
+
+void
+drm_output_fini_etna(struct drm_output *output)
+{
+	struct drm_backend *b = output->backend;
+	const struct weston_renderer *renderer = b->compositor->renderer;
+
+	for (unsigned int i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
+		if (output->dumb[i])
+			drm_fb_unref(output->dumb[i]);
+
+		output->dumb[i] = NULL;
+	}
+
+	renderer->etna->output_destroy(&output->base);
+}
+
+struct drm_fb *
+drm_output_render_etna(struct drm_output_state *state,
+		       pixman_region32_t *output_damage)
+{
+	struct drm_output *output = state->output;
+	struct weston_compositor *ec = output->base.compositor;
+
+	output->current_image = (output->current_image + 1) % ARRAY_LENGTH(output->dumb);
+
+	/* accumulate damage in all renderbuffers */
+	for (unsigned int i = 0; i < ARRAY_LENGTH(output->renderbuffer); i++) {
+		struct weston_renderbuffer *rb = output->renderbuffer[i];
+
+		pixman_region32_union(&rb->damage, &rb->damage, output_damage);
+	}
+
+	ec->renderer->repaint_output(&output->base, output_damage,
+				     output->renderbuffer[output->current_image]);
+
+	return drm_fb_ref(output->dumb[output->current_image]);
 }
