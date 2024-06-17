@@ -72,10 +72,21 @@ include:
       when: always
     - when: never
 
+.default-docs-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_PROJECT_PATH == "wayland/weston" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+      when: on_success
+    - when: never
+
 # Define the build stages. These are used for UI grouping as well as
 # dependencies.
+#
+# Base container (deploy docs) is a container that is used to build
+# and deploy the documentation pages. It would only run the main branch
+# after MR has been merged.
 stages:
   - "Merge request checks"
+  - "Base container (docs-deploy)"
   - "Pre Base container"
   - "Base container"
   - "Full build and test"
@@ -197,6 +208,14 @@ x86_64-debian-container_prep:
   timeout: 30m
   stage: "Base container"
 
+x86_64-debian-container_prep-docs-deploy:
+  extends:
+    - .default-docs-rules
+    - .debian-x86_64
+    - .fdo.container-build@debian
+  timeout: 30m
+  stage: "Base container (docs-deploy)"
+
 armv7-debian-lts-container_prep:
   extends:
     - .default-rules
@@ -314,6 +333,22 @@ aarch64-debian-container_prep:
     paths:
     - $BUILDDIR/meson-logs
     - $PREFIX
+# used only as depends for deployment of docs on main branch
+.build-no-test-docs-deploy:
+  extends:
+  - .default-docs-rules
+  script:
+  - cd "$BUILDDIR"
+  - meson --prefix="$PREFIX" --wrap-mode=nofallback ${MESON_OPTIONS} ..
+  - ninja -k0 -j${FDO_CI_CONCURRENT:-4}
+  - ninja install
+  - ninja clean
+  artifacts:
+    name: weston-$CI_COMMIT_SHA
+    when: always
+    paths:
+    - $BUILDDIR/meson-logs
+    - $PREFIX
 
 # OS/architecture-specific variants
 .build-env-debian-lts-x86_64:
@@ -332,6 +367,15 @@ aarch64-debian-container_prep:
     - .build-env
   needs:
     - job: x86_64-debian-container_prep
+      artifacts: false
+
+.build-env-debian-x86_64-docs-deploy:
+  extends:
+    - .debian-x86_64
+    - .fdo.suffixed-image@debian
+    - .build-env
+  needs:
+    - job: x86_64-debian-container_prep-docs-deploy
       artifacts: false
 
 .build-env-debian-lts-armv7:
@@ -494,6 +538,18 @@ docs-build:
     - .build-env-debian-x86_64
     - .build-no-test
 
+# job that will only run on main branch to build docs for deploying on pages
+# stage
+docs-build-docs-deploy:
+  stage: "Other builds"
+  variables:
+    MESON_OPTIONS: >
+      -Dwerror=true
+      -Ddoc=true
+  extends:
+    - .build-env-debian-x86_64-docs-deploy
+    - .build-no-test-docs-deploy
+
 # Building without gl-renderer, to make sure this keeps working.
 .build-options-no-gl:
   stage: "No-GL build and test"
@@ -595,7 +651,7 @@ pages:
   stage: pages
   timeout: 5m
   needs:
-    - job: docs-build
+    - job: docs-build-docs-deploy
       artifacts: true
   script:
   - export PREFIX=$(pwd)/prefix-weston-docs-build
