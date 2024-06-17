@@ -61,7 +61,7 @@ include:
 .default-rules:
   rules:
     # do not duplicate pipelines on merge pipelines
-    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_PROJECT_PATH == "wayland/weston" && $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
       when: never
     # we need a default case though, so all the rest still run
     - when: on_success
