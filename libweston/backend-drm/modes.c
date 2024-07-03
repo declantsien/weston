@@ -182,54 +182,6 @@ get_panel_orientation(struct drm_connector *connector, drmModeObjectPropertiesPt
 	}
 }
 
-static int
-parse_modeline(const char *s, drmModeModeInfo *mode)
-{
-	char hsync[16];
-	char vsync[16];
-	float fclock;
-
-	memset(mode, 0, sizeof *mode);
-
-	mode->type = DRM_MODE_TYPE_USERDEF;
-	mode->hskew = 0;
-	mode->vscan = 0;
-	mode->vrefresh = 0;
-	mode->flags = 0;
-
-	if (sscanf(s, "%f %hd %hd %hd %hd %hd %hd %hd %hd %15s %15s",
-		   &fclock,
-		   &mode->hdisplay,
-		   &mode->hsync_start,
-		   &mode->hsync_end,
-		   &mode->htotal,
-		   &mode->vdisplay,
-		   &mode->vsync_start,
-		   &mode->vsync_end,
-		   &mode->vtotal, hsync, vsync) != 11)
-		return -1;
-
-	mode->clock = fclock * 1000;
-	if (strcasecmp(hsync, "+hsync") == 0)
-		mode->flags |= DRM_MODE_FLAG_PHSYNC;
-	else if (strcasecmp(hsync, "-hsync") == 0)
-		mode->flags |= DRM_MODE_FLAG_NHSYNC;
-	else
-		return -1;
-
-	if (strcasecmp(vsync, "+vsync") == 0)
-		mode->flags |= DRM_MODE_FLAG_PVSYNC;
-	else if (strcasecmp(vsync, "-vsync") == 0)
-		mode->flags |= DRM_MODE_FLAG_NVSYNC;
-	else
-		return -1;
-
-	snprintf(mode->name, sizeof mode->name, "%dx%d@%.3f",
-		 mode->hdisplay, mode->vdisplay, fclock);
-
-	return 0;
-}
-
 #if HAVE_LIBDISPLAY_INFO
 
 static void
@@ -694,7 +646,7 @@ update_head_from_connector(struct drm_head *head)
  * @param device the DRM device
  * @param output DRM output to choose mode for
  * @param mode Strategy and preference to use when choosing mode
- * @param modeline Manually-entered mode (may be NULL)
+ * @param drm_modeline Manually-entered mode (may be NULL)
  * @param current_mode Mode currently being displayed on this output
  * @returns A mode from the output's mode list, or NULL if none available
  */
@@ -702,7 +654,7 @@ static struct drm_mode *
 drm_output_choose_initial_mode(struct drm_device *device,
 			       struct drm_output *output,
 			       enum weston_drm_backend_output_mode mode,
-			       const char *modeline,
+			       struct weston_drm_modeline *drm_modeline,
 			       const drmModeModeInfo *current_mode)
 {
 	struct drm_mode *preferred = NULL;
@@ -711,42 +663,25 @@ drm_output_choose_initial_mode(struct drm_device *device,
 	struct drm_mode *config_fall_back = NULL;
 	struct drm_mode *best = NULL;
 	struct drm_mode *drm_mode;
-	drmModeModeInfo drm_modeline;
 	int32_t width = 0;
 	int32_t height = 0;
 	uint32_t refresh = 0;
-	uint32_t aspect_width = 0;
-	uint32_t aspect_height = 0;
 	enum weston_mode_aspect_ratio aspect_ratio = WESTON_MODE_PIC_AR_NONE;
-	int n;
 
-	if (mode == WESTON_DRM_BACKEND_OUTPUT_PREFERRED && modeline) {
-		n = sscanf(modeline, "%dx%d@%d %u:%u", &width, &height,
-			   &refresh, &aspect_width, &aspect_height);
-		if (device->aspect_ratio_supported && n == 5) {
-			if (aspect_width == 4 && aspect_height == 3)
-				aspect_ratio = WESTON_MODE_PIC_AR_4_3;
-			else if (aspect_width == 16 && aspect_height == 9)
-				aspect_ratio = WESTON_MODE_PIC_AR_16_9;
-			else if (aspect_width == 64 && aspect_height == 27)
-				aspect_ratio = WESTON_MODE_PIC_AR_64_27;
-			else if (aspect_width == 256 && aspect_height == 135)
-				aspect_ratio = WESTON_MODE_PIC_AR_256_135;
-			else
-				weston_log("Invalid modeline \"%s\" for output %s\n",
-					   modeline, output->base.name);
-		}
-		if (n != 2 && n != 3 && n != 5) {
+	if (mode == WESTON_DRM_BACKEND_OUTPUT_PREFERRED && drm_modeline) {
+		width = drm_modeline->width;
+		height = drm_modeline->height;
+		refresh = drm_modeline->refresh / 1000;
+
+		if (device->aspect_ratio_supported && drm_modeline->is_cea)
+			aspect_ratio = drm_modeline->aspect_ratio;
+
+		if (drm_modeline->has_mode_info) {
 			width = -1;
 
-			if (parse_modeline(modeline, &drm_modeline) == 0) {
-				configured = drm_output_add_mode(output, &drm_modeline);
-				if (!configured)
-					return NULL;
-			} else {
-				weston_log("Invalid modeline \"%s\" for output %s\n",
-					   modeline, output->base.name);
-			}
+			configured = drm_output_add_mode(output, &drm_modeline->mode_info);
+			if (!configured)
+				return NULL;
 		}
 	}
 
@@ -934,7 +869,7 @@ drm_output_update_modelist_from_heads(struct drm_output *output)
 int
 drm_output_set_mode(struct weston_output *base,
 		    enum weston_drm_backend_output_mode mode,
-		    const char *modeline)
+		    struct weston_drm_modeline *modeline)
 {
 	struct drm_output *output = to_drm_output(base);
 	struct drm_device *device = output->device;
@@ -959,6 +894,47 @@ drm_output_set_mode(struct weston_output *base,
 	/* Set native_ fields, so weston_output_mode_switch_to_native() works */
 	output->base.native_mode = output->base.current_mode;
 	output->base.native_scale = output->base.current_scale;
+
+	return 0;
+}
+
+int
+drm_output_get_modes(struct weston_output *base,
+		     size_t *count, struct weston_drm_modeline **out)
+{
+	struct drm_output *output = to_drm_output(base);
+	struct weston_mode *mode;
+	struct weston_drm_modeline *modelines;
+	struct drm_mode *drm_mode;
+	int i = 0;
+
+	if (!base->enabled)
+		drm_output_update_modelist_from_heads(output);
+
+	*count = wl_list_length(&base->mode_list);
+
+	if (!out)
+		return 0;
+
+	modelines = xcalloc(*count, sizeof(*modelines));
+	wl_list_for_each(mode, &base->mode_list, link) {
+		drm_mode = to_drm_mode(mode);
+
+		modelines[i].has_mode_info = true;
+		modelines[i].mode_info = drm_mode->mode_info;
+		modelines[i].width = mode->width;
+		modelines[i].height = mode->height;
+		modelines[i].refresh = mode->refresh;
+		modelines[i].aspect_ratio = mode->aspect_ratio;
+
+		modelines[i].driver = !!(drm_mode->mode_info.type & DRM_MODE_TYPE_DRIVER);
+		modelines[i].preferred = !!(drm_mode->mode_info.type & DRM_MODE_TYPE_PREFERRED);
+
+		modelines[i].current = !!(mode->flags & WL_OUTPUT_MODE_CURRENT);
+
+		i++;
+	}
+	*out = modelines;
 
 	return 0;
 }

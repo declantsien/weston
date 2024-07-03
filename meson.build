@@ -179,6 +179,9 @@ else
 	dep_egl = dependency('', required: false)
 endif
 
+if get_option('backend-drm')
+	deps_for_libweston_users += dep_libdrm_headers
+endif
 
 subdir('include')
 subdir('protocol')

@@ -700,7 +700,11 @@ drm_output_print_modes(struct drm_output *output);
 int
 drm_output_set_mode(struct weston_output *base,
 		    enum weston_drm_backend_output_mode mode,
-		    const char *modeline);
+		    struct weston_drm_modeline *modeline);
+
+int
+drm_output_get_modes(struct weston_output *base,
+		     size_t *count, struct weston_drm_modeline **modelines);
 
 void
 drm_property_info_populate(struct drm_device *device,

@@ -5,7 +5,7 @@ if get_option('pipewire')
 		error('Attempting to build the pipewire plugin without the required DRM backend. ' + user_hint)
 	endif
 
-	deps_pipewire = [ dep_libweston_private ]
+	deps_pipewire = [ dep_libweston_private, dep_libdrm_headers ]
 
 	dep_libpipewire = dependency('libpipewire-0.3', required: false)
 	if not dep_libpipewire.found()
