@@ -371,7 +371,7 @@ drm_fb_destroy_dmabuf(struct drm_fb *fb)
 	drm_fb_destroy(fb);
 }
 
-static struct drm_fb *
+struct drm_fb *
 drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
 		       struct drm_device *device, bool is_opaque,
 		       uint32_t *try_view_on_plane_failure_reasons)

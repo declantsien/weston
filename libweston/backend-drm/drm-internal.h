@@ -484,6 +484,8 @@ struct drm_writeback {
 	struct drm_device *device;
 	struct drm_connector connector;
 
+	struct drm_crtc *crtc;
+
 	struct weston_drm_format_array formats;
 };
 
@@ -514,6 +516,9 @@ struct drm_crtc {
 
 	uint32_t crtc_id; /* object ID to pass to DRM functions */
 	int pipe; /* index of CRTC in resource array / bitmasks */
+
+	/* writeback connector is connected to this crtc*/
+	struct drm_writeback *writeback;
 
 	/* Holds the properties for the CRTC */
 	struct drm_property_info props_crtc[WDRM_CRTC__COUNT];
@@ -760,6 +765,11 @@ drm_fb_unref(struct drm_fb *fb);
 struct drm_fb *
 drm_fb_create_dumb(struct drm_device *device, int width, int height,
 		   uint32_t format);
+
+struct drm_fb *
+drm_fb_get_from_dmabuf(struct linux_dmabuf_buffer *dmabuf,
+		       struct drm_device *device, bool is_opaque,
+		       uint32_t *try_view_on_plane_failure_reasons);
 struct drm_fb *
 drm_fb_get_from_bo(struct gbm_bo *bo, struct drm_device *device,
 		   bool is_opaque, enum drm_fb_type type);

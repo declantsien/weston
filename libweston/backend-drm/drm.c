@@ -615,9 +615,30 @@ drm_output_pick_writeback_capture_task(struct drm_output *output)
 		goto err;
 	}
 
-	output->wb_state->fb = drm_fb_create_dumb(output->device, width, height, format);
-	if (!output->wb_state->fb) {
-		msg = "drm: failed to create dumb buffer for writeback state";
+	if (buffer->type == WESTON_BUFFER_SHM) {
+		output->wb_state->fb = drm_fb_create_dumb(output->device, width,
+							  height, format);
+		if (!output->wb_state->fb) {
+			msg = "drm: failed to create dumb buffer for writeback state";
+			goto err_fb;
+		}
+	} else if (buffer->type == WESTON_BUFFER_DMABUF) {
+#ifdef BUILD_DRM_GBM
+		uint32_t failure_reasons = 0;
+		output->wb_state->fb = drm_fb_get_from_dmabuf(buffer->dmabuf,
+							      output->device, false, &failure_reasons);
+		if (!output->wb_state->fb) {
+			weston_log("failed get frambuffer from dmabuf with reason 0x%x\n",
+				   failure_reasons);
+			msg = "drm: failed to attach dma buffer from client for writeback state";
+			goto err_fb;
+		}
+#else
+		msg = "drm: pixman-renderer doesn't support dma buffer";
+		goto err_fb;
+#endif
+	} else {
+		msg = "drm: Invalid buffer type";
 		goto err_fb;
 	}
 
@@ -2024,6 +2045,9 @@ drm_crtc_destroy(struct drm_crtc *crtc)
 {
 	assert(!crtc->output);
 
+	if(crtc->writeback)
+		crtc->writeback->crtc = NULL;
+
 	wl_list_remove(&crtc->link);
 	drm_property_info_free(crtc->props_crtc, WDRM_CRTC__COUNT);
 	free(crtc);
@@ -2883,20 +2907,22 @@ drm_writeback_success_screenshot(struct drm_writeback_state *state)
 	int dst_stride, src_stride;
 	uint32_t *src, *dst;
 
-	src = state->fb->map;
-	src_stride = state->fb->strides[0];
+	if (buffer->type != WESTON_BUFFER_DMABUF) {
+		src = state->fb->map;
+		src_stride = state->fb->strides[0];
 
-	dst = wl_shm_buffer_get_data(buffer->shm_buffer);
-	dst_stride = wl_shm_buffer_get_stride(buffer->shm_buffer);
+		dst = wl_shm_buffer_get_data(buffer->shm_buffer);
+		dst_stride = wl_shm_buffer_get_stride(buffer->shm_buffer);
 
-	width = state->fb->width;
-	height = state->fb->height;
+		width = state->fb->width;
+		height = state->fb->height;
 
-	wl_shm_buffer_begin_access(buffer->shm_buffer);
-	pixman_copy_screenshot(dst, src, dst_stride, src_stride,
-			       buffer->pixel_format->pixman_format,
-			       width, height);
-	wl_shm_buffer_end_access(buffer->shm_buffer);
+		wl_shm_buffer_begin_access(buffer->shm_buffer);
+		pixman_copy_screenshot(dst, src, dst_stride, src_stride,
+				       buffer->pixel_format->pixman_format,
+				       width, height);
+		wl_shm_buffer_end_access(buffer->shm_buffer);
+	}
 
 	weston_capture_task_retire_complete(state->ct);
 	drm_writeback_state_free(state);
@@ -3084,6 +3110,8 @@ err:
 static void
 drm_writeback_destroy(struct drm_writeback *writeback)
 {
+	if(writeback->crtc)
+		writeback->crtc->writeback = NULL;
 	drm_connector_fini(&writeback->connector);
 	weston_drm_format_array_fini(&writeback->formats);
 	wl_list_remove(&writeback->link);

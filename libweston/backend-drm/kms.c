@@ -1265,8 +1265,17 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 			ret |= connector_add_prop(req, &wb_state->wb->connector,
 						  WDRM_CONNECTOR_WRITEBACK_OUT_FENCE_PTR,
 						  (uintptr_t)&wb_state->out_fence_fd);
+			if(wb_state->wb->crtc)
+				wb_state->wb->crtc->writeback = NULL;
+			crtc->writeback = wb_state->wb;
+			wb_state->wb->crtc = crtc;
 			if (!(*flags & DRM_MODE_ATOMIC_TEST_ONLY))
 				wb_state->state = DRM_OUTPUT_WB_SCREENSHOT_CHECK_FENCE;
+		} else {
+			if(crtc->writeback)
+				ret |= connector_add_prop(req, &crtc->writeback->connector,
+							  WDRM_CONNECTOR_CRTC_ID,
+							  crtc->crtc_id);
 		}
 	} else {
 		ret |= crtc_add_prop(req, crtc, WDRM_CRTC_MODE_ID, 0);
@@ -1290,6 +1299,10 @@ drm_output_apply_state_atomic(struct drm_output_state *state,
 			wl_list_remove(&head->disable_head_link);
 			wl_list_init(&head->disable_head_link);
 		}
+
+		if(crtc->writeback)
+			ret |= connector_add_prop(req, &crtc->writeback->connector,
+						  WDRM_CONNECTOR_CRTC_ID, 0);
 	}
 
 	wl_list_for_each(head, &output->base.head_list, base.output_link) {

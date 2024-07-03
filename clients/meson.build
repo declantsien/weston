@@ -397,16 +397,41 @@ if get_option('shell-desktop') or get_option('shell-fullscreen') or get_option('
 		'screenshot.c',
 		weston_output_capture_client_protocol_h,
 		weston_output_capture_protocol_c,
+		linux_dmabuf_unstable_v1_client_protocol_h,
+		linux_dmabuf_unstable_v1_protocol_c,
 		include_directories: common_inc,
 		dependencies: [
 			dep_toytoolkit,
 			dep_libweston_private, # for pixel-formats.h
 			dep_pixman,
+			dep_gbm,
+			dep_libdrm
 		],
 		install_dir: get_option('bindir'),
 		install: true
 	)
 	env_modmap += 'weston-screenshooter=@0@;'.format(exe_shooter.full_path())
+
+	exe_shooter = executable(
+		'weston-verify-writeback-connector',
+		'weston_verify_writeback_connector.c',
+		weston_output_capture_client_protocol_h,
+		weston_output_capture_protocol_c,
+		linux_dmabuf_unstable_v1_client_protocol_h,
+		linux_dmabuf_unstable_v1_protocol_c,
+		include_directories: common_inc,
+		dependencies: [
+			dep_toytoolkit,
+			dep_libweston_private, # for pixel-formats.h
+			dep_pixman,
+			dep_gbm,
+			dep_libdrm,
+			dependency('libpng', version: '>= 1.6.36')
+		],
+		install_dir: get_option('bindir'),
+		install: true
+	)
+	env_modmap += 'weston-verify-writeback-connector=@0@;'.format(exe_shooter.full_path())
 endif
 
 if get_option('shell-ivi')
