@@ -142,14 +142,6 @@ struct weston_mode {
 	struct wl_list link;	/**< in weston_output::mode_list */
 };
 
-struct weston_animation {
-	void (*frame)(struct weston_animation *animation,
-		      struct weston_output *output,
-		      const struct timespec *time);
-	int frame_counter;
-	struct wl_list link;
-};
-
 enum {
 	WESTON_SPRING_OVERSHOOT,
 	WESTON_SPRING_CLAMP,
@@ -165,6 +157,27 @@ struct weston_spring {
 	double min, max;
 	struct timespec timestamp;
 	uint32_t clip;
+};
+
+struct weston_view_animation;
+typedef	void (*weston_view_animation_frame_func_t)(struct weston_view_animation *animation);
+typedef	void (*weston_view_animation_done_func_t)(struct weston_view_animation *animation, void *data);
+
+struct weston_view_animation {
+	int frame_counter;
+	struct wl_list link;
+
+	struct weston_view *view;
+	struct weston_spring spring;
+	struct weston_transform transform;
+	struct wl_listener listener;
+	float start, stop;
+	weston_view_animation_frame_func_t frame;
+	weston_view_animation_frame_func_t reset;
+	weston_view_animation_done_func_t done;
+	struct wl_event_source *idle_destroy_source;
+	void *data;
+	void *private;
 };
 
 /* bit compatible with drm definitions. */
@@ -2513,8 +2526,10 @@ weston_recorder_start(struct weston_output *output, const char *filename);
 void
 weston_recorder_stop(struct weston_recorder *recorder);
 
-struct weston_view_animation;
-typedef	void (*weston_view_animation_done_func_t)(struct weston_view_animation *animation, void *data);
+void
+weston_view_animation_frame(struct weston_view_animation *base,
+			    struct weston_output *output,
+			    const struct timespec *time);
 
 void
 weston_view_animation_destroy(struct weston_view_animation *animation);

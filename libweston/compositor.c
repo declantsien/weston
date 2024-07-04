@@ -3644,7 +3644,7 @@ weston_output_repaint(struct weston_output *output, struct timespec *now)
 {
 	struct weston_compositor *ec = output->compositor;
 	struct weston_paint_node *pnode;
-	struct weston_animation *animation, *next;
+	struct weston_view_animation *animation, *next;
 	struct wl_resource *cb, *cnext;
 	struct wl_list frame_callback_list;
 	int r;
@@ -3744,7 +3744,8 @@ weston_output_repaint(struct weston_output *output, struct timespec *now)
 
 	wl_list_for_each_safe(animation, next, &output->animation_list, link) {
 		animation->frame_counter++;
-		animation->frame(animation, output, &output->frame_time);
+		weston_view_animation_frame(animation, output,
+					    &output->frame_time);
 	}
 
 	weston_output_capture_info_repaint_done(output->capture_info);
@@ -7551,6 +7552,7 @@ static void
 weston_compositor_remove_output(struct weston_output *output)
 {
 	struct weston_compositor *compositor = output->compositor;
+	struct weston_view_animation *animation, *atmp;
 	struct weston_paint_node *pnode, *pntmp;
 	struct weston_view *view;
 	struct weston_head *head;
@@ -7564,6 +7566,9 @@ weston_compositor_remove_output(struct weston_output *output)
 		wl_event_source_remove(output->idle_repaint_source);
 		output->idle_repaint_source = NULL;
 	}
+
+	wl_list_for_each_safe(animation, atmp, &output->animation_list, link)
+		weston_view_animation_destroy(animation);
 
 	wl_list_for_each_safe(pnode, pntmp,
 			      &output->paint_node_list, output_link) {
