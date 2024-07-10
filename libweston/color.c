@@ -43,6 +43,7 @@
 #include <libweston/weston-log.h>
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
+#include "shared/weston-assert.h"
 
 /**
  * Increase reference count of the color profile object
@@ -180,6 +181,161 @@ weston_color_profile_params_to_str(struct weston_color_profile_params *params,
 
 	fclose(fp);
 	return str;
+}
+
+/**
+ * Creates a struct weston_color_curve given a transfer function.
+ *
+ * Its default behavior is that it creates a curve that can be used to decode
+ * (EOTF) content that was encoded (OETF) with the inverse of the curve that it
+ * returns. To change this behavior and create the same curve that was used to
+ * encode the content (i.e. the OETF), set the param 'inverse' to true.
+ *
+ * NOTE: although there are transfer function for which the EOTF and the OETF
+ * are mathematically the inverse of each other (e.g. WESTON_TF_GAMMA22), that's
+ * not always the case (e.g. the transfer function WESTON_TF_BT709). That
+ * depends on the industry standard for the transfer function.
+ *
+ * \param compositor The compositor instance.
+ * \param tf_info The tf_info object.
+ * \param tf_params The params for the given tf_info object. May be NULL
+ * depending on the tf.
+ * \param inverse Set to false to create the EOTF, true to create the OETF.
+ * \returns The new struct weston_color_curve.
+ */
+WL_EXPORT struct weston_color_curve *
+weston_color_curve_from_tf_info(struct weston_compositor *compositor,
+				const struct weston_color_tf_info *tf_info,
+				const float *tf_params, bool inverse)
+{
+	struct weston_color_curve *curve;
+	struct weston_color_curve_parametric *parametric;
+	unsigned int i;
+
+	if (tf_info->has_parameters)
+		assert(tf_params);
+
+	curve = xzalloc(sizeof(*curve));
+	parametric = &curve->u.parametric;
+
+	/**
+	 * See enum weston_color_curve_type to learn more about each color curve
+	 * supported by Weston.
+	 */
+	switch(tf_info->tf) {
+	case WESTON_TF_LINEAR:
+		curve->type = WESTON_COLOR_CURVE_TYPE_IDENTITY;
+		break;
+	case WESTON_TF_GAMMA22:
+		curve->type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+		parametric->clamped_input = false;
+		for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+			parametric->params[i][0] = inverse ? (1.0f / 2.2f) :
+						   2.2; /* g */
+			parametric->params[i][1] = 1.0; /* a */
+			parametric->params[i][2] = 0.0; /* b */
+			parametric->params[i][3] = 1.0; /* c */
+			parametric->params[i][4] = 0.0; /* d */
+		}
+		break;
+	case WESTON_TF_GAMMA28:
+		curve->type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+		parametric->clamped_input = false;
+		for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+			parametric->params[i][0] = inverse ? (1.0f / 2.8f) :
+						   2.8; /* g */
+			parametric->params[i][1] = 1.0; /* a */
+			parametric->params[i][2] = 0.0; /* b */
+			parametric->params[i][3] = 1.0; /* c */
+			parametric->params[i][4] = 0.0; /* d */
+		}
+		break;
+	case WESTON_TF_POWER:
+		curve->type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+		parametric->clamped_input = false;
+
+		if (inverse)
+			weston_assert_double_neq(compositor, tf_params[0], 0.0);
+
+		for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+			parametric->params[i][0] = inverse ? (1.0f / tf_params[0]) :
+						   tf_params[0]; /* g */
+			parametric->params[i][1] = 1.0;		 /* a */
+			parametric->params[i][2] = 0.0;		 /* b */
+			parametric->params[i][3] = 1.0;		 /* c */
+			parametric->params[i][4] = 0.0;		 /* d */
+		}
+		break;
+	case WESTON_TF_SRGB:
+		parametric->clamped_input = false;
+		/**
+		 * sRGB spec says that content should be encoded (OETF) with the
+		 * piece-wise curve (which matches perfectly the LINPOW curve).
+		 *
+		 * But to decode that (EOTF), it is a bit unclear if its inverse
+		 * or a pure power-law 2.2 should be used. People got used to
+		 * the pure power-law 2.2, because that's what displays have
+		 * been using. So we're going to use that as this should bring
+		 * results that people are used to.
+		 */
+		if (inverse) {
+			curve->type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+			for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+				parametric->params[i][0] = 2.4;             /* g */
+				parametric->params[i][1] = 1.0f / 1.055f;   /* a */
+				parametric->params[i][2] = 0.055f / 1.055f; /* b */
+				parametric->params[i][3] = 1.0f / 12.92f;   /* c */
+				parametric->params[i][4] = 0.04045;         /* d */
+			}
+		} else {
+			curve->type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+			for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+				parametric->params[i][0] = 2.2; /* g */
+				parametric->params[i][1] = 1.0; /* a */
+				parametric->params[i][2] = 0.0; /* b */
+				parametric->params[i][3] = 1.0; /* c */
+				parametric->params[i][4] = 0.0; /* d */
+			}
+		}
+		break;
+	case WESTON_TF_BT709:
+		parametric->clamped_input = false;
+		/**
+		 * BT.709 defines an OETF (encoding) that fits perfectly the
+		 * POWLIN curve. But its EOTF is not the inverse of the OETF,
+		 * it refers to BT.1886 for decoding.
+		 *
+		 * TODO: BT.1886 is not exactly power-law 2.4, that's an
+		 * approximation. The more detailed curve depends on white and
+		 * black points. But for now that's good enough. Revisit later.
+		 */
+		if (inverse) {
+			curve->type = WESTON_COLOR_CURVE_TYPE_POWLIN;
+			for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+				parametric->params[i][0] = 0.45;   /* g */
+				parametric->params[i][1] = 1.099;  /* a */
+				parametric->params[i][2] = -0.099; /* b */
+				parametric->params[i][3] = 4.5;    /* c */
+				parametric->params[i][4] = 0.018;  /* d */
+			}
+		} else {
+			curve->type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+			for (i = 0; i < ARRAY_LENGTH(parametric->params); i++) {
+				parametric->params[i][0] = 2.4; /* g */
+				parametric->params[i][1] = 1.0; /* a */
+				parametric->params[i][2] = 0.0; /* b */
+				parametric->params[i][3] = 1.0; /* c */
+				parametric->params[i][4] = 0.0; /* d */
+			}
+		}
+		break;
+	default:
+		/* Curve not supported. */
+		free(curve);
+		return NULL;
+	}
+
+	return curve;
 }
 
 /**
