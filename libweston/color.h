@@ -207,6 +207,25 @@ enum weston_color_curve_type {
 	 * input value, it uses mirroring (i.e. -f(-x)).
 	 */
 	WESTON_COLOR_CURVE_TYPE_POWLIN,
+
+	/** Transfer function named PQ (perceptual quantizer)
+	 *
+	 * Transfer characteristics as defined by - SMPTE ST 2084 (2014) for
+	 * 10-, 12-, 14- and 16-bit systems - Rec. ITU-R BT.2100-2 perceptual
+	 * quantization (PQ) system Equivalent to H.273 TransferCharacteristics
+	 * code point 16.
+	 *
+	 * The input for this curve is always clamped to [0.0, 1.0].
+	 */
+	WESTON_COLOR_CURVE_TYPE_PQ,
+
+	/** Transfer function inverse of PQ (perceptual quantizer)
+	 *
+	 * The inverse curve of the above.
+	 *
+	 * The input for this curve is always clamped to [0.0, 1.0].
+	 */
+	WESTON_COLOR_CURVE_TYPE_PQ_INVERSE,
 };
 
 /** LUT_3x1D parameters */
