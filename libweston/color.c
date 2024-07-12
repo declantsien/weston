@@ -329,6 +329,11 @@ weston_color_curve_from_tf_info(struct weston_compositor *compositor,
 			}
 		}
 		break;
+	case WESTON_TF_ST2084_PQ:
+		curve->type = inverse ? WESTON_COLOR_CURVE_TYPE_PQ_INVERSE :
+					WESTON_COLOR_CURVE_TYPE_PQ;
+		/* PQ curve has no params. */
+		break;
 	default:
 		/* Curve not supported. */
 		free(curve);
@@ -408,6 +413,10 @@ curve_type_to_str(enum weston_color_curve_type curve_type)
 		return "linpow";
 	case WESTON_COLOR_CURVE_TYPE_POWLIN:
 		return "powlin";
+	case WESTON_COLOR_CURVE_TYPE_PQ:
+		return "perceptual quantizer (PQ)";
+	case WESTON_COLOR_CURVE_TYPE_PQ_INVERSE:
+		return "inverse of perceptual quantizer (PQ)";
 	}
 	return "???";
 }
