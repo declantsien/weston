@@ -92,6 +92,7 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 	setup.scale = arg->scale;
 	setup.transform = arg->transform;
 	setup.shell = SHELL_TEST_DESKTOP;
+	setup.refresh = 0;
 
 	return weston_test_harness_execute_as_client(harness, &setup);
 }

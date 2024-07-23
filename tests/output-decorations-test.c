@@ -38,6 +38,7 @@ fixture_setup(struct weston_test_harness *harness)
 	setup.width = 300;
 	setup.height = 150;
 	setup.shell = SHELL_TEST_DESKTOP;
+	setup.refresh = 0;
 
 	weston_ini_setup(&setup,
 			 cfgln("[core]"),
