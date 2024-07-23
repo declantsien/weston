@@ -2064,17 +2064,14 @@ verify_screen_content(struct client *client,
  * Create a wl_buffer from a PNG file
  *
  * Loads the named PNG file from the directory of reference images,
- * creates a wl_buffer with scale times the image dimensions in pixels,
+ * creates a buffer with scale times the image dimensions in pixels,
  * and copies the image content into the buffer using nearest-neighbor filter.
  *
- * \param client The client, for the Wayland connection.
  * \param basename The PNG file name without .png suffix.
  * \param scale Upscaling factor >= 1.
  */
 struct buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
-			      int scale)
+buffer_from_image_file(const char *basename, int scale)
 {
 	struct buffer *buf;
 	char *fname;
@@ -2091,7 +2088,7 @@ client_buffer_from_image_file(struct client *client,
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
-	buf = create_shm_buffer_a8r8g8b8(client, buf_w, buf_h);
+	buf = create_shm_storage(buf_w, buf_h, DRM_FORMAT_ARGB8888);
 
 	pixman_transform_init_scale(&scaling,
 				    pixman_fixed_1 / scale,

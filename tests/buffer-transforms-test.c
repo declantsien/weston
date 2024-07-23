@@ -136,9 +136,9 @@ TEST_P(buffer_transform, my_buffer_args)
 	client->surface = create_test_surface(client);
 	client->surface->width = 10000; /* used only for damage */
 	client->surface->height = 10000;
-	client->surface->buffer = client_buffer_from_image_file(client,
-							"basic-test-card",
-							bargs->scale);
+	client->surface->buffer = buffer_from_image_file("basic-test-card",
+							 bargs->scale);
+	ensure_wl_buffer(client, client->surface->buffer);
 	wl_surface_set_buffer_scale(client->surface->wl_surface, bargs->scale);
 	wl_surface_set_buffer_transform(client->surface->wl_surface,
 					bargs->transform);

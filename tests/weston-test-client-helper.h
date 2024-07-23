@@ -328,9 +328,7 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name);
 
 struct buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
-			      int scale);
+buffer_from_image_file(const char *basename, int scale);
 
 void *
 bind_to_singleton_global(struct client *client,
