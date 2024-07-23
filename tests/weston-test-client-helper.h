@@ -169,6 +169,11 @@ struct output {
 
 struct buffer {
 	struct wl_buffer *proxy;
+	const struct pixel_format_info *format;
+	int fd;
+	int width;
+	int height;
+	size_t stride_bytes;
 	size_t len;
 	pixman_image_t *image;
 };
