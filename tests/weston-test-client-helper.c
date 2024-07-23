@@ -473,12 +473,9 @@ static const struct wl_surface_listener surface_listener = {
 };
 
 struct buffer *
-create_shm_buffer(struct client *client, int width, int height,
-		  uint32_t drm_format)
+create_shm_storage(int width, int height, uint32_t drm_format)
 {
-	struct wl_shm *shm = client->wl_shm;
 	struct buffer *buf;
-	struct wl_shm_pool *pool;
 	void *data;
 	size_t bytes_pp;
 
@@ -515,6 +512,20 @@ create_shm_buffer(struct client *client, int width, int height,
 					      data, buf->stride_bytes);
 	assert(buf->image);
 
+	return buf;
+}
+
+void
+ensure_wl_buffer(struct client *client, struct buffer *buf)
+{
+	struct wl_shm *shm = client->wl_shm;
+	struct wl_shm_pool *pool;
+
+	assert(buf->fd > 0);
+	assert(buf->len > 0);
+	assert(buf->stride_bytes > 0);
+	assert(buf->format);
+
 	pool = wl_shm_create_pool(shm, buf->fd, buf->len);
 	buf->proxy = wl_shm_pool_create_buffer(pool, 0, buf->width, buf->height,
 					       buf->stride_bytes,
@@ -523,6 +534,14 @@ create_shm_buffer(struct client *client, int width, int height,
 	wl_shm_pool_destroy(pool);
 }
 
+struct buffer *
+create_shm_buffer(struct client *client, int width, int height,
+		  uint32_t drm_format)
+{
+	struct buffer *buf = create_shm_storage(width, height, drm_format);
+
+	assert(buf);
+	ensure_wl_buffer(client, buf);
 
 	return buf;
 }
