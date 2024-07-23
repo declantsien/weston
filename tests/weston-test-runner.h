@@ -206,6 +206,38 @@ fixture_setup_array_get_(void);
 enum test_result_code
 fixture_setup_run_(struct weston_test_harness *harness, const void *arg_);
 
+void *
+fixture_init_(struct weston_test_harness *harness);
+
+void
+fixture_teardown_(struct weston_test_harness *harness, void *data);
+
+/** Register a global test setup functions
+ *
+ * This registers initialization and teardown functions which can be used to
+ * persist data across multiple test runs. The initialization function returns
+ * a data pointer which is made available to each test, as well as to the later
+ * teardown stage.
+ *
+ * \param init_ Initialization function called once per test group
+ * \param teardown_ Teardown function called once per test group
+ *
+ * \ingroup testharness
+ */
+#define DECLARE_FIXTURE_INIT(init_, teardown_)				\
+	void *								\
+	fixture_init_(struct weston_test_harness *harness)		\
+	{								\
+		return init_(harness);					\
+	}								\
+									\
+	void								\
+	fixture_teardown_(struct weston_test_harness *harness,		\
+			  void *data_)					\
+	{								\
+		teardown_(harness, data_);				\
+	}
+
 /** Register a fixture setup function
  *
  * This registers the given (preferably static) function to be used for setting
