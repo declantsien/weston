@@ -632,8 +632,11 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 				pnode->need_hole = true;
 
 			drm_debug(b, "\t\t\t\t[view] view %p has been placed to "
-				     "%s plane with computed zpos %"PRIu64"\n",
-				     ev, p_name, zpos);
+				     "%s plane as an %s with computed zpos "
+				     "%"PRIu64"\n",
+				     ev, p_name,
+				     pnode->need_hole ? "underlay" : "overlay",
+				     zpos);
 			break;
 		}
 
