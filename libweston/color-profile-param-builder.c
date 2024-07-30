@@ -537,7 +537,8 @@ builder_validate_params_set(struct weston_color_profile_param_builder *builder)
 			    "transfer function not set");
 
 	/* If luminance values were given, tf must be PQ. */
-	if (builder->params.tf_info->tf != WESTON_TF_ST2084_PQ &&
+	if (builder->params.tf_info &&
+	    builder->params.tf_info->tf != WESTON_TF_ST2084_PQ &&
 	    (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE ||
 	     builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_MAXCLL ||
 	     builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_MAXFALL))
