@@ -1632,7 +1632,7 @@ err:
 		if (output->dumb[i])
 			drm_fb_unref(output->dumb[i]);
 		if (output->renderbuffer[i])
-			weston_renderbuffer_unref(output->renderbuffer[i]);
+			renderer->destroy_renderbuffer(output->renderbuffer[i]);
 
 		output->dumb[i] = NULL;
 		output->renderbuffer[i] = NULL;
@@ -1658,7 +1658,7 @@ drm_output_fini_pixman(struct drm_output *output)
 	}
 
 	for (i = 0; i < ARRAY_LENGTH(output->dumb); i++) {
-		weston_renderbuffer_unref(output->renderbuffer[i]);
+		renderer->destroy_renderbuffer(output->renderbuffer[i]);
 		drm_fb_unref(output->dumb[i]);
 		output->dumb[i] = NULL;
 		output->renderbuffer[i] = NULL;
