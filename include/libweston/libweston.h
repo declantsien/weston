@@ -607,7 +607,7 @@ struct weston_output {
 	struct wl_event_source *idle_repaint_source;
 
 	struct wl_signal frame_signal;
-	struct wl_signal destroy_signal;	/**< sent when disabled */
+	struct wl_signal disable_signal;	/**< sent when disabled */
 	struct weston_coord_global move;
 	struct timespec frame_time; /* presentation timestamp */
 	uint64_t msc;        /* media stream counter */
@@ -883,7 +883,7 @@ struct weston_pointer {
 	wl_fixed_t sx, sy;
 	uint32_t button_count;
 
-	struct wl_listener output_destroy_listener;
+	struct wl_listener output_disable_listener;
 
 	struct wl_list timestamps_list;
 };
@@ -1485,7 +1485,7 @@ struct weston_compositor {
 
 	struct wl_signal seat_created_signal;
 	struct wl_signal output_created_signal;
-	struct wl_signal output_destroyed_signal;
+	struct wl_signal output_disabled_signal;
 	struct wl_signal output_moved_signal;
 	struct wl_signal output_resized_signal; /* callback argument: resized output */
 
@@ -1820,7 +1820,7 @@ struct weston_view {
 	 * view, inheriting the primary output for related views in shells, etc.
 	 */
 	struct weston_output *output;
-	struct wl_listener output_destroy_listener;
+	struct wl_listener output_disable_listener;
 
 	/*
 	 * A more complete representation of all outputs this surface is

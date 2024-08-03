@@ -98,9 +98,17 @@ weston_timeline_create_subscription(struct weston_log_subscription *sub,
 static void
 weston_timeline_destroy_subscription_object(struct weston_timeline_subscription_object *sub_obj)
 {
-	/* remove the notify listener */
-	wl_list_remove(&sub_obj->destroy_listener.link);
-	sub_obj->destroy_listener.notify = NULL;
+	struct wl_listener *listener = NULL;
+
+	if (sub_obj->output_disable_listener.notify)
+		listener = &sub_obj->output_disable_listener;
+	else if (sub_obj->surface_destroy_listener.notify)
+		listener = &sub_obj->surface_destroy_listener;
+
+	assert(listener);
+
+	wl_list_remove(&listener->link);
+	listener->notify = NULL;
 
 	wl_list_remove(&sub_obj->subscription_link);
 	free(sub_obj);
@@ -176,11 +184,20 @@ weston_timeline_subscription_object_create(void *object,
 }
 
 static void
-weston_timeline_destroy_subscription_object_notify(struct wl_listener *listener, void *data)
+weston_timeline_destroy_subscription_output_notify(struct wl_listener *listener, void *data)
 {
 	struct weston_timeline_subscription_object *sub_obj;
 
-	sub_obj = wl_container_of(listener, sub_obj, destroy_listener);
+	sub_obj = wl_container_of(listener, sub_obj, output_disable_listener);
+	weston_timeline_destroy_subscription_object(sub_obj);
+}
+
+static void
+weston_timeline_destroy_subscription_surface_notify(struct wl_listener *listener, void *data)
+{
+	struct weston_timeline_subscription_object *sub_obj;
+
+	sub_obj = wl_container_of(listener, sub_obj, surface_destroy_listener);
 	weston_timeline_destroy_subscription_object(sub_obj);
 }
 
@@ -194,10 +211,10 @@ weston_timeline_subscription_output_ensure(struct weston_timeline_subscription *
 	if (!sub_obj) {
 		sub_obj = weston_timeline_subscription_object_create(output, tl_sub);
 
-		sub_obj->destroy_listener.notify =
-			weston_timeline_destroy_subscription_object_notify;
-		wl_signal_add(&output->destroy_signal,
-			      &sub_obj->destroy_listener);
+		sub_obj->output_disable_listener.notify =
+			weston_timeline_destroy_subscription_output_notify;
+		wl_signal_add(&output->disable_signal,
+			      &sub_obj->output_disable_listener);
 	}
 	return sub_obj;
 }
@@ -212,10 +229,10 @@ weston_timeline_subscription_surface_ensure(struct weston_timeline_subscription 
 	if (!sub_obj) {
 		sub_obj = weston_timeline_subscription_object_create(surface, tl_sub);
 
-		sub_obj->destroy_listener.notify =
-			weston_timeline_destroy_subscription_object_notify;
+		sub_obj->surface_destroy_listener.notify =
+			weston_timeline_destroy_subscription_surface_notify;
 		wl_signal_add(&surface->destroy_signal,
-			      &sub_obj->destroy_listener);
+			      &sub_obj->surface_destroy_listener);
 	}
 
 	return sub_obj;

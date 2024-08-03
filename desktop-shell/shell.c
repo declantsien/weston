@@ -128,7 +128,7 @@ struct shell_surface {
 
 	struct weston_output *fullscreen_output;
 	struct weston_output *output;
-	struct wl_listener output_destroy_listener;
+	struct wl_listener output_disable_listener;
 
 	struct surface_state {
 		bool fullscreen;
@@ -332,9 +332,9 @@ desktop_shell_destroy_surface(struct shell_surface *shsurf)
 	wl_signal_emit(&shsurf->destroy_signal, shsurf);
 	weston_surface_unref(shsurf->wsurface_anim_fade);
 
-	if (shsurf->output_destroy_listener.notify) {
-		wl_list_remove(&shsurf->output_destroy_listener.link);
-		shsurf->output_destroy_listener.notify = NULL;
+	if (shsurf->output_disable_listener.notify) {
+		wl_list_remove(&shsurf->output_disable_listener.link);
+		shsurf->output_disable_listener.notify = NULL;
 	}
 
 	free(shsurf);
@@ -1684,14 +1684,14 @@ shell_surface_update_layer(struct shell_surface *shsurf)
 }
 
 static void
-notify_output_destroy(struct wl_listener *listener, void *data)
+notify_output_disable(struct wl_listener *listener, void *data)
 {
 	struct shell_surface *shsurf =
 		container_of(listener,
-			     struct shell_surface, output_destroy_listener);
+			     struct shell_surface, output_disable_listener);
 
 	shsurf->output = NULL;
-	shsurf->output_destroy_listener.notify = NULL;
+	shsurf->output_disable_listener.notify = NULL;
 
 	shsurf->fullscreen_output = NULL;
 }
@@ -1712,17 +1712,17 @@ shell_surface_set_output(struct shell_surface *shsurf,
 	else
 		shsurf->output = weston_shell_utils_get_default_output(es->compositor);
 
-	if (shsurf->output_destroy_listener.notify) {
-		wl_list_remove(&shsurf->output_destroy_listener.link);
-		shsurf->output_destroy_listener.notify = NULL;
+	if (shsurf->output_disable_listener.notify) {
+		wl_list_remove(&shsurf->output_disable_listener.link);
+		shsurf->output_disable_listener.notify = NULL;
 	}
 
 	if (!shsurf->output)
 		return;
 
-	shsurf->output_destroy_listener.notify = notify_output_destroy;
-	wl_signal_add(&shsurf->output->destroy_signal,
-		      &shsurf->output_destroy_listener);
+	shsurf->output_disable_listener.notify = notify_output_disable;
+	wl_signal_add(&shsurf->output->disable_signal,
+		      &shsurf->output_disable_listener);
 }
 
 static void
@@ -4547,16 +4547,16 @@ shell_output_destroy(struct shell_output *shell_output)
 		wl_list_remove(&shell_output->panel_surface_listener.link);
 	if (shell_output->background_surface)
 		wl_list_remove(&shell_output->background_surface_listener.link);
-	wl_list_remove(&shell_output->destroy_listener.link);
+	wl_list_remove(&shell_output->output_disable_listener.link);
 	wl_list_remove(&shell_output->link);
 	free(shell_output);
 }
 
 static void
-handle_output_destroy(struct wl_listener *listener, void *data)
+handle_output_disable(struct wl_listener *listener, void *data)
 {
 	struct shell_output *shell_output =
-		container_of(listener, struct shell_output, destroy_listener);
+		container_of(listener, struct shell_output, output_disable_listener);
 
 	shell_output_destroy(shell_output);
 }
@@ -4626,9 +4626,9 @@ create_shell_output(struct desktop_shell *shell,
 
 	shell_output->output = output;
 	shell_output->shell = shell;
-	shell_output->destroy_listener.notify = handle_output_destroy;
-	wl_signal_add(&output->destroy_signal,
-		      &shell_output->destroy_listener);
+	shell_output->output_disable_listener.notify = handle_output_disable;
+	wl_signal_add(&output->disable_signal,
+		      &shell_output->output_disable_listener);
 	wl_list_insert(shell->output_list.prev, &shell_output->link);
 
 	if (wl_list_length(&shell->output_list) == 1)

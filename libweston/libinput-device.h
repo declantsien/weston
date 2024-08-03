@@ -49,7 +49,7 @@ struct evdev_device {
 	struct weston_touch_device *touch_device;
 	struct wl_list link;
 	struct weston_output *output;
-	struct wl_listener output_destroy_listener;
+	struct wl_listener output_disable_listener;
 	struct weston_tablet *tablet;
 	char *output_name;
 	int fd;

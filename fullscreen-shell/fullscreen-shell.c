@@ -66,7 +66,7 @@ struct fs_output {
 	struct wl_list link;
 
 	struct weston_output *output;
-	struct wl_listener output_destroyed;
+	struct wl_listener output_disabled;
 
 	struct {
 		struct weston_surface *surface;
@@ -273,16 +273,16 @@ fs_output_destroy(struct fs_output *fsout)
 	wl_list_remove(&fsout->link);
 
 	if (fsout->output)
-		wl_list_remove(&fsout->output_destroyed.link);
+		wl_list_remove(&fsout->output_disabled.link);
 	free(fsout);
 }
 
 static void
-output_destroyed(struct wl_listener *listener, void *data)
+output_disabled(struct wl_listener *listener, void *data)
 {
 	struct fs_output *output = container_of(listener,
 						struct fs_output,
-						output_destroyed);
+						output_disabled);
 	fs_output_destroy(output);
 }
 
@@ -326,8 +326,8 @@ fs_output_create(struct fullscreen_shell *shell, struct weston_output *output)
 	wl_list_init(&fsout->transform.link);
 
 	fsout->output = output;
-	fsout->output_destroyed.notify = output_destroyed;
-	wl_signal_add(&output->destroy_signal, &fsout->output_destroyed);
+	fsout->output_disabled.notify = output_disabled;
+	wl_signal_add(&output->disable_signal, &fsout->output_disabled);
 
 	fsout->surface_destroyed.notify = surface_destroyed;
 	fsout->pending.surface_destroyed.notify = pending_surface_destroyed;
@@ -364,9 +364,9 @@ fs_output_for_output(struct weston_output *output)
 	if (!output)
 		return NULL;
 
-	listener = wl_signal_get(&output->destroy_signal, output_destroyed);
+	listener = wl_signal_get(&output->disable_signal, output_disabled);
 
-	return container_of(listener, struct fs_output, output_destroyed);
+	return container_of(listener, struct fs_output, output_disabled);
 }
 
 static void

@@ -68,7 +68,7 @@ struct weston_test {
 
 	struct wl_list output_list;
 	struct wl_listener output_created_listener;
-	struct wl_listener output_destroyed_listener;
+	struct wl_listener output_disabled_listener;
 };
 
 struct weston_test_surface {
@@ -155,13 +155,13 @@ output_created_listener(struct wl_listener *listener, void *data)
 }
 
 static void
-output_destroyed_listener(struct wl_listener *listener, void *data)
+output_disabled_listener(struct wl_listener *listener, void *data)
 {
 	struct weston_output *output = data;
 	struct weston_test_output *to, *tmp;
 	struct weston_test *test =
 		container_of(listener, struct weston_test,
-			     output_destroyed_listener);
+			     output_disabled_listener);
 
 	wl_list_for_each_safe(to, tmp, &test->output_list, link) {
 		if (to->output != output)
@@ -801,9 +801,9 @@ handle_compositor_destroy(struct wl_listener *listener,
 
 	wl_list_remove(&test->destroy_listener.link);
 	wl_list_remove(&test->output_created_listener.link);
-	wl_list_remove(&test->output_destroyed_listener.link);
+	wl_list_remove(&test->output_disabled_listener.link);
 	wl_list_for_each(output, &compositor->output_list, link) {
-		output_destroyed_listener(&test->output_destroyed_listener,
+		output_disabled_listener(&test->output_disabled_listener,
 					  output);
 	}
 
@@ -853,9 +853,9 @@ wet_module_init(struct weston_compositor *ec,
 		output_created_listener(&test->output_created_listener, output);
 	test->output_created_listener.notify = output_created_listener;
 	wl_signal_add(&ec->output_created_signal, &test->output_created_listener);
-	test->output_destroyed_listener.notify = output_destroyed_listener;
-	wl_signal_add(&ec->output_destroyed_signal,
-		      &test->output_destroyed_listener);
+	test->output_disabled_listener.notify = output_disabled_listener;
+	wl_signal_add(&ec->output_disabled_signal,
+		      &test->output_disabled_listener);
 
 	test->log = weston_compositor_add_log_scope(ec, "test-harness-plugin",
 					"weston-test plugin's own actions",

@@ -1439,14 +1439,14 @@ weston_surface_update_output_mask(struct weston_surface *es, uint32_t mask)
 }
 
 static void
-notify_view_output_destroy(struct wl_listener *listener, void *data)
+notify_view_output_disable(struct wl_listener *listener, void *data)
 {
 	struct weston_view *view =
 		container_of(listener,
-		     struct weston_view, output_destroy_listener);
+		     struct weston_view, output_disable_listener);
 
 	view->output = NULL;
-	view->output_destroy_listener.notify = NULL;
+	view->output_disable_listener.notify = NULL;
 }
 
 /** Set the primary output of the view
@@ -1464,16 +1464,16 @@ notify_view_output_destroy(struct wl_listener *listener, void *data)
 WL_EXPORT void
 weston_view_set_output(struct weston_view *view, struct weston_output *output)
 {
-	if (view->output_destroy_listener.notify) {
-		wl_list_remove(&view->output_destroy_listener.link);
-		view->output_destroy_listener.notify = NULL;
+	if (view->output_disable_listener.notify) {
+		wl_list_remove(&view->output_disable_listener.link);
+		view->output_disable_listener.notify = NULL;
 	}
 	view->output = output;
 	if (output) {
-		view->output_destroy_listener.notify =
-			notify_view_output_destroy;
-		wl_signal_add(&output->destroy_signal,
-			      &view->output_destroy_listener);
+		view->output_disable_listener.notify =
+			notify_view_output_disable;
+		wl_signal_add(&output->disable_signal,
+			      &view->output_disable_listener);
 	}
 }
 
@@ -7641,8 +7641,8 @@ weston_compositor_remove_output(struct weston_output *output)
 	wl_list_insert(compositor->pending_output_list.prev, &output->link);
 	output->enabled = false;
 
-	wl_signal_emit_mutable(&compositor->output_destroyed_signal, output);
-	wl_signal_emit_mutable(&output->destroy_signal, output);
+	wl_signal_emit_mutable(&compositor->output_disabled_signal, output);
+	wl_signal_emit_mutable(&output->disable_signal, output);
 
 	wl_list_for_each(head, &output->head_list, output_link)
 		weston_head_remove_global(head);
@@ -8204,7 +8204,7 @@ weston_output_enable(struct weston_output *output)
 	output->original_scale = output->current_scale;
 
 	wl_signal_init(&output->frame_signal);
-	wl_signal_init(&output->destroy_signal);
+	wl_signal_init(&output->disable_signal);
 
 	weston_output_transform_scale_init(output, output->transform,
 					   output->current_scale);
@@ -9486,7 +9486,7 @@ weston_compositor_create(struct wl_display *display,
 	wl_signal_init(&ec->update_input_panel_signal);
 	wl_signal_init(&ec->seat_created_signal);
 	wl_signal_init(&ec->output_created_signal);
-	wl_signal_init(&ec->output_destroyed_signal);
+	wl_signal_init(&ec->output_disabled_signal);
 	wl_signal_init(&ec->output_moved_signal);
 	wl_signal_init(&ec->output_resized_signal);
 	wl_signal_init(&ec->heads_changed_signal);

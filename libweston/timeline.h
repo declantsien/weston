@@ -66,7 +66,8 @@ struct weston_timeline_subscription_object {
 	unsigned int id;
 	bool force_refresh;
 	struct wl_list subscription_link;       /**< weston_timeline_subscription::objects */
-	struct wl_listener destroy_listener;
+	struct wl_listener output_disable_listener;
+	struct wl_listener surface_destroy_listener;
 };
 
 /**

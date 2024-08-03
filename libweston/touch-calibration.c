@@ -52,7 +52,7 @@ struct weston_touch_calibrator {
 	struct wl_listener device_destroy_listener;
 
 	struct weston_output *output;
-	struct wl_listener output_destroy_listener;
+	struct wl_listener output_disable_listener;
 
 	struct weston_view *view;
 
@@ -370,7 +370,7 @@ destroy_touch_calibrator(struct wl_resource *resource)
 		wl_list_remove(&calibrator->device_destroy_listener.link);
 
 	if (calibrator->output)
-		wl_list_remove(&calibrator->output_destroy_listener.link);
+		wl_list_remove(&calibrator->output_disable_listener.link);
 
 	free(calibrator);
 }
@@ -399,11 +399,11 @@ touch_calibrator_cancel_calibration(struct weston_touch_calibrator *calibrator)
 }
 
 static void
-touch_calibrator_output_destroyed(struct wl_listener *listener, void *data)
+touch_calibrator_output_disabled(struct wl_listener *listener, void *data)
 {
 	struct weston_touch_calibrator *calibrator =
 		container_of(listener, struct weston_touch_calibrator,
-			     output_destroy_listener);
+			     output_disable_listener);
 
 	assert(calibrator->output == data);
 	calibrator->output = NULL;
@@ -556,10 +556,10 @@ touch_calibration_create_calibrator(
 				       calibrator, destroy_touch_calibrator);
 
 	assert(output);
-	calibrator->output_destroy_listener.notify =
-		touch_calibrator_output_destroyed;
-	wl_signal_add(&output->destroy_signal,
-		      &calibrator->output_destroy_listener);
+	calibrator->output_disable_listener.notify =
+		touch_calibrator_output_disabled;
+	wl_signal_add(&output->disable_signal,
+		      &calibrator->output_disable_listener);
 	calibrator->output = output;
 
 	weston_touch_calibrator_send_configure(calibrator->resource,

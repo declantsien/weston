@@ -166,7 +166,7 @@ kiosk_shell_surface_notify_output_destroy(struct wl_listener *listener, void *da
 {
 	struct kiosk_shell_surface *shsurf =
 		container_of(listener,
-			     struct kiosk_shell_surface, output_destroy_listener);
+			     struct kiosk_shell_surface, output_disable_listener);
 
 	kiosk_shell_surface_set_output(shsurf, NULL);
 }
@@ -286,18 +286,18 @@ kiosk_shell_surface_set_output(struct kiosk_shell_surface *shsurf,
 {
 	shsurf->output = output;
 
-	if (shsurf->output_destroy_listener.notify) {
-		wl_list_remove(&shsurf->output_destroy_listener.link);
-		shsurf->output_destroy_listener.notify = NULL;
+	if (shsurf->output_disable_listener.notify) {
+		wl_list_remove(&shsurf->output_disable_listener.link);
+		shsurf->output_disable_listener.notify = NULL;
 	}
 
 	if (!shsurf->output)
 		return;
 
-	shsurf->output_destroy_listener.notify =
+	shsurf->output_disable_listener.notify =
 		kiosk_shell_surface_notify_output_destroy;
-	wl_signal_add(&shsurf->output->destroy_signal,
-		      &shsurf->output_destroy_listener);
+	wl_signal_add(&shsurf->output->disable_signal,
+		      &shsurf->output_disable_listener);
 }
 
 static void
@@ -466,9 +466,9 @@ kiosk_shell_surface_destroy(struct kiosk_shell_surface *shsurf)
 
 	weston_view_destroy(shsurf->view);
 
-	if (shsurf->output_destroy_listener.notify) {
-		wl_list_remove(&shsurf->output_destroy_listener.link);
-		shsurf->output_destroy_listener.notify = NULL;
+	if (shsurf->output_disable_listener.notify) {
+		wl_list_remove(&shsurf->output_disable_listener.link);
+		shsurf->output_disable_listener.notify = NULL;
 	}
 
 	if (shsurf->parent_destroy_listener.notify) {
@@ -736,12 +736,12 @@ static void
 kiosk_shell_output_destroy(struct kiosk_shell_output *shoutput)
 {
 	shoutput->output = NULL;
-	shoutput->output_destroy_listener.notify = NULL;
+	shoutput->output_disable_listener.notify = NULL;
 
 	if (shoutput->curtain)
 		weston_shell_utils_curtain_destroy(shoutput->curtain);
 
-	wl_list_remove(&shoutput->output_destroy_listener.link);
+	wl_list_remove(&shoutput->output_disable_listener.link);
 	wl_list_remove(&shoutput->link);
 
 	free(shoutput->app_ids);
@@ -796,11 +796,11 @@ kiosk_shell_output_configure(struct kiosk_shell_output *shoutput)
 }
 
 static void
-kiosk_shell_output_notify_output_destroy(struct wl_listener *listener, void *data)
+kiosk_shell_output_notify_output_disable(struct wl_listener *listener, void *data)
 {
 	struct kiosk_shell_output *shoutput =
 		container_of(listener,
-			     struct kiosk_shell_output, output_destroy_listener);
+			     struct kiosk_shell_output, output_disable_listener);
 
 	kiosk_shell_output_destroy(shoutput);
 }
@@ -817,10 +817,10 @@ kiosk_shell_output_create(struct kiosk_shell *shell, struct weston_output *outpu
 	shoutput->output = output;
 	shoutput->shell = shell;
 
-	shoutput->output_destroy_listener.notify =
-		kiosk_shell_output_notify_output_destroy;
-	wl_signal_add(&shoutput->output->destroy_signal,
-		      &shoutput->output_destroy_listener);
+	shoutput->output_disable_listener.notify =
+		kiosk_shell_output_notify_output_disable;
+	wl_signal_add(&shoutput->output->disable_signal,
+		      &shoutput->output_disable_listener);
 
 	wl_list_insert(shell->output_list.prev, &shoutput->link);
 

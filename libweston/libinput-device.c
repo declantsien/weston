@@ -838,11 +838,11 @@ evdev_device_process_event(struct libinput_event *event)
 }
 
 static void
-notify_output_destroy(struct wl_listener *listener, void *data)
+notify_output_disable(struct wl_listener *listener, void *data)
 {
 	struct evdev_device *device =
 		container_of(listener,
-			     struct evdev_device, output_destroy_listener);
+			     struct evdev_device, output_disable_listener);
 
 	evdev_device_set_output(device, NULL);
 }
@@ -949,9 +949,9 @@ evdev_device_set_output(struct evdev_device *device,
 	if (device->output == output)
 		return;
 
-	if (device->output_destroy_listener.notify) {
-		wl_list_remove(&device->output_destroy_listener.link);
-		device->output_destroy_listener.notify = NULL;
+	if (device->output_disable_listener.notify) {
+		wl_list_remove(&device->output_disable_listener.link);
+		device->output_disable_listener.notify = NULL;
 	}
 
 	if (!output) {
@@ -969,9 +969,9 @@ evdev_device_set_output(struct evdev_device *device,
 		   device->output_name ?: "none");
 
 	device->output = output;
-	device->output_destroy_listener.notify = notify_output_destroy;
-	wl_signal_add(&output->destroy_signal,
-		      &device->output_destroy_listener);
+	device->output_disable_listener.notify = notify_output_disable;
+	wl_signal_add(&output->disable_signal,
+		      &device->output_disable_listener);
 	evdev_device_set_calibration(device);
 }
 
@@ -1068,7 +1068,7 @@ evdev_device_destroy(struct evdev_device *device)
 		weston_seat_release_tablet(device->tablet);
 
 	if (device->output)
-		wl_list_remove(&device->output_destroy_listener.link);
+		wl_list_remove(&device->output_disable_listener.link);
 	wl_list_remove(&device->link);
 	libinput_device_unref(device->device);
 	free(device->output_name);
