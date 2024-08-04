@@ -623,8 +623,22 @@ validate_color_gamut(struct weston_color_profile_param_builder *builder,
 }
 
 static void
+validate_luminance(struct weston_color_profile_param_builder *builder)
+{
+	if (!(builder->params.min_luminance >= 0.0f && builder->params.max_luminance <= 1e5f))
+		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_INCONSISTENT_LUMINANCES,
+			    "invalid luminance [%f, %f], out of range [0.0, 100000.0]",
+			    builder->params.min_luminance, builder->params.max_luminance);
+}
+
+static void
 validate_maxcll(struct weston_color_profile_param_builder *builder)
 {
+	if (!(builder->params.maxCLL >= 0.0f && builder->params.maxCLL <= 1e5))
+		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_INCONSISTENT_LUMINANCES,
+			    "invalid max cll (%f), out of range [0.0, 100000.0]",
+			    builder->params.maxCLL);
+
 	if (!(builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE))
 		return;
 
@@ -642,6 +656,11 @@ validate_maxcll(struct weston_color_profile_param_builder *builder)
 static void
 validate_maxfall(struct weston_color_profile_param_builder *builder)
 {
+	if (!(builder->params.maxFALL >= 0.0f && builder->params.maxFALL <= 1e5))
+		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_INCONSISTENT_LUMINANCES,
+			    "invalid max fall (%f), out of range [0.0, 100000.0]",
+			    builder->params.maxFALL);
+
 	if (!(builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE))
 		return;
 
@@ -666,6 +685,9 @@ builder_validate_params(struct weston_color_profile_param_builder *builder)
 	if (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_TARGET_PRIMARIES)
 		validate_color_gamut(builder, &builder->params.target_primaries,
 				     "target primaries");
+
+	if (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE)
+		validate_luminance(builder);
 
 	if (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_MAXCLL)
 		validate_maxcll(builder);
