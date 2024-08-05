@@ -691,6 +691,28 @@ gl_fbo_texture_fini(struct gl_fbo_texture *fbotex)
 }
 
 static void
+gl_renderbuffer_init(struct gl_renderbuffer *renderbuffer,
+		     enum gl_renderbuffer_type type,
+		     enum gl_border_status border_damage,
+		     GLuint framebuffer,
+		     weston_renderbuffer_discarded_func discarded_cb,
+		     void *user_data,
+		     struct weston_output *output)
+{
+	struct gl_output_state *go = get_output_state(output);
+
+	renderbuffer->type = type;
+	pixman_region32_init(&renderbuffer->damage);
+	pixman_region32_copy(&renderbuffer->damage, &output->region);
+	renderbuffer->border_damage = border_damage;
+	renderbuffer->fb = framebuffer;
+	renderbuffer->discarded_cb = discarded_cb;
+	renderbuffer->user_data = user_data;
+
+	wl_list_insert(&go->renderbuffer_list, &renderbuffer->link);
+}
+
+static void
 gl_renderbuffer_fini(struct gl_renderbuffer *renderbuffer)
 {
 	assert(!renderbuffer->stale);
@@ -753,19 +775,13 @@ gl_renderer_discard_renderbuffers(struct gl_output_state *go,
 static struct gl_renderbuffer *
 gl_renderer_create_dummy_renderbuffer(struct weston_output *output)
 {
-	struct gl_output_state *go = get_output_state(output);
 	struct gl_renderbuffer *renderbuffer;
 
 	renderbuffer = xzalloc(sizeof(*renderbuffer));
 
 	/* Dummy renderbuffers use the default surface framebuffer 0. */
-	renderbuffer->type = RENDERBUFFER_DUMMY;
-	renderbuffer->fb = 0;
-
-	pixman_region32_init(&renderbuffer->damage);
-	pixman_region32_copy(&renderbuffer->damage, &output->region);
-	renderbuffer->border_damage = BORDER_ALL_DIRTY;
-	wl_list_insert(&go->renderbuffer_list, &renderbuffer->link);
+	gl_renderbuffer_init(renderbuffer, RENDERBUFFER_DUMMY, BORDER_ALL_DIRTY,
+			     0, NULL, NULL, output);
 
 	return renderbuffer;
 }
@@ -778,9 +794,9 @@ gl_renderer_create_fbo(struct weston_output *output,
 		       void *user_data)
 {
 	struct gl_renderer *gr = get_renderer(output->compositor);
-	struct gl_output_state *go = get_output_state(output);
 	struct gl_renderbuffer *renderbuffer;
 	int fb_status;
+	GLuint fb;
 
 	switch (format->gl_internalformat) {
 	case GL_RGB8:
@@ -801,8 +817,8 @@ gl_renderer_create_fbo(struct weston_output *output,
 
 	renderbuffer = xzalloc(sizeof(*renderbuffer));
 
-	glGenFramebuffers(1, &renderbuffer->fb);
-	glBindFramebuffer(GL_FRAMEBUFFER, renderbuffer->fb);
+	glGenFramebuffers(1, &fb);
+	glBindFramebuffer(GL_FRAMEBUFFER, fb);
 
 	glGenRenderbuffers(1, &renderbuffer->fbo.rb);
 	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer->fbo.rb);
@@ -816,20 +832,16 @@ gl_renderer_create_fbo(struct weston_output *output,
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	if (fb_status != GL_FRAMEBUFFER_COMPLETE) {
-		glDeleteFramebuffers(1, &renderbuffer->fb);
+		glDeleteFramebuffers(1, &fb);
 		glDeleteRenderbuffers(1, &renderbuffer->fbo.rb);
 		free(renderbuffer);
 		return NULL;
 	}
 
 	renderbuffer->fbo.pixels = pixels;
-	renderbuffer->discarded_cb = discarded_cb;
-	renderbuffer->user_data = user_data;
-	renderbuffer->type = RENDERBUFFER_FBO;
-
-	pixman_region32_init(&renderbuffer->damage);
-	pixman_region32_copy(&renderbuffer->damage, &output->region);
-	wl_list_insert(&go->renderbuffer_list, &renderbuffer->link);
+	gl_renderbuffer_init(renderbuffer, RENDERBUFFER_FBO,
+			     BORDER_STATUS_CLEAN, fb, discarded_cb, user_data,
+			     output);
 
 	return (weston_renderbuffer_t) renderbuffer;
 }
@@ -4241,10 +4253,10 @@ gl_renderer_create_renderbuffer_dmabuf(struct weston_output *output,
 				       void *user_data)
 {
 	struct gl_renderer *gr = get_renderer(output->compositor);
-	struct gl_output_state *go = get_output_state(output);
 	struct dmabuf_attributes *attributes = dmabuf->attributes;
 	struct gl_renderbuffer *renderbuffer;
 	int fb_status;
+	GLuint fb;
 
 	renderbuffer = xzalloc(sizeof(*renderbuffer));
 
@@ -4255,8 +4267,8 @@ gl_renderer_create_renderbuffer_dmabuf(struct weston_output *output,
 		return NULL;
 	}
 
-	glGenFramebuffers(1, &renderbuffer->fb);
-	glBindFramebuffer(GL_FRAMEBUFFER, renderbuffer->fb);
+	glGenFramebuffers(1, &fb);
+	glBindFramebuffer(GL_FRAMEBUFFER, fb);
 
 	glGenRenderbuffers(1, &renderbuffer->dmabuf.rb);
 	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer->dmabuf.rb);
@@ -4279,7 +4291,7 @@ gl_renderer_create_renderbuffer_dmabuf(struct weston_output *output,
 	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	if (fb_status != GL_FRAMEBUFFER_COMPLETE) {
 		weston_log("failed to bind renderbuffer to fbo\n");
-		glDeleteFramebuffers(1, &renderbuffer->fb);
+		glDeleteFramebuffers(1, &fb);
 		glDeleteRenderbuffers(1, &renderbuffer->dmabuf.rb);
 		gr->destroy_image(gr->egl_display, renderbuffer->dmabuf.image);
 		free(renderbuffer);
@@ -4288,13 +4300,9 @@ gl_renderer_create_renderbuffer_dmabuf(struct weston_output *output,
 
 	renderbuffer->dmabuf.gr = gr;
 	renderbuffer->dmabuf.memory = dmabuf;
-
-	renderbuffer->discarded_cb = discarded_cb;
-	renderbuffer->user_data = user_data;
-	renderbuffer->type = RENDERBUFFER_DMABUF;
-	pixman_region32_init(&renderbuffer->damage);
-	pixman_region32_copy(&renderbuffer->damage, &output->region);
-	wl_list_insert(&go->renderbuffer_list, &renderbuffer->link);
+	gl_renderbuffer_init(renderbuffer, RENDERBUFFER_DMABUF,
+			     BORDER_STATUS_CLEAN, fb, discarded_cb, user_data,
+			     output);
 
 	return (weston_renderbuffer_t) renderbuffer;
 }
