@@ -45,6 +45,7 @@
 #include <libevdev/libevdev.h>
 #include <linux/input.h>
 #include <sys/time.h>
+#include <libdisplay-info/info.h>
 #include <linux/limits.h>
 
 #include "weston.h"
@@ -1393,6 +1394,239 @@ wet_create_sRGB_profile(struct weston_compositor *compositor)
 	return cprof;
 }
 
+static void
+cta861_transfer_function(struct weston_color_profile_param_builder *builder,
+			 enum weston_eotf_mode eotf,
+			 enum weston_colorimetry_mode colorimetry)
+{
+	/* According to CTA-861-I: */
+
+	switch (eotf) {
+	case WESTON_EOTF_MODE_NONE:
+	case WESTON_EOTF_MODE_SDR:
+	case WESTON_EOTF_MODE_TRADITIONAL_HDR:
+		/* Determined by colorimetry */
+		break;
+	case WESTON_EOTF_MODE_ST2084:
+		weston_color_profile_param_builder_set_tf_named(builder, WESTON_TF_ST2084_PQ);
+		return;
+	case WESTON_EOTF_MODE_HLG:
+		weston_color_profile_param_builder_set_tf_named(builder, WESTON_TF_HLG);
+		return;
+	}
+
+	switch (colorimetry) {
+	case WESTON_COLORIMETRY_MODE_DEFAULT:
+		/* Contrary to CTA-861-I, assume a gamma 2.2 computer monitor. */
+		weston_color_profile_param_builder_set_tf_named(builder, WESTON_TF_SRGB);
+		return;
+	case WESTON_COLORIMETRY_MODE_BT2020_CYCC:
+	case WESTON_COLORIMETRY_MODE_BT2020_YCC:
+	case WESTON_COLORIMETRY_MODE_BT2020_RGB:
+		weston_color_profile_param_builder_set_tf_named(builder, WESTON_TF_BT709);
+		return;
+	case WESTON_COLORIMETRY_MODE_P3D65:
+	case WESTON_COLORIMETRY_MODE_P3DCI:
+		weston_color_profile_param_builder_set_tf_power_exponent(builder, 2.6);
+		return;
+	case WESTON_COLORIMETRY_MODE_ICTCP:
+		/* No TF, reserved combination. */
+	default:
+		break;
+	}
+
+	/* Failed to determine TF. */
+	weston_log("Warning: no known transfer characteristic for the combination of %s and %s.\n",
+		   weston_eotf_mode_to_str(eotf), weston_colorimetry_mode_to_str(colorimetry));
+}
+
+static void
+cta861_primaries(struct weston_color_profile_param_builder *builder,
+		 enum weston_colorimetry_mode colorimetry)
+{
+	switch (colorimetry) {
+	case WESTON_COLORIMETRY_MODE_NONE:
+	case WESTON_COLORIMETRY_MODE_DEFAULT:
+		weston_color_profile_param_builder_set_primaries_named(builder, WESTON_PRIMARIES_CICP_SRGB);
+		break;
+	case WESTON_COLORIMETRY_MODE_BT2020_CYCC:
+	case WESTON_COLORIMETRY_MODE_BT2020_YCC:
+	case WESTON_COLORIMETRY_MODE_BT2020_RGB:
+		weston_color_profile_param_builder_set_primaries_named(builder, WESTON_PRIMARIES_CICP_BT2020);
+		break;
+	case WESTON_COLORIMETRY_MODE_P3D65:
+		weston_color_profile_param_builder_set_primaries_named(builder, WESTON_PRIMARIES_CICP_DISPLAY_P3);
+		break;
+	case WESTON_COLORIMETRY_MODE_P3DCI:
+		weston_color_profile_param_builder_set_primaries_named(builder, WESTON_PRIMARIES_CICP_DCI_P3);
+		break;
+	case WESTON_COLORIMETRY_MODE_ICTCP:
+		weston_color_profile_param_builder_set_primaries_named(builder, WESTON_PRIMARIES_CICP_BT2020);
+		break;
+	}
+}
+
+enum weston_auto_profile_flags {
+	WESTON_EDID_PRIMARIES = 0x01,
+	WESTON_EDID_TF = 0x02,
+	WESTON_EDID_DR = 0x04,
+};
+
+static struct weston_color_profile *
+wet_create_auto_profile(struct weston_output *output, uint32_t flags)
+{
+	enum weston_eotf_mode eotf = weston_output_get_eotf_mode(output);
+	enum weston_colorimetry_mode colorimetry = weston_output_get_colorimetry_mode(output);
+	enum weston_color_profile_param_builder_error err_code;
+	struct weston_head *head;
+	const struct di_info *di_info;
+	struct weston_color_profile_param_builder *builder;
+	struct weston_color_profile *cprof;
+	char *name_part;
+	const char *tf_part = NULL;
+	const char *prim_part = NULL;
+	const char *dr_part = NULL;
+	char *err_msg = NULL;
+	unsigned int i;
+
+	builder = weston_color_profile_param_builder_create(output->compositor);
+
+	/* TODO: handle outputs driving multiple heads. */
+	head = weston_output_get_first_head(output);
+	di_info = weston_head_get_display_info(head);
+
+	if (di_info && (flags & WESTON_EDID_TF) &&
+	    (eotf == WESTON_EOTF_MODE_SDR || eotf == WESTON_EOTF_MODE_TRADITIONAL_HDR)) {
+		float exponent;
+		exponent = di_info_get_default_gamma(di_info);
+		if (exponent != 0.0f) {
+			weston_color_profile_param_builder_set_tf_power_exponent(builder,
+										 exponent);
+			tf_part = "by EDID";
+		}
+	}
+	if (!tf_part) {
+		cta861_transfer_function(builder, eotf, colorimetry);
+		tf_part = "by CTA-861";
+	}
+
+	if (di_info && (flags & WESTON_EDID_PRIMARIES) &&
+	    colorimetry == WESTON_COLORIMETRY_MODE_DEFAULT) {
+		struct weston_color_gamut primaries;
+		const struct di_color_primaries *prim =
+			di_info_get_default_color_primaries(di_info);
+
+		if (prim->has_primaries && prim->has_default_white_point) {
+			for (i = 0; i < 3; i++) {
+				primaries.primary[i].x = prim->primary[i].x;
+				primaries.primary[i].y = prim->primary[i].y;
+			}
+			primaries.white_point.x = prim->default_white.x;
+			primaries.white_point.y = prim->default_white.y;
+
+			weston_color_profile_param_builder_set_primaries(builder, &primaries);
+			prim_part = "by EDID";
+		}
+	}
+	if (!prim_part) {
+		cta861_primaries(builder, colorimetry);
+		prim_part = "by CTA-861";
+	}
+
+	if (di_info && (flags & WESTON_EDID_DR) &&
+	    eotf == WESTON_EOTF_MODE_ST2084) {
+		float min_lum;
+		float max_lum;
+		float max_fall;
+		const struct di_hdr_static_metadata *hdr =
+			di_info_get_hdr_static_metadata(di_info);
+
+		min_lum = hdr->desired_content_min_luminance;
+		max_lum = hdr->desired_content_max_luminance;
+		max_fall = hdr->desired_content_max_frame_avg_luminance;
+
+		if (min_lum != 0.0f && max_lum != 0.0f && max_fall != 0.0f) {
+			weston_color_profile_param_builder_set_target_luminance(builder,
+										min_lum, max_lum);
+			weston_color_profile_param_builder_set_maxFALL(builder, max_fall);
+			dr_part = "by EDID";
+		}
+	}
+	if (!dr_part)
+		dr_part = "no DR info";
+
+	str_printf(&name_part, "output %s automatic, TF: %s, primaries: %s, dr: %s",
+			       output->name, tf_part, prim_part, dr_part);
+
+	cprof = weston_color_profile_param_builder_create_color_profile(builder, name_part,
+									&err_code, &err_msg);
+	if (!cprof) {
+		weston_log("Error: creating parametric color profile failed:\n");
+		weston_log_indent_multiline(0, err_msg);
+		free(err_msg);
+	}
+
+	free(name_part);
+	return cprof;
+}
+
+static bool
+should_create_auto_profile(const char *prof_name, uint32_t *flags, char **err_msg)
+{
+	char *tmp, *substr;
+	uint32_t n_tokens = 0;
+	uint32_t n_commas = 0;
+	unsigned int i;
+
+	*flags = 0;
+
+	/* First part of the string must match "auto". */
+	tmp = strdup(prof_name);
+	substr = strtok(tmp, ":");
+	if (!substr || strcmp(substr, "auto") != 0) {
+		free(tmp);
+		return false;
+	}
+	free(tmp);
+
+	/* Second part must start with ":". */
+	tmp = strchr(prof_name, ':');
+	if (!tmp)
+		return false;
+
+	/* Get what comes after ":". */
+	substr = strdup(tmp + 1);
+	for (i = 0; substr[i] != '\0'; i++)
+		n_commas += (substr[i] == ',');
+
+	/* Now we tokenize what comes after ":", delimiter being comma. */
+	for (tmp = strtok(substr, ","); tmp != NULL; tmp = strtok(NULL, ","), n_tokens++) {
+		if (strcmp(tmp, "edid-primaries") == 0) {
+			*flags |= WESTON_EDID_PRIMARIES;
+		} else if (strcmp(tmp, "edid-tf") == 0) {
+			*flags |= WESTON_EDID_TF;
+		} else if (strcmp(tmp, "edid-dr") == 0) {
+			*flags |= WESTON_EDID_DR;
+		} else {
+			str_printf(err_msg, "invalid token (%s) on auto", tmp);
+			free(substr);
+			return false;
+		}
+	}
+
+	/* If we have no tokens, we should have no commas. Because "auto:" is
+	 * valid, but "auto:," and similar are not. If we have tokens, they must
+	 * be separated exactly by a single comma. */
+	if ((n_tokens == 0 && n_commas != 0) || (n_commas + 1 > n_tokens)) {
+		str_printf(err_msg, "invalid number of commas");
+		free(substr);
+		return false;
+	}
+
+	free(substr);
+	return true;
+}
+
 #define COLOR_PROF_NAME "color_profile"
 
 static struct weston_color_profile *
@@ -1400,13 +1634,32 @@ wet_create_output_color_profile(struct weston_output *output,
 				struct weston_config *wc,
 				const char *prof_name)
 {
+	char *err_msg = NULL;
+	uint32_t flags;
+
 	if (strcmp(prof_name, "srgb:") == 0)
 		return wet_create_sRGB_profile(output->compositor);
+
+	if (should_create_auto_profile(prof_name, &flags, &err_msg)) {
+		return wet_create_auto_profile(output, flags);
+	} else if (err_msg) {
+		weston_log("Config error in weston.ini, output %s, section "
+			   "[" COLOR_PROF_NAME "]: %s\n.", output->name, err_msg);
+		free(err_msg);
+		return NULL;
+	}
 
 	weston_log("Config error in weston.ini, output %s, section "
 		   "[" COLOR_PROF_NAME "]: invalid profile name (%s)\n.",
 		   output->name, prof_name);
 	return NULL;
+}
+
+static bool
+output_has_default_signal_encoding(struct weston_output *output)
+{
+	return weston_output_get_eotf_mode(output) == WESTON_EOTF_MODE_SDR &&
+	       weston_output_get_colorimetry_mode(output) == WESTON_COLORIMETRY_MODE_DEFAULT;
 }
 
 static int
@@ -1437,6 +1690,8 @@ wet_output_set_color_profile(struct weston_output *output,
 		free(prof_name);
 	} else if (parent_winsys_profile) {
 		cprof = weston_color_profile_ref(parent_winsys_profile);
+	} else if (!output_has_default_signal_encoding(output)) {
+		cprof = wet_create_output_color_profile(output, wc, "auto:");
 	} else {
 		return 0;
 	}

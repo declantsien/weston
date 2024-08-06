@@ -572,14 +572,57 @@ on DRM, headless, wayland, and x11 backends, and for remoting and pipewire
 outputs.
 .TP 7
 .BI "color_profile=" name
-For now, only
-.BI "name=" srgb:
-is accepted. If option
+If option
 .B color-management
-is true, creates a sRGB parametric color profile and set it as the output
-color profile. This works only on DRM, headless, wayland, and x11 backends, and
-for remoting and pipewire outputs. If an ICC profile is also set, the ICC
-profile takes precedence.
+is true, creates a parametric profile to be used as the output color profile.
+This works only on DRM, headless, wayland, and x11 backends, and for remoting
+and pipewire outputs. If an ICC profile is also set, the ICC profile takes
+precedence.
+
+For now, only the following names are accepted:
+.PP
+.RS 10
+.nf
+.BR  "srgb:        " "creates a parametric sRGB color profile"
+.BR  "auto:<flags> " "creates an automatic parametric color profile"
+.PP
+.RS 10
+.fi
+Automatic parametric color profiles are created accordingly to the colorimetry
+mode and the EOTF that the output is using. We use CTA-861 for the parameters as
+much as possible. There are also optional flags, and in such case we also take
+into consideration the EDID data. The flags should be comma separated, and they
+are:
+
+.BR "edid-primaries " "gets primaries from EDID"
+.RS 10
+The EDID primaries are only used when the colorimetry mode is: default (RGB)
+colorimetry, video sink dependant. Colorimetry modes as defined by CTA-861-H.
+.RE
+
+.BR "edid-tf " "gets power exponent from EDID"
+.RS 10
+The EDID power exponent is only used when the EOTF mode is: SDR (traditional
+gamma, SDR luminance range) or traditional HDR (traditional gamma, HDR luminance
+range). EOTF modes as defined by CTA-861-G.
+.RE
+
+.BR "edid-dr " "gets dynamic range information from EDID"
+.RS 10
+The EDID dynamic range information is only used when the EOTF mode is SMPTE ST
+2084. EOTF modes as defined by CTA-861-G.
+.RE
+
+Examples of automatic color profile names:
+.nf
+.BI "color_profile=" auto:edid-tf,edid-dr
+.BI "color_profile=" auto:edid-dr,edid-primaries
+.BI "color_profile=" auto:
+.fi
+.RE
+.IP
+.RE
+.IP
 .TP 7
 .BI "seat=" name
 The logical seat name that this output should be associated with. If this
