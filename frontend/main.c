@@ -1357,13 +1357,67 @@ wet_output_set_transform(struct weston_output *output,
 	return 0;
 }
 
+static void
+weston_log_indent_multiline(int indent, const char *multiline)
+{
+	const char *delim = multiline;
+
+	while (*delim) {
+		delim = strchrnul(multiline, '\n');
+		weston_log_continue(STAMP_SPACE "%*s%.*s\n",
+				    indent, "", (int)(delim - multiline), multiline);
+		multiline = delim + 1;
+	}
+}
+
+static struct weston_color_profile *
+wet_create_sRGB_profile(struct weston_compositor *compositor)
+{
+	struct weston_color_profile_param_builder *builder;
+	struct weston_color_profile *cprof;
+	enum weston_color_profile_param_builder_error err_code;
+	char *err_msg = NULL;
+
+	builder = weston_color_profile_param_builder_create(compositor);
+	weston_color_profile_param_builder_set_primaries_named(builder, WESTON_PRIMARIES_CICP_SRGB);
+	weston_color_profile_param_builder_set_tf_named(builder, WESTON_TF_SRGB);
+
+	cprof = weston_color_profile_param_builder_create_color_profile(builder, "frontend sRGB",
+									&err_code, &err_msg);
+	if (!cprof) {
+		weston_log("Error: creating parametric sRGB color profile failed:\n");
+		weston_log_indent_multiline(0, err_msg);
+		free(err_msg);
+	}
+
+	return cprof;
+}
+
+#define COLOR_PROF_NAME "color_profile"
+
+static struct weston_color_profile *
+wet_create_output_color_profile(struct weston_output *output,
+				struct weston_config *wc,
+				const char *prof_name)
+{
+	if (strcmp(prof_name, "srgb:") == 0)
+		return wet_create_sRGB_profile(output->compositor);
+
+	weston_log("Config error in weston.ini, output %s, section "
+		   "[" COLOR_PROF_NAME "]: invalid profile name (%s)\n.",
+		   output->name, prof_name);
+	return NULL;
+}
+
 static int
 wet_output_set_color_profile(struct weston_output *output,
 			     struct weston_config_section *section,
+			     struct weston_config *wc,
 			     struct weston_color_profile *parent_winsys_profile)
 {
 	struct wet_compositor *compositor = to_wet_compositor(output->compositor);
 	struct weston_color_profile *cprof;
+	char *prof_name = NULL;
 	char *icc_file = NULL;
 	bool ok;
 
@@ -1371,10 +1425,16 @@ wet_output_set_color_profile(struct weston_output *output,
 		return 0;
 
 	weston_config_section_get_string(section, "icc_profile", &icc_file, NULL);
+	if (!icc_file)
+		weston_config_section_get_string(section, COLOR_PROF_NAME, &prof_name, NULL);
+
 	if (icc_file) {
 		cprof = weston_compositor_load_icc_file(output->compositor,
 							icc_file);
 		free(icc_file);
+	} else if (prof_name) {
+		cprof = wet_create_output_color_profile(output, wc, prof_name);
+		free(prof_name);
 	} else if (parent_winsys_profile) {
 		cprof = weston_color_profile_ref(parent_winsys_profile);
 	} else {
@@ -1745,7 +1805,7 @@ wet_configure_windowed_output_from_config(struct weston_output *output,
 		return -1;
 	}
 
-	if (wet_output_set_color_profile(output, section, NULL) < 0)
+	if (wet_output_set_color_profile(output, section, wc, NULL) < 0)
 		return -1;
 
 	if (api->output_set_size(output, width, height) < 0) {
@@ -2235,9 +2295,6 @@ drm_backend_output_configure(struct weston_output *output,
 		return -1;
 	}
 
-	if (wet_output_set_color_profile(output, section, NULL) < 0)
-		return -1;
-
 	weston_config_section_get_string(section,
 					 "gbm-format", &gbm_format, NULL);
 
@@ -2260,6 +2317,8 @@ drm_backend_output_configure(struct weston_output *output,
 	if (wet_output_set_eotf_mode(output, section, wet->use_color_manager) < 0)
 		return -1;
 	if (wet_output_set_colorimetry_mode(output, section, wet->use_color_manager) < 0)
+		return -1;
+	if (wet_output_set_color_profile(output, section, wet->config, NULL) < 0)
 		return -1;
 
 	if (wet_output_set_color_characteristics(output,
@@ -2763,6 +2822,7 @@ drm_backend_remoted_output_configure(struct weston_output *output,
 				     char *modeline,
 				     const struct weston_remoting_api *api)
 {
+	struct weston_config *wc = wet_get_config(output->compositor);
 	char *gbm_format = NULL;
 	char *seat = NULL;
 	char *host = NULL;
@@ -2784,7 +2844,7 @@ drm_backend_remoted_output_configure(struct weston_output *output,
 		return -1;
 	};
 
-	if (wet_output_set_color_profile(output, section, NULL) < 0)
+	if (wet_output_set_color_profile(output, section, wc, NULL) < 0)
 		return -1;
 
 	weston_config_section_get_string(section, "gbm-format", &gbm_format,
@@ -2926,6 +2986,7 @@ drm_backend_pipewire_output_configure(struct weston_output *output,
 				     char *modeline,
 				     const struct weston_pipewire_api *api)
 {
+	struct weston_config *wc = wet_get_config(output->compositor);
 	char *seat = NULL;
 	int ret;
 
@@ -2944,7 +3005,7 @@ drm_backend_pipewire_output_configure(struct weston_output *output,
 		return -1;
 	}
 
-	if (wet_output_set_color_profile(output, section, NULL) < 0)
+	if (wet_output_set_color_profile(output, section, wc, NULL) < 0)
 		return -1;
 
 	weston_config_section_get_string(section, "seat", &seat, "");
