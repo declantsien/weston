@@ -215,65 +215,64 @@ meta_clamp(float value, const char *valname, float min, float max,
 }
 
 static bool
-cmlcms_get_hdr_meta(struct weston_output *output,
+cmlcms_get_hdr_meta(struct weston_color_manager_lcms *cm,
+		    struct weston_output *output,
 		    struct weston_hdr_metadata_type1 *hdr_meta)
 {
-	const struct weston_color_characteristics *cc;
-
-	/* TODO: get color characteristics from color profiles instead. */
+	const struct cmlcms_color_profile *cprof;
+	unsigned int i;
 
 	hdr_meta->group_mask = 0;
+
+	/* We only have HDR metadata on parametric color profiles. */
+	cprof = to_cprof_or_stock_sRGB(cm, output->color_profile);
+	if (cprof->type != CMLCMS_PROFILE_TYPE_PARAMS)
+		return true;
 
 	/* Only SMPTE ST 2084 mode uses HDR Static Metadata Type 1 */
 	if (weston_output_get_eotf_mode(output) != WESTON_EOTF_MODE_ST2084)
 		return true;
 
-	cc = weston_output_get_color_characteristics(output);
-
 	/* Target content chromaticity */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_PRIMARIES) {
-		unsigned i;
-
-		for (i = 0; i < 3; i++) {
-			hdr_meta->primary[i].x = meta_clamp(cc->primary[i].x,
-							    "primary", 0.0, 1.0,
-							    output);
-			hdr_meta->primary[i].y = meta_clamp(cc->primary[i].y,
-							    "primary", 0.0, 1.0,
-							    output);
-		}
-		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_PRIMARIES;
+	for (i = 0; i < ARRAY_LENGTH(cprof->params->target_primaries.primary); i++) {
+		hdr_meta->primary[i].x = meta_clamp(cprof->params->target_primaries.primary[i].x,
+						    "primary", 0.0, 1.0, output);
+		hdr_meta->primary[i].y = meta_clamp(cprof->params->target_primaries.primary[i].y,
+						    "primary", 0.0, 1.0, output);
 	}
+	hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_PRIMARIES;
 
 	/* Target content white point */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_WHITE) {
-		hdr_meta->white.x = meta_clamp(cc->white.x, "white",
-					       0.0, 1.0, output);
-		hdr_meta->white.y = meta_clamp(cc->white.y, "white",
-					       0.0, 1.0, output);
-		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_WHITE;
-	}
+	hdr_meta->white.x = meta_clamp(cprof->params->target_primaries.white_point.x,
+				       "white", 0.0, 1.0, output);
+	hdr_meta->white.y = meta_clamp(cprof->params->target_primaries.white_point.y,
+				       "white", 0.0, 1.0, output);
+	hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_WHITE;
 
-	/* Target content peak and max mastering luminance */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_MAXL) {
-		hdr_meta->maxDML = meta_clamp(cc->max_luminance, "maxDML",
-					      1.0, 65535.0, output);
-		hdr_meta->maxCLL = meta_clamp(cc->max_luminance, "maxCLL",
-					      1.0, 65535.0, output);
+	/* Target content max mastering luminance */
+	if (cprof->params->max_luminance >= 0.0f) {
+		hdr_meta->maxDML = meta_clamp(cprof->params->max_luminance, "maxDML",
+					      0.0001, 6.5535, output);
 		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXDML;
-		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXCLL;
 	}
 
 	/* Target content min mastering luminance */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_MINL) {
-		hdr_meta->minDML = meta_clamp(cc->min_luminance, "minDML",
+	if (cprof->params->min_luminance >= 0.0f) {
+		hdr_meta->minDML = meta_clamp(cprof->params->min_luminance, "minDML",
 					      0.0001, 6.5535, output);
 		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MINDML;
 	}
 
+	/* Target content peak */
+	if (cprof->params->maxCLL >= 0.0f) {
+		hdr_meta->maxCLL = meta_clamp(cprof->params->maxCLL, "maxCLL",
+					      1.0, 65535.0, output);
+		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXCLL;
+	}
+
 	/* Target content max frame-average luminance */
-	if (cc->group_mask & WESTON_COLOR_CHARACTERISTICS_GROUP_MAXFALL) {
-		hdr_meta->maxFALL = meta_clamp(cc->maxFALL, "maxFALL",
+	if (cprof->params->maxFALL >= 0.0f) {
+		hdr_meta->maxFALL = meta_clamp(cprof->params->maxFALL, "maxFALL",
 					       1.0, 65535.0, output);
 		hdr_meta->group_mask |= WESTON_HDR_METADATA_TYPE1_GROUP_MAXFALL;
 	}
@@ -292,7 +291,7 @@ cmlcms_create_output_color_outcome(struct weston_color_manager *cm_base,
 	if (!co)
 		return NULL;
 
-	if (!cmlcms_get_hdr_meta(output, &co->hdr_meta))
+	if (!cmlcms_get_hdr_meta(cm, output, &co->hdr_meta))
 		goto out_fail;
 
 	assert(output->color_profile);
