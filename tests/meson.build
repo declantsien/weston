@@ -335,7 +335,6 @@ if get_option('color-management-lcms')
 				color_management_v1_protocol_c,
 			],
 		},
-		{	'name': 'color-metadata-parsing' },
 		{
 			'name': 'lcms-util',
 			'dep_objs': [ dep_lcms_util ]
