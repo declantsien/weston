@@ -422,57 +422,6 @@ weston_color_profile_param_builder_create_color_profile(struct weston_color_prof
 							enum weston_color_profile_param_builder_error *err,
 							char **err_msg);
 
-enum weston_color_characteristics_groups {
-	/** weston_color_characteristics::primary is set */
-	WESTON_COLOR_CHARACTERISTICS_GROUP_PRIMARIES	= 0x01,
-
-	/** weston_color_characteristics::white is set */
-	WESTON_COLOR_CHARACTERISTICS_GROUP_WHITE	= 0x02,
-
-	/** weston_color_characteristics::max_luminance is set */
-	WESTON_COLOR_CHARACTERISTICS_GROUP_MAXL		= 0x04,
-
-	/** weston_color_characteristics::min_luminance is set */
-	WESTON_COLOR_CHARACTERISTICS_GROUP_MINL		= 0x08,
-
-	/** weston_color_characteristics::maxFALL is set */
-	WESTON_COLOR_CHARACTERISTICS_GROUP_MAXFALL	= 0x10,
-
-	/** all valid bits */
-	WESTON_COLOR_CHARACTERISTICS_GROUP_ALL_MASK	= 0x1f
-};
-
-/** Basic display color characteristics
- *
- * This is a simple description of a display or output (monitor) color
- * characteristics. The parameters can be found in EDID, with caveats. They
- * are particularly useful with HDR monitors.
- */
-struct weston_color_characteristics {
-	/** Which fields are valid
-	 *
-	 * A bitmask of values from enum weston_color_characteristics_groups.
-	 */
-	uint32_t group_mask;
-
-	/* EOTF is tracked externally with enum weston_eotf_mode */
-
-	/** Chromaticities of the primaries */
-	struct weston_CIExy primary[3];
-
-	/** White point chromaticity */
-	struct weston_CIExy white;
-
-	/** Display's desired maximum content peak luminance, cd/m² */
-	float max_luminance;
-
-	/** Display's desired minimum content luminance, cd/m² */
-	float min_luminance;
-
-	/** Display's desired maximum frame-average light level, cd/m² */
-	float maxFALL;
-};
-
 /** Represents a head, usually a display connector
  *
  * \rst
@@ -668,7 +617,6 @@ struct weston_output {
 	bool from_blend_to_output_by_backend;
 	enum weston_eotf_mode eotf_mode;
 	enum weston_colorimetry_mode colorimetry_mode;
-	struct weston_color_characteristics color_characteristics;
 
 	struct weston_output_color_outcome *color_outcome;
 	uint64_t color_outcome_serial;
@@ -2705,13 +2653,6 @@ weston_output_set_colorimetry_mode(struct weston_output *output,
 
 enum weston_colorimetry_mode
 weston_output_get_colorimetry_mode(const struct weston_output *output);
-
-void
-weston_output_set_color_characteristics(struct weston_output *output,
-					const struct weston_color_characteristics *cc);
-
-const struct weston_color_characteristics *
-weston_output_get_color_characteristics(struct weston_output *output);
 
 void
 weston_output_init(struct weston_output *output,
