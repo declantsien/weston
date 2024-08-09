@@ -23,8 +23,8 @@
  * SOFTWARE.
  */
 
-#ifndef WESTON_COLOR_CHARACTERISTICS_H
-#define WESTON_COLOR_CHARACTERISTICS_H
+#ifndef WESTON_COLOR_PROPERTIES_H
+#define WESTON_COLOR_PROPERTIES_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -142,4 +142,4 @@ const struct weston_color_tf_info *
 weston_color_tf_info_from_protocol(struct weston_compositor *compositor,
                                    uint32_t protocol_tf);
 
-#endif /* WESTON_COLOR_CHARACTERISTICS_H */
+#endif /* WESTON_COLOR_PROPERTIES_H */
