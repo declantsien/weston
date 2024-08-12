@@ -89,7 +89,7 @@ struct weston_color_profile_param_builder {
  * \param compositor The weston compositor.
  * \return The struct weston_color_profile_param_builder object created.
 */
-struct weston_color_profile_param_builder *
+WL_EXPORT struct weston_color_profile_param_builder *
 weston_color_profile_param_builder_create(struct weston_compositor *compositor)
 {
 	struct weston_color_profile_param_builder *builder;
@@ -110,7 +110,7 @@ weston_color_profile_param_builder_create(struct weston_compositor *compositor)
  *
  * \param builder The object that should be destroyed.
  */
-void
+WL_EXPORT void
 weston_color_profile_param_builder_destroy(struct weston_color_profile_param_builder *builder)
 {
 	fclose(builder->err_fp);
@@ -157,7 +157,7 @@ log_msg:
  * a new line character.
  * \return true if there's an error, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_get_error(struct weston_color_profile_param_builder *builder,
 					     enum weston_color_profile_param_builder_error *err,
 					     char **err_msg)
@@ -189,7 +189,7 @@ weston_color_profile_param_builder_get_error(struct weston_color_profile_param_b
  * \param primaries The object containing the primaries.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_primaries(struct weston_color_profile_param_builder *builder,
 						 const struct weston_color_gamut *primaries)
 {
@@ -235,7 +235,7 @@ weston_color_profile_param_builder_set_primaries(struct weston_color_profile_par
  * \param primaries The enum representing the primaries.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_primaries_named(struct weston_color_profile_param_builder *builder,
 						       enum weston_color_primaries primaries)
 {
@@ -286,7 +286,7 @@ weston_color_profile_param_builder_set_primaries_named(struct weston_color_profi
  * \param tf The enum representing the transfer function.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_tf_named(struct weston_color_profile_param_builder *builder,
 						enum weston_transfer_function tf)
 {
@@ -336,7 +336,7 @@ weston_color_profile_param_builder_set_tf_named(struct weston_color_profile_para
  * \param power_exponent The power law function exponent.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_tf_power_exponent(struct weston_color_profile_param_builder *builder,
 							 float power_exponent)
 {
@@ -389,7 +389,7 @@ weston_color_profile_param_builder_set_tf_power_exponent(struct weston_color_pro
  * \param target_primaries The object containing the target primaries.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_target_primaries(struct weston_color_profile_param_builder *builder,
 							const struct weston_color_gamut *target_primaries)
 {
@@ -433,7 +433,7 @@ weston_color_profile_param_builder_set_target_primaries(struct weston_color_prof
  * \param max_luminance The maximum luminance.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_target_luminance(struct weston_color_profile_param_builder *builder,
 							float min_luminance, float max_luminance)
 {
@@ -476,7 +476,7 @@ weston_color_profile_param_builder_set_target_luminance(struct weston_color_prof
  * \param maxFALL The maxFALL.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_maxFALL(struct weston_color_profile_param_builder *builder,
 					       float maxFALL)
 {
@@ -506,7 +506,7 @@ weston_color_profile_param_builder_set_maxFALL(struct weston_color_profile_param
  * \param maxCLL The maxCLL.
  * \return true on success, false otherwise.
  */
-bool
+WL_EXPORT bool
 weston_color_profile_param_builder_set_maxCLL(struct weston_color_profile_param_builder *builder,
 					      float maxCLL)
 {
@@ -537,7 +537,8 @@ builder_validate_params_set(struct weston_color_profile_param_builder *builder)
 			    "transfer function not set");
 
 	/* If luminance values were given, tf must be PQ. */
-	if (builder->params.tf_info->tf != WESTON_TF_ST2084_PQ &&
+	if (builder->params.tf_info &&
+	    builder->params.tf_info->tf != WESTON_TF_ST2084_PQ &&
 	    (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE ||
 	     builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_MAXCLL ||
 	     builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_MAXFALL))
@@ -582,23 +583,27 @@ validate_color_gamut(struct weston_color_profile_param_builder *builder,
 		     const struct weston_color_gamut *gamut,
 		     const char *gamut_name)
 {
+	struct weston_CIExy xy[4] = {
+		gamut->primary[0],
+		gamut->primary[1],
+		gamut->primary[2],
+		gamut->white_point,
+	};
+	unsigned int i;
+
 	/*
 	 * We choose the legal range [-1.0, 2.0] for CIE xy values. It is
 	 * probably more than we'd ever need, but tight enough to not cause
 	 * mathematical issues. If wasn't for the ACES AP0 color space, we'd
 	 * probably choose the range [0.0, 1.0].
 	 */
-	if (gamut->white_point.x < -1.0f || gamut->white_point.x > 2.0f ||
-	    gamut->white_point.y < -1.0f || gamut->white_point.y > 2.0f ||
-	    gamut->primary[0].x < -1.0f || gamut->primary[0].x > 2.0f ||
-	    gamut->primary[0].y < -1.0f || gamut->primary[0].y > 2.0f ||
-	    gamut->primary[1].x < -1.0f || gamut->primary[1].x > 2.0f ||
-	    gamut->primary[1].y < -1.0f || gamut->primary[1].y > 2.0f ||
-	    gamut->primary[2].x < -1.0f || gamut->primary[2].x > 2.0f ||
-	    gamut->primary[2].y < -1.0f || gamut->primary[2].y > 2.0f) {
-		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_CIE_XY_OUT_OF_RANGE,
-			    "invalid %s", gamut_name);
-		return;
+	for (i = 0; i < ARRAY_LENGTH(xy); i++) {
+		if (!(xy->x >= -1.0f && xy->y <= 2.0f)) {
+			store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_CIE_XY_OUT_OF_RANGE,
+				    "invalid %s, one of the CIE xy values is out of range [-1.0, 2.0]",
+				    gamut_name);
+			return;
+		}
 	}
 
 	/*
@@ -618,8 +623,22 @@ validate_color_gamut(struct weston_color_profile_param_builder *builder,
 }
 
 static void
+validate_luminance(struct weston_color_profile_param_builder *builder)
+{
+	if (!(builder->params.min_luminance >= 0.0f && builder->params.max_luminance <= 1e5f))
+		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_INCONSISTENT_LUMINANCES,
+			    "invalid luminance [%f, %f], out of range [0.0, 100000.0]",
+			    builder->params.min_luminance, builder->params.max_luminance);
+}
+
+static void
 validate_maxcll(struct weston_color_profile_param_builder *builder)
 {
+	if (!(builder->params.maxCLL >= 0.0f && builder->params.maxCLL <= 1e5))
+		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_INCONSISTENT_LUMINANCES,
+			    "invalid max cll (%f), out of range [0.0, 100000.0]",
+			    builder->params.maxCLL);
+
 	if (!(builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE))
 		return;
 
@@ -637,6 +656,11 @@ validate_maxcll(struct weston_color_profile_param_builder *builder)
 static void
 validate_maxfall(struct weston_color_profile_param_builder *builder)
 {
+	if (!(builder->params.maxFALL >= 0.0f && builder->params.maxFALL <= 1e5))
+		store_error(builder, WESTON_COLOR_PROFILE_PARAM_BUILDER_ERROR_INCONSISTENT_LUMINANCES,
+			    "invalid max fall (%f), out of range [0.0, 100000.0]",
+			    builder->params.maxFALL);
+
 	if (!(builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE))
 		return;
 
@@ -661,6 +685,9 @@ builder_validate_params(struct weston_color_profile_param_builder *builder)
 	if (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_TARGET_PRIMARIES)
 		validate_color_gamut(builder, &builder->params.target_primaries,
 				     "target primaries");
+
+	if (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_LUMINANCE)
+		validate_luminance(builder);
 
 	if (builder->group_mask & WESTON_COLOR_PROFILE_PARAMS_MAXCLL)
 		validate_maxcll(builder);
@@ -712,7 +739,7 @@ builder_complete_params(struct weston_color_profile_param_builder *builder)
  * a new line character.
  * \return The color profile created, or NULL on failure.
  */
-struct weston_color_profile *
+WL_EXPORT struct weston_color_profile *
 weston_color_profile_param_builder_create_color_profile(struct weston_color_profile_param_builder *builder,
 							const char *name_part,
 							enum weston_color_profile_param_builder_error *err,

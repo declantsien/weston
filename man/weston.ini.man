@@ -571,6 +571,66 @@ is true, load the given ICC file as the output color profile. This works only
 on DRM, headless, wayland, and x11 backends, and for remoting and pipewire
 outputs.
 .TP 7
+.BI "color_profile=" name
+If option
+.B color-management
+is true, creates a parametric profile to be used as the output color profile.
+The params used are the ones defined in the
+.B color_profile
+section with key
+.BI "name=" name
+\&. This works only on DRM, headless, wayland, and x11 backends, and for
+remoting and pipewire outputs. If an ICC profile is also set, the ICC profile
+takes precedence.
+
+For users that do not want to define the params themselves, there is also the
+option to create a few pre-defined parametric color profiles with the following
+.BI "color_profile=" name
+possibilities:
+.PP
+.RS 10
+.nf
+.BR  "srgb:        " "creates a parametric sRGB color profile"
+.BR  "auto:<flags> " "creates an automatic parametric color profile"
+.PP
+.RS 10
+.fi
+Automatic parametric color profiles are created accordingly to the colorimetry
+mode and the EOTF that the output is using. We use CTA-861 for the parameters as
+much as possible. There are also optional flags, and in such case we also take
+into consideration the EDID data. The flags should be comma separated, and they
+are:
+
+.BR "edid-primaries " "gets primaries from EDID"
+.RS 10
+The EDID primaries are only used when the colorimetry mode is: default (RGB)
+colorimetry, video sink dependant. Colorimetry modes as defined by CTA-861-H.
+.RE
+
+.BR "edid-tf " "gets power exponent from EDID"
+.RS 10
+The EDID power exponent is only used when the EOTF mode is: SDR (traditional
+gamma, SDR luminance range) or traditional HDR (traditional gamma, HDR luminance
+range). EOTF modes as defined by CTA-861-G.
+.RE
+
+.BR "edid-dr " "gets dynamic range information from EDID"
+.RS 10
+The EDID dynamic range information is only used when the EOTF mode is SMPTE ST
+2084. EOTF modes as defined by CTA-861-G.
+.RE
+
+Examples of automatic color profile names:
+.nf
+.BI "color_profile=" auto:edid-tf,edid-dr
+.BI "color_profile=" auto:edid-dr,edid-primaries
+.BI "color_profile=" auto:
+.fi
+.RE
+.IP
+.RE
+.IP
+.TP 7
 .BI "seat=" name
 The logical seat name that this output should be associated with. If this
 is set then the seat's input will be confined to the output that has the seat
@@ -644,13 +704,6 @@ The mode can be one of the following strings:
 .IP
 Defaults to
 .BR sdr ". Non-SDR modes require " "color-management=true" .
-.TP 7
-.BI "color_characteristics=" name
-Sets the basic output color characteristics by loading the parameters from the
-.B color_characteristics
-section with the key
-.BI "name=" name
-\&. If an ICC profile is also set, the ICC profile takes precedence.
 .\"---------------------------------------------------------------------
 .SH "INPUT-METHOD SECTION"
 .TP 7
@@ -751,9 +804,9 @@ parallel to Weston, so it does not have to immediately exit. Defaults to empty.
 If set to true, quit Weston after the auto-launched executable exits. Set to false
 by default.
 .\"---------------------------------------------------------------------
-.SH "COLOR_CHARACTERISTICS SECTION"
+.SH "COLOR_PROFILE SECTION"
 Each
-.B color_characteristics
+.B color_profile
 section records one set of basic display or monitor color characterisation
 parameters. The parameters are defined in CTA-861-H specification as Static
 Metadata Type 1, and they can also be found in EDID. The parameters are
@@ -766,7 +819,7 @@ just a collection of parameter values and does nothing on its own. It has an
 effect only when referenced from elsewhere.
 .PP
 See
-.BR output " section key " color_characteristics .
+.BR output " section key " color_profile .
 .TP 7
 .BI "name=" name
 An arbitrary name for this section. You can choose any name you want as long as
@@ -775,44 +828,106 @@ it does not contain the colon
 character. Names with at least one colon are reserved.
 .SS Primaries group
 .TP 7
-.BI "red_x=" x
+.BI "prim_red_x=" x
 .TQ
-.BI "red_y=" y
+.BI "prim_red_y=" y
 .TQ
-.BI "green_x=" x
+.BI "prim_green_x=" x
 .TQ
-.BI "green_y=" y
+.BI "prim_green_y=" y
 .TQ
-.BI "blue_x=" x
+.BI "prim_blue_x=" x
 .TQ
-.BI "blue_y=" y
-The CIE 1931 xy chromaticity coordinates of the display primaries.
-These floating point values must reside between 0.0 and 1.0, inclusive.
-.SS White point group
+.BI "prim_blue_y=" y
+.TQ
+.BI "prim_white_x=" x
+.TQ
+.BI "prim_white_y=" y
+Mutually exclusive with
+.B prim_named.
+The CIE 1931 xy chromaticity coordinates of the display primaries and white
+point. Floating point values in the range [-1.0, 2.0].
+.SS Target primaries group
 .TP 7
-.BI "white_x=" x
+.BI "target_red_x=" x
 .TQ
-.BI "white_y=" y
-The CIE 1931 xy chromaticity coordinates of the display white point.
-These floating point values must reside between 0.0 and 1.0, inclusive.
+.BI "target_red_y=" y
+.TQ
+.BI "target_green_x=" x
+.TQ
+.BI "target_green_y=" y
+.TQ
+.BI "target_blue_x=" x
+.TQ
+.BI "target_blue_y=" y
+.TQ
+.BI "target_white_x=" x
+.TQ
+.BI "target_white_y=" y
+The CIE 1931 xy chromaticity coordinates of a target volume fully contained
+inside the primary color volume. Floating point values in the range [-1.0, 2.0].
+.SS Luminance group
+.TP 7
+.BI "min_lum=" L
+.TQ
+.BI "max_lum=" L
+Luminance range that was used during the content mastering process. Floating
+point values in the range [0.0, 100000.0][cd/m²].
 .SS Independent parameters
 Each parameter listed here has its own group and therefore can be given
 alone.
 .TP 7
-.BI "max_L=" L
-Display's desired maximum content luminance (peak)
-.IR L \~cd/m²,
-a floating point value in the range 0.0\(en100000.0.
+.BI "prim_named=" name
+Mutually exclusive with the
+.B Primaries group.
+Instead of typing the primaries and white point, users can use this and set a
+pre-defined color gamut. The following options are allowed:
+.PP
+.RS 10
+.nf
+.BR  "srgb         " "primaries for the sRGB color space as defined by the BT.709 standard"
+.BR  "pal_m        " "primaries for PAL-M as defined by the BT.470 standard"
+.BR  "pal          " "primaries for PAL as defined by the BT.601 standard"
+.BR  "ntsc         " "primaries for NTSC as defined by the BT.601 standard"
+.BR  "generic_film " "generic film with color filters using Illuminant C"
+.BR  "bt2020       " "primaries as defined by the BT.2020 and BT.2100 standard"
+.BR  "cie1931_xyz  " "primaries of the full CIE 1931 XYZ color space"
+.BR  "dci_p3       " "primaries of the DCI P3 color space as defined by the SMPTE RP 431 standard"
+.BR  "display_p3   " "primaries of Display P3 variant of the DCI-P3 color space as defined by the SMPTE EG 432 standard"
+.BR  "adobe_rgb    " "primaries of the Adobe RGB color space as defined by the ISO 12640 standard"
+.fi
+.RE
+.IP
 .TP 7
-.BI "min_L=" L
-Display's desired minimum content luminance
-.IR L \~cd/m²,
-a floating point value in the range 0.0\(en100000.0.
+.BI "tf_named=" name
+Mutually exclusive with
+.B tf_power.
+Instead of setting the exponent of a power-law curve, users can use this and set
+a pre-defined transfer function. The following options are allowed:
+.PP
+.RS 10
+.nf
+.BR  "gamma22   " "assumed display gamma 2.2 transfer function"
+.BR  "gamma28   " "assumed display gamma 2.8 transfer function"
+.BR  "srgb      " "sRGB piece-wise transfer function"
+.BR  "st2084_pq " "perceptual quantizer transfer function"
+.fi
+.RE
+.IP
 .TP 7
-.BI "maxFALL=" L
-Display's desired maximum frame-average light level
-.IR L \~cd/m²,
-a floating point value in the range 0.0\(en100000.0.
+.BI "tf_power=" E
+Mutually exclusive with
+.B tf_named.
+Set the transfer function as the power-law curve with the given exponent.
+Floating point value in the range [1.0, 10.0].
+.TP 7
+.BI "max_fall=" L
+Display's desired maximum frame-average light level. Floating point value in the
+range [0.0, 100000.0][cd/m²].
+.TP 7
+.BI "max_cll=" L
+Display's maximum content light level. Floating point value in the range
+[0.0, 100000.0][cd/m²].
 .\"---------------------------------------------------------------------
 .SH "SEE ALSO"
 .BR weston (1),
