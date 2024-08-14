@@ -178,6 +178,8 @@ struct gl_output_state {
 
 	/* struct gl_renderbuffer::link */
 	struct wl_list renderbuffer_list;
+
+	struct gl_renderbuffer *read_buffer;
 };
 
 struct gl_renderer;
@@ -2557,6 +2559,8 @@ gl_renderer_repaint_output(struct weston_output *output,
 				     WESTON_OUTPUT_CAPTURE_SOURCE_FRAMEBUFFER);
 	gl_renderer_do_capture_tasks(gr, output,
 				     WESTON_OUTPUT_CAPTURE_SOURCE_FULL_FRAMEBUFFER);
+	go->read_buffer = rb;
+
 	wl_signal_emit(&output->frame_signal, output_damage);
 
 	timeline_end_render_query(gr);
@@ -2669,7 +2673,11 @@ gl_renderer_read_pixels(struct weston_output *output,
 	if (use_output(output) < 0)
 		return -1;
 
+	if (go->read_buffer == NULL)
+		return -1;
+
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glBindFramebuffer(GL_FRAMEBUFFER, go->read_buffer->fb);
 	glReadPixels(x, y, width, height, format->gl_format,
 		     format->gl_type, pixels);
 	glPixelStorei(GL_PACK_ALIGNMENT, 4);
