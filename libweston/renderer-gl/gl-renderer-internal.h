@@ -120,7 +120,9 @@ enum egl_display_extension_flag {
 
 /* Keep in sync with gl-renderer.c. */
 enum gl_extension_flag {
+	EXTENSION_ANGLE_FRAMEBUFFER_BLIT          = 1ull << 0,
 	EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER    = 1ull << 1,
+	EXTENSION_APPLE_FRAMEBUFFER_MULTISAMPLE   = 1ull << 2,
 	EXTENSION_APPLE_TEXTURE_PACKED_FLOAT      = 1ull << 3,
 	EXTENSION_ARM_RGBA8                       = 1ull << 4,
 	EXTENSION_EXT_COLOR_BUFFER_FLOAT          = 1ull << 5,
@@ -137,6 +139,7 @@ enum gl_extension_flag {
 	EXTENSION_EXT_TEXTURE_STORAGE             = 1ull << 16,
 	EXTENSION_EXT_TEXTURE_TYPE_2_10_10_10_REV = 1ull << 17,
 	EXTENSION_EXT_UNPACK_SUBIMAGE             = 1ull << 18,
+	EXTENSION_NV_FRAMEBUFFER_BLIT             = 1ull << 19,
 	EXTENSION_NV_PACKED_FLOAT                 = 1ull << 20,
 	EXTENSION_NV_PIXEL_BUFFER_OBJECT          = 1ull << 21,
 	EXTENSION_OES_EGL_IMAGE                   = 1ull << 22,
@@ -197,6 +200,12 @@ enum gl_feature_flag {
 
 	/* GL renderer can create 3D textures. */
 	FEATURE_TEXTURE_3D = 1ull << 9,
+
+	/* The framebuffer target of the GL renderer is separated into read and
+	 * draw targets. Use the read_target and draw_target members of the
+	 * gl_renderer struct instead of the GL_READ_FRAMEBUFFER and
+	 * GL_DRAW_FRAMEBUFFER targets. */
+	FEATURE_SEPARATED_READ_DRAW_FRAMEBUFFERS = 1ull << 10,
 };
 
 /* Keep the following in sync with vertex.glsl. */
@@ -476,6 +485,8 @@ struct gl_renderer {
 	uint64_t features;
 
 	GLenum pbo_usage;
+	GLenum read_target;
+	GLenum draw_target;
 
 	bool blend_state;
 

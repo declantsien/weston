@@ -1461,8 +1461,8 @@ gl_fbo_is_format_supported(struct gl_renderer *gr,
 
 /* Initialise a pair of framebuffer and renderbuffer objects. 'format' is a
  * colour-renderable sized internal format listed in Table 1 above with the
- * Renderable column filled. The framebuffer object is left bound on success.
- * Use gl_fbo_fini() to finalise.
+ * Renderable column filled. The framebuffer object is left bound on both the
+ * read and draw framebuffer targets on success. Use gl_fbo_fini() to finalise.
  *
  * OpenGL ES 2 notes:
  *
@@ -1529,8 +1529,8 @@ gl_fbo_fini(GLuint *fb,
 }
 
 /* Initialise a pair of framebuffer and renderbuffer objects to render into an
- * EGL image. The framebuffer object is left bound on success. Use gl_fbo_fini()
- * to finalise.
+ * EGL image. The framebuffer object is left bound on both the read and draw
+ * framebuffer targets on success. Use gl_fbo_fini() to finalise.
  */
 bool
 gl_fbo_image_init(struct gl_renderer *gr,
@@ -1573,9 +1573,9 @@ gl_fbo_image_init(struct gl_renderer *gr,
 /* Initialise a pair of framebuffer and texture objects to render into a
  * texture. 'format' is a colour-renderable sized internal format listed in
  * Table 1 above with the Renderable column filled. The framebuffer object is
- * left bound on the framebuffer target and the texture object is left bound on
- * the 2D texture target of the current texture unit on success. Use
- * gl_fbo_texture_fini() to finalise.
+ * left bound on both the read and draw framebuffer targets and the texture
+ * object is left bound on the 2D texture target of the current texture unit on
+ * success. Use gl_fbo_texture_fini() to finalise.
  */
 bool
 gl_fbo_texture_init(struct gl_renderer *gr,

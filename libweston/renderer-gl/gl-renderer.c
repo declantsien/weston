@@ -298,7 +298,9 @@ struct timeline_render_point {
 
 /* Keep in sync with gl-renderer-internal.h. */
 static const struct gl_extension_table extension_table[] = {
+	EXT("GL_ANGLE_framebuffer_blit", EXTENSION_ANGLE_FRAMEBUFFER_BLIT),
 	EXT("GL_ANGLE_pack_reverse_row_order", EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER),
+	EXT("GL_APPLE_framebuffer_multisample", EXTENSION_APPLE_FRAMEBUFFER_MULTISAMPLE),
 	EXT("GL_APPLE_texture_packed_float", EXTENSION_APPLE_TEXTURE_PACKED_FLOAT),
 	EXT("GL_ARM_rgba8", EXTENSION_ARM_RGBA8),
 	EXT("GL_EXT_color_buffer_float", EXTENSION_EXT_COLOR_BUFFER_FLOAT),
@@ -316,6 +318,7 @@ static const struct gl_extension_table extension_table[] = {
 	EXT("GL_EXT_texture_type_2_10_10_10_REV", EXTENSION_EXT_TEXTURE_TYPE_2_10_10_10_REV),
 	EXT("GL_EXT_unpack_subimage", EXTENSION_EXT_UNPACK_SUBIMAGE),
 	EXT("GL_NV_packed_float", EXTENSION_NV_PACKED_FLOAT),
+	EXT("GL_NV_framebuffer_blit", EXTENSION_NV_FRAMEBUFFER_BLIT),
 	EXT("GL_NV_pixel_buffer_object", EXTENSION_NV_PIXEL_BUFFER_OBJECT),
 	EXT("GL_OES_EGL_image", EXTENSION_OES_EGL_IMAGE),
 	EXT("GL_OES_EGL_image_external", EXTENSION_OES_EGL_IMAGE_EXTERNAL),
@@ -2490,10 +2493,10 @@ gl_renderer_repaint_output(struct weston_output *output,
 
 	/* If using shadow, redirect all drawing to it first. */
 	if (shadow_exists(go)) {
-		glBindFramebuffer(GL_FRAMEBUFFER, go->shadow_fb);
+		glBindFramebuffer(gr->draw_target, go->shadow_fb);
 		glViewport(0, 0, go->area.width, go->area.height);
 	} else {
-		glBindFramebuffer(GL_FRAMEBUFFER, rb->fb);
+		glBindFramebuffer(gr->draw_target, rb->fb);
 		glViewport(go->area.x, area_y,
 			   go->area.width, go->area.height);
 	}
@@ -2544,7 +2547,7 @@ gl_renderer_repaint_output(struct weston_output *output,
 		else
 			repaint_views(output, output_damage);
 
-		glBindFramebuffer(GL_FRAMEBUFFER, rb->fb);
+		glBindFramebuffer(gr->draw_target, rb->fb);
 		glViewport(go->area.x, area_y,
 			   go->area.width, go->area.height);
 		blit_shadow_to_output(output, gr->debug_clear ?
@@ -2662,6 +2665,7 @@ gl_renderer_read_pixels(struct weston_output *output,
 			uint32_t x, uint32_t y,
 			uint32_t width, uint32_t height)
 {
+	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
 
 	x += go->area.x;
@@ -2677,7 +2681,7 @@ gl_renderer_read_pixels(struct weston_output *output,
 		return -1;
 
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
-	glBindFramebuffer(GL_FRAMEBUFFER, go->read_buffer->fb);
+	glBindFramebuffer(gr->read_target, go->read_buffer->fb);
 	glReadPixels(x, y, width, height, format->gl_format,
 		     format->gl_type, pixels);
 	glPixelStorei(GL_PACK_ALIGNMENT, 4);
@@ -4964,6 +4968,19 @@ gl_renderer_setup(struct weston_compositor *ec)
 	if (gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888) &&
 	    gl_has_sized_bgra(gr))
 		gr->features |= FEATURE_SIZED_BGRA;
+
+	/* Separated read/draw framebuffers feature. */
+	if (gr->gl_version >= gl_version(3, 0) ||
+	    gl_extensions_has(gr, EXTENSION_APPLE_FRAMEBUFFER_MULTISAMPLE) ||
+	    gl_extensions_has(gr, EXTENSION_ANGLE_FRAMEBUFFER_BLIT) ||
+	    gl_extensions_has(gr, EXTENSION_NV_FRAMEBUFFER_BLIT)) {
+		gr->read_target = GL_READ_FRAMEBUFFER;
+		gr->draw_target = GL_DRAW_FRAMEBUFFER;
+		gr->features |= FEATURE_SEPARATED_READ_DRAW_FRAMEBUFFERS;
+	} else {
+		gr->read_target = GL_FRAMEBUFFER;
+		gr->draw_target = GL_FRAMEBUFFER;
+	}
 
 	wl_list_init(&gr->pending_capture_list);
 
