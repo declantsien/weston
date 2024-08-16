@@ -758,7 +758,7 @@ gl_renderer_create_renderbuffer(struct weston_output *output,
 		return NULL;
 	}
 
-	if (!gl_fbo_init(format->gl_internalformat, go->fb_size.width,
+	if (!gl_fbo_init(gr, format->gl_internalformat, go->fb_size.width,
 			 go->fb_size.height, &fb, &rb)) {
 		weston_log("Failed to init renderbuffer%s\n",
 			   buffer ? " from buffer" : "");
@@ -3747,8 +3747,10 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		.input_tex_filter = GL_NEAREST,
 	};
 	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	struct gl_renderer *gr = get_renderer(surface->compositor);
+	GLenum fbo_format = gl_fbo_is_format_supported(gr, GL_RGBA8) ?
+		GL_RGBA8 : GL_RGBA4;
+	GLenum read_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
 	struct gl_surface_state *gs;
 	struct gl_buffer_state *gb;
 	struct weston_buffer *buffer;
@@ -3778,7 +3780,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 
 	gl_shader_config_set_input_textures(&sconf, gs);
 
-	if (!gl_fbo_init(GL_RGBA, cw, ch, &fbo, &rb)) {
+	if (!gl_fbo_init(gr, fbo_format, cw, ch, &fbo, &rb)) {
 		weston_log("Failed to init FBO\n");
 		goto fbo_init_error;
 	}
@@ -3805,7 +3807,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
 	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
 
-	glReadPixels(src_x, src_y, width, height, gl_format,
+	glReadPixels(src_x, src_y, width, height, read_format,
 		     GL_UNSIGNED_BYTE, target);
 	ret = 0;
 
