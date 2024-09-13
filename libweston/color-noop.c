@@ -208,6 +208,28 @@ cmnoop_create_output_color_outcome(struct weston_color_manager *cm_base,
 	return co;
 }
 
+static float *
+cmnoop_get_output_to_blend_lut(struct weston_color_manager *cm,
+			       struct weston_output *output,
+			       uint32_t len)
+{
+	unsigned int i;
+	float val;
+	float *lut;
+
+	lut = xzalloc(3 * len * sizeof(*lut));
+
+	/* Identity transform */
+	for (i = 0; i < len; i++) {
+		val = (float)i / (len - 1);
+		lut[i          ] = val;
+		lut[i + len    ] = val;
+		lut[i + 2 * len] = val;
+	}
+
+	return lut;
+}
+
 static bool
 cmnoop_create_stock_profile(struct weston_color_manager_noop *cm)
 {
@@ -272,6 +294,7 @@ weston_color_manager_noop_create(struct weston_compositor *compositor)
 	cm->base.destroy_color_transform = cmnoop_destroy_color_transform;
 	cm->base.get_surface_color_transform = cmnoop_get_surface_color_transform;
 	cm->base.create_output_color_outcome = cmnoop_create_output_color_outcome;
+	cm->base.get_output_to_blend_lut = cmnoop_get_output_to_blend_lut;
 
 	/* We don't support anything related to the CM&HDR protocol extension */
 	cm->base.supported_color_features = 0;

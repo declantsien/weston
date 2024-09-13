@@ -1440,3 +1440,49 @@ cmlcms_color_transform_get(struct weston_color_manager_lcms *cm,
 
 	return xform;
 }
+
+float *
+cmlcms_get_output_to_blend_lut(struct weston_color_manager *cm_base,
+			       struct weston_output *output,
+			       uint32_t len)
+{
+	struct weston_color_manager_lcms *cm = to_cmlcms(cm_base);
+	struct weston_compositor *compositor = cm_base->compositor;
+	struct cmlcms_color_profile *output_profile;
+	const struct weston_render_intent_info *render_intent;
+	struct lcmsProfilePtr chain[5];
+	cmsHTRANSFORM xform;
+	float in[3], out[3];
+	unsigned chain_len = 0;
+	float *lut;
+	unsigned int i;
+
+	output_profile = to_cmlcms_cprof(output->color_profile);
+
+	chain[chain_len++] = output_profile->extract.inv_eotf;
+	if (output_profile->extract.vcgt.p)
+		chain[chain_len++] = output_profile->extract.vcgt;
+
+	render_intent = weston_render_intent_info_from(compositor,
+						       WESTON_RENDER_INTENT_ABSOLUTE);
+
+	xform = cmsCreateMultiprofileTransformTHR(cm->lcms_ctx,
+						  from_lcmsProfilePtr_array(chain),
+						  chain_len,
+						  TYPE_RGB_FLT,
+						  TYPE_RGB_FLT,
+						  render_intent->lcms_intent,
+						  0);
+
+	lut = xzalloc(len * 3 * sizeof(*lut));
+
+	for (i = 0; i < len; i++) {
+		in[0] = in[1] = in[2] = (float)i / (len - 1);
+		cmsDoTransform(xform, in, out, 1);
+		lut[i           ] = out[0];
+		lut[i + len     ] = out[1];
+		lut[i + 2 * len ] = out[2];
+	}
+
+	return lut;
+}

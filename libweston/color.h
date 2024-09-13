@@ -569,6 +569,20 @@ struct weston_color_manager {
 	struct weston_output_color_outcome *
 	(*create_output_color_outcome)(struct weston_color_manager *cm,
 				       struct weston_output *output);
+
+	/** Get output-to-blend transformation in 3x1D LUT's
+	 *
+	 * \param cm The color manager.
+	 * \param output The output.
+	 * \param len The LUT size, for each 1D LUT.
+	 * \return The 3x1D LUT's constructed. Consists of 3 x len elements.
+	 * First we have the R channel LUT, immediately followed by G channel
+	 * LUT, and then B channel LUT. Caller's responsibility to free.
+	 */
+	float *
+	(*get_output_to_blend_lut)(struct weston_color_manager *cm,
+				   struct weston_output *output,
+				   uint32_t len);
 };
 
 void

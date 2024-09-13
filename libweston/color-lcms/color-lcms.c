@@ -496,6 +496,7 @@ weston_color_manager_create(struct weston_compositor *compositor)
 	cm->base.destroy_color_transform = cmlcms_destroy_color_transform;
 	cm->base.get_surface_color_transform = cmlcms_get_surface_color_transform;
 	cm->base.create_output_color_outcome = cmlcms_create_output_color_outcome;
+	cm->base.get_output_to_blend_lut = cmlcms_get_output_to_blend_lut;
 
 	/* We still do not support creating parametric color profiles. */
 	cm->base.supported_color_features = (1 << WESTON_COLOR_FEATURE_ICC);
