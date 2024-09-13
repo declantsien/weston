@@ -522,6 +522,7 @@ struct drm_crtc {
 
 	/* Holds the properties for the CRTC */
 	struct drm_property_info props_crtc[WDRM_CRTC__COUNT];
+	drmModeObjectPropertiesPtr props_crtc_drm;
 };
 
 struct drm_output {

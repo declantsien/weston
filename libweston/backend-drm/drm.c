@@ -2024,6 +2024,7 @@ drm_crtc_create(struct drm_device *device, uint32_t crtc_id, uint32_t pipe)
 
 	drm_property_info_populate(device, crtc_props, crtc->props_crtc,
 				   WDRM_CRTC__COUNT, props);
+	crtc->props_crtc_drm = props;
 	crtc->device = device;
 	crtc->crtc_id = crtc_id;
 	crtc->pipe = pipe;
@@ -2031,6 +2032,8 @@ drm_crtc_create(struct drm_device *device, uint32_t crtc_id, uint32_t pipe)
 
 	/* Add it to the last position of the DRM-backend CRTC list */
 	wl_list_insert(device->crtc_list.prev, &crtc->link);
+
+	return crtc;
 
 ret:
 	drmModeFreeObjectProperties(props);
@@ -2047,6 +2050,7 @@ drm_crtc_destroy(struct drm_crtc *crtc)
 
 	wl_list_remove(&crtc->link);
 	drm_property_info_free(crtc->props_crtc, WDRM_CRTC__COUNT);
+	drmModeFreeObjectProperties(crtc->props_crtc_drm);
 	free(crtc);
 }
 
