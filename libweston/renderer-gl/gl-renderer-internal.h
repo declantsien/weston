@@ -234,6 +234,8 @@ struct gl_renderer {
 	PFNEGLQUERYWAYLANDBUFFERWL query_buffer;
 	bool has_bind_display;
 
+	bool has_float_point_configs;
+
 	bool has_context_priority;
 
 	bool has_egl_image_external;

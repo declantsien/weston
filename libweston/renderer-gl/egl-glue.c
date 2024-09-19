@@ -398,6 +398,9 @@ gl_renderer_get_egl_config(struct gl_renderer *gr,
 	EGLConfig egl_config;
 	unsigned i;
 	char *what;
+	bool contains_float_point_format = false;
+	bool contains_fixed_point_format = false;
+	int ret = -1;
 	EGLint config_attribs[] = {
 		EGL_SURFACE_TYPE,    egl_surface_type,
 		EGL_RED_SIZE,        1,
@@ -406,16 +409,37 @@ gl_renderer_get_egl_config(struct gl_renderer *gr,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_NONE
 	};
+	EGLint config_attribs_float[] = {
+		EGL_SURFACE_TYPE,    egl_surface_type,
+		EGL_RED_SIZE,        1,
+		EGL_GREEN_SIZE,      1,
+		EGL_BLUE_SIZE,       1,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_COLOR_COMPONENT_TYPE_EXT, EGL_COLOR_COMPONENT_TYPE_FLOAT_EXT,
+		EGL_NONE
+	};
 
-	for (i = 0; i < formats_count; i++)
+	for (i = 0; i < formats_count; i++) {
 		assert(formats[i]);
+		if (formats[i]->component_type == PIXEL_COMPONENT_TYPE_FLOAT)
+			contains_float_point_format = true;
+		else if (formats[i]->component_type == PIXEL_COMPONENT_TYPE_FIXED)
+			contains_fixed_point_format = true;
+	}
 
 	if (egl_config_is_compatible(gr, gr->egl_config, egl_surface_type,
 				     formats, formats_count))
 		return gr->egl_config;
 
-	if (egl_choose_config(gr, config_attribs, formats, formats_count,
-			      &egl_config) < 0) {
+	if (contains_float_point_format && gr->has_float_point_configs)
+		ret = egl_choose_config(gr, config_attribs_float,
+					formats, formats_count, &egl_config);
+
+	if (ret < 0 && contains_fixed_point_format)
+		ret = egl_choose_config(gr, config_attribs,
+					formats, formats_count, &egl_config);
+
+	if (ret < 0) {
 		what = explain_egl_config_criteria(egl_surface_type,
 						   formats, formats_count);
 		weston_log("No EGLConfig matches %s.\n", what);
@@ -650,6 +674,9 @@ gl_renderer_setup_egl_extensions(struct weston_compositor *ec)
 		weston_log("Retrieving EGL extension string failed.\n");
 		return -1;
 	}
+
+	if (weston_check_egl_extension(extensions, "EGL_EXT_pixel_format_float"))
+		gr->has_float_point_configs = true;
 
 	if (weston_check_egl_extension(extensions, "EGL_IMG_context_priority"))
 		gr->has_context_priority = true;
