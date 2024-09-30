@@ -850,6 +850,17 @@ drm_output_propose_state(struct weston_output *output_base,
 		}
 		pixman_region32_fini(&surface_overlap);
 
+		/* If need_underlay, but view contains alpha, then it needs to
+		 * be rendered. Only fully-opaque views can go on an underlay.
+		 */
+		if (need_underlay &&
+		    !weston_view_is_opaque(ev, &ev->transform.boundingbox)) {
+			force_renderer = true;
+			drm_debug(b, "\t\t\t\t[view] not assigning view %p to "
+				     "a plane (alpha view occluded by renderer "
+				     "views)", ev);
+		}
+
 		/* In case of enforced mode of content-protection do not
 		 * assign planes for a protected surface on an unsecured output.
 		 */
