@@ -28,6 +28,7 @@
 #include "config.h"
 
 #include <assert.h>
+#include <drm_fourcc.h>
 
 #include "shared/helpers.h"
 #include "shared/platform.h"
@@ -224,6 +225,55 @@ log_all_egl_configs(EGLDisplay egldpy)
 
 out:
 	free(configs);
+}
+
+int
+egl_set_supported_rendering_formats(EGLDisplay egldpy,
+				    struct weston_drm_format_array *supported_formats)
+{
+	const struct pixel_format_info *p;
+	struct weston_drm_format *fmt;
+	EGLConfig *configs;
+	EGLint count = 0;
+	EGLint value;
+	EGLint i;
+
+	weston_drm_format_array_init(supported_formats);
+
+	if (!eglGetConfigs(egldpy, NULL, 0, &count) || count < 1)
+		return -1;
+
+	configs = zalloc(count * sizeof(*configs));
+	if (!configs)
+		return -1;
+
+	if (!eglGetConfigs(egldpy, configs, count, &count)) {
+		free(configs);
+		return -1;
+	}
+
+	for (i = 0; i < count; i++) {
+		if (!eglGetConfigAttrib(egldpy, configs[i], EGL_NATIVE_VISUAL_ID, &value))
+			continue;
+		if (value == 0)
+			continue;
+
+		p = pixel_format_get_info(value);
+		if (!p)
+			continue;
+
+		if (!weston_drm_format_array_find_format(supported_formats, p->format)) {
+			fmt = weston_drm_format_array_add_format(supported_formats, p->format);
+			if (!fmt)
+				continue;
+			weston_drm_format_add_modifier(fmt, DRM_FORMAT_MOD_LINEAR);
+			weston_drm_format_add_modifier(fmt, DRM_FORMAT_MOD_INVALID);
+		}
+	}
+
+	free(configs);
+
+	return 0;
 }
 
 void

@@ -161,6 +161,19 @@ struct gl_renderer_interface {
 				    const struct gl_renderer_output_options *options);
 
 	/**
+	 * Query rendering formats supported by GL
+	 *
+	 * \param ec The weston_compositor.
+	 * \return The struct weston_drm_format_array with the formats.
+	 *
+	 * This function returns the formats that are present in the EGLConfig's
+	 * that we query from the EGLDisplay. Such formats can be used for
+	 * rendering.
+	 */
+	struct weston_drm_format_array *
+	(*get_supported_rendering_formats)(struct weston_compositor *ec);
+
+	/**
 	 * Attach GL-renderer to the output with a frame buffer object
 	 *
 	 * \param output The output to prepare for FBO rendering.
