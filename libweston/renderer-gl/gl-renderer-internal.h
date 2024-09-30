@@ -216,7 +216,7 @@ struct gl_renderer {
 	EGLDeviceEXT egl_device;
 	const char *drm_device;
 
-	struct weston_drm_format_array supported_formats;
+	struct weston_drm_format_array supported_dmabuf_formats;
 
 	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC image_target_texture_2d;
 	PFNGLTEXIMAGE3DOESPROC tex_image_3d;
