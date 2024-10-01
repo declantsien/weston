@@ -229,26 +229,102 @@ create_gbm_surface(struct gbm_device *gbm, struct drm_output *output)
 							 output->gbm_bo_flags);
 }
 
+static const struct pixel_format_info *
+find_one_of_the_formats(struct weston_drm_format_array *arr,
+			const uint32_t *formats, uint32_t n_formats)
+{
+	const struct pixel_format_info *p;
+	struct weston_drm_format *fmt;
+	unsigned int i;
+
+	for (i = 0; i < n_formats; i++) {
+		fmt = weston_drm_format_array_find_format(arr, formats[i]);
+		if (fmt) {
+			p = pixel_format_get_info(fmt->format);
+			if (!p)
+				continue;
+			return p;
+		}
+	}
+
+	return NULL;
+}
+
+static bool
+drm_output_pick_format_egl(struct drm_output *output)
+{
+	struct drm_device *device = output->device;
+	struct drm_backend *b = device->backend;
+	const struct weston_renderer *renderer = b->compositor->renderer;
+	struct weston_drm_format_array *supported_formats;
+	uint32_t alpha_10bpc[] = { DRM_FORMAT_ARGB2101010, DRM_FORMAT_ABGR2101010 };
+	uint32_t opaque_10bpc[] = { DRM_FORMAT_XRGB2101010, DRM_FORMAT_XBGR2101010 };
+
+	supported_formats = renderer->gl->get_supported_rendering_formats(b->compositor);
+	if (weston_drm_format_array_intersect(supported_formats, &output->scanout_plane->formats) < 0)
+		return false;
+
+	if (output->base.eotf_mode != WESTON_EOTF_MODE_SDR) {
+		if (b->has_underlay) {
+			output->format = find_one_of_the_formats(supported_formats, alpha_10bpc,
+								 ARRAY_LENGTH(alpha_10bpc));
+			if (!output->format) {
+				weston_log("Error, EOTF mode %s and underlay planes supported, that requires " \
+					   "10bpc formats with alpha channel.\n",
+					   weston_eotf_mode_to_str(output->base.eotf_mode));
+				return false;
+			}
+		} else {
+			output->format = find_one_of_the_formats(supported_formats, opaque_10bpc,
+								 ARRAY_LENGTH(opaque_10bpc));
+			if (!output->format) {
+				weston_log("Error, EOTF mode %s requires 10bpc formats.\n",
+					   weston_eotf_mode_to_str(output->base.eotf_mode));
+				return false;
+			}
+		}
+		return true;
+	}
+
+	if (!weston_drm_format_array_find_format(supported_formats, b->format->format)) {
+		weston_log("Error, b->format unsupported by EGL\n");
+		return false;
+	}
+
+	if (b->has_underlay && !b->format->bits.a != 0) {
+		weston_log("Error, b->format does not have alpha channel, which is " \
+			   "required to support underlay planes.\n");
+		return false;
+	}
+
+	output->format = b->format;
+	return true;
+}
+
 /* Init output state that depends on gl or gbm */
 int
 drm_output_init_egl(struct drm_output *output, struct drm_backend *b)
 {
 	const struct weston_renderer *renderer = b->compositor->renderer;
 	const struct weston_mode *mode = output->base.current_mode;
-	const struct pixel_format_info *format[2] = {
-		output->format,
-		fallback_format_for(output->format),
-	};
-	struct gl_renderer_output_options options = {
-		.formats = format,
-		.formats_count = 1,
-		.area.x = 0,
-		.area.y = 0,
-		.area.width = mode->width,
-		.area.height = mode->height,
-		.fb_size.width = mode->width,
-		.fb_size.height = mode->height,
-	};
+	const struct pixel_format_info *format[2];
+	struct gl_renderer_output_options options;
+
+	if (!output->format && !drm_output_pick_format_egl(output))
+		return -1;
+
+	format[0] = output->format;
+	if (!b->has_underlay)
+		format[1] = fallback_format_for(output->format);
+
+	options.formats = format;
+	options.formats_count = format[1] ? 2 : 1;
+	options.area.x = 0;
+	options.area.y = 0;
+	options.area.width = mode->width;
+	options.area.height = mode->height;
+	options.fb_size.width = mode->width;
+	options.fb_size.height = mode->height;
 
 	assert(output->gbm_surface == NULL);
 	create_gbm_surface(b->gbm, output);
