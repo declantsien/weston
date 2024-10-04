@@ -57,6 +57,7 @@
 #include "shared/timespec-util.h"
 #include "shared/string-helpers.h"
 #include "shared/weston-drm-fourcc.h"
+#include "shared/xalloc.h"
 #include "output-capture.h"
 #include "pixman-renderer.h"
 #include "pixel-formats.h"
@@ -1588,6 +1589,7 @@ drm_output_pick_format_pixman(struct drm_output *output)
 
 	/* These are options that require a few specific formats. But they
 	 * require color-management, which is only supported by GL-renderer. */
+	assert(!output->base.from_blend_to_output_by_backend);
 	assert(output->base.eotf_mode == WESTON_EOTF_MODE_SDR);
 
 	if (b->has_underlay && !b->format->bits.a != 0) {
@@ -1902,6 +1904,128 @@ drm_output_init_legacy_gamma_size(struct drm_output *output)
 	return 0;
 }
 
+static void
+drm_color_xform_destroy(struct drm_color_xform *xform)
+{
+	wl_list_remove(&xform->destroy_listener.link);
+	wl_list_remove(&xform->link);
+	drmModeDestroyPropertyBlob(xform->crtc->device->drm.fd, xform->blob_id);
+	free(xform);
+}
+
+static void
+drm_color_xform_destroy_handler(struct wl_listener *l, void *data)
+{
+	struct drm_color_xform *drm_xform;
+
+	drm_xform = wl_container_of(l, drm_xform, destroy_listener);
+	assert(drm_xform->xform == data);
+
+	drm_color_xform_destroy(drm_xform);
+}
+
+static void
+drm_output_release_color_xform(struct drm_output *output)
+{
+	struct weston_compositor *compositor = output->base.compositor;
+	struct drm_color_xform *drm_xform = output->blend_to_output_xform;
+	struct weston_output *base;
+
+	if (!output->base.from_blend_to_output_by_backend)
+		return;
+
+	assert(drm_xform);
+	output->blend_to_output_xform = NULL;
+	output->base.from_blend_to_output_by_backend = false;
+
+	/* If any other output is using the xform, do not destroy it. */
+	wl_list_for_each(base, &compositor->output_list, link) {
+		struct drm_output *ptr = to_drm_output(base);
+		if (ptr->blend_to_output_xform == drm_xform)
+			return;
+	}
+
+	drm_color_xform_destroy(drm_xform);
+}
+
+static int
+drm_output_pick_color_xform(struct drm_output *output)
+{
+	struct weston_compositor *compositor = output->base.compositor;
+	struct drm_device *device = output->device;
+	struct drm_color_xform *drm_xform;
+	struct drm_color_lut *lut;
+	uint64_t lut_size;
+	uint32_t gamma_lut_blob_id;
+	float *cm_lut;
+	unsigned int i;
+	int ret;
+
+	assert(output->crtc);
+	assert(output->device);
+
+	/**
+	 * We use the blend-to-output color xform only when we are offloading
+	 * this transformation to KMS. That only happens when cfg option
+	 * offload-blend-to-output is true (which can only be enabled when
+	 * color-management is on).
+	 */
+	if (!compositor->color_manager || !compositor->offload_blend_to_output)
+		return 0;
+
+	/**
+	 * First let's check if the xform has already been cached. If that's the
+	 * case, we make use of it.
+	 */
+	wl_list_for_each(drm_xform, &output->crtc->cached_color_xform_list, link) {
+		if (drm_xform->xform == output->base.color_outcome->from_blend_to_output) {
+			output->blend_to_output_xform = drm_xform;
+			output->base.from_blend_to_output_by_backend = true;
+			return 0;
+		}
+	}
+
+	lut_size = drm_property_get_value(&output->crtc->props_crtc[WDRM_CRTC_GAMMA_LUT_SIZE],
+					  output->crtc->props_crtc_drm, 0);
+	if (lut_size == 0)
+		return 0;
+
+	lut = xzalloc(lut_size * sizeof(*lut));
+
+	cm_lut = compositor->color_manager->get_output_to_blend_lut(compositor->color_manager,
+								    &output->base, lut_size);
+
+	for (i = 0; i < lut_size; i++) {
+		lut[i].red   = cm_lut[i] * 0xffff;
+		lut[i].green = cm_lut[i + lut_size] * 0xffff;
+		lut[i].blue  = cm_lut[i + 2 * lut_size] * 0xffff;
+	}
+
+	free(cm_lut);
+
+	ret = drmModeCreatePropertyBlob(device->drm.fd, lut, lut_size * sizeof(*lut),
+					&gamma_lut_blob_id);
+
+	free(lut);
+
+	if (ret < 0)
+		return -1;
+
+	/* Cache the xform. */
+	drm_xform = xzalloc(sizeof(*drm_xform));
+	drm_xform->blob_id = gamma_lut_blob_id;
+	drm_xform->crtc = output->crtc;
+	drm_xform->xform = output->base.color_outcome->from_blend_to_output;
+	wl_list_insert(&output->crtc->cached_color_xform_list, &drm_xform->link);
+	drm_xform->destroy_listener.notify = drm_color_xform_destroy_handler;
+	wl_signal_add(&drm_xform->xform->destroy_signal, &drm_xform->destroy_listener);
+
+	output->blend_to_output_xform = drm_xform;
+	output->base.from_blend_to_output_by_backend = true;
+
+	return 0;
+}
+
 enum writeback_screenshot_state
 drm_output_get_writeback_state(struct drm_output *output)
 {
@@ -2042,6 +2166,8 @@ drm_crtc_create(struct drm_device *device, uint32_t crtc_id, uint32_t pipe)
 	crtc = zalloc(sizeof(*crtc));
 	if (!crtc)
 		goto ret;
+
+	wl_list_init(&crtc->cached_color_xform_list);
 
 	drm_property_info_populate(device, crtc_props, crtc->props_crtc,
 				   WDRM_CRTC__COUNT, props);
@@ -2345,6 +2471,9 @@ drm_output_enable(struct weston_output *base)
 	if (drm_output_init_legacy_gamma_size(output) < 0)
 		goto err_planes;
 
+	if (drm_output_pick_color_xform(output) < 0)
+		goto err_planes;
+
 	if (b->pageflip_timeout)
 		drm_output_pageflip_timer_create(output);
 
@@ -2405,6 +2534,7 @@ drm_output_deinit(struct weston_output *base)
 	else
 		drm_output_fini_egl(output);
 
+	drm_output_release_color_xform(output);
 	drm_output_deinit_planes(output);
 	drm_output_detach_crtc(output);
 

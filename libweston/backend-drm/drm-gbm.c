@@ -257,12 +257,37 @@ drm_output_pick_format_egl(struct drm_output *output)
 	struct drm_backend *b = device->backend;
 	const struct weston_renderer *renderer = b->compositor->renderer;
 	struct weston_drm_format_array *supported_formats;
+	uint32_t alpha_16bpc[] = { DRM_FORMAT_ARGB16161616, DRM_FORMAT_ABGR16161616,
+				   DRM_FORMAT_ARGB16161616F, DRM_FORMAT_ABGR16161616F };
+	uint32_t opaque_16bpc[] = { DRM_FORMAT_XRGB16161616, DRM_FORMAT_XBGR16161616,
+				    DRM_FORMAT_XRGB16161616F, DRM_FORMAT_XBGR16161616F };
 	uint32_t alpha_10bpc[] = { DRM_FORMAT_ARGB2101010, DRM_FORMAT_ABGR2101010 };
 	uint32_t opaque_10bpc[] = { DRM_FORMAT_XRGB2101010, DRM_FORMAT_XBGR2101010 };
 
 	supported_formats = renderer->gl->get_supported_rendering_formats(b->compositor);
 	if (weston_drm_format_array_intersect(supported_formats, &output->scanout_plane->formats) < 0)
 		return false;
+
+	if (output->base.from_blend_to_output_by_backend) {
+		if (b->has_underlay) {
+			output->format = find_one_of_the_formats(supported_formats, alpha_16bpc,
+								 ARRAY_LENGTH(alpha_16bpc));
+			if (!output->format) {
+				weston_log("Error: offloading blend-to-output color transformation and underlay " \
+					   "planes supported, that requires 16bpc formats with alpha channel.\n");
+				return false;
+			}
+		} else {
+			output->format = find_one_of_the_formats(supported_formats, opaque_16bpc,
+								 ARRAY_LENGTH(opaque_16bpc));
+			if (!output->format) {
+				weston_log("Error: offloading blend-to-output color transformation, that requires " \
+					   "16bpc formats.\n");
+				return false;
+			}
+		}
+		return true;
+	}
 
 	if (output->base.eotf_mode != WESTON_EOTF_MODE_SDR) {
 		if (b->has_underlay) {

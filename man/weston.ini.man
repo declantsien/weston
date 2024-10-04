@@ -241,6 +241,20 @@ video modes. This extended functionality comes at the cost of heavier image
 processing and sometimes a loss of some hardware off-loading features like
 composite-bypass.
 .TP 7
+.BI "offload-blend-to-output=" true
+Allow backend to offload the blend-to-output color transformation (whenever
+possible) instead of performing this transformation in the renderer. Only the
+DRM-backend is capable of doing that at the moment. Requires color management
+enabled.
+Boolean, defaults to
+.BR false .
+
+.I TENTATIVE, EXPERIMENTAL, WORK IN PROGRESS:
+This may result in loss of precision and color banding, depending on how the
+backend offloads the color transformation. For instance, the DRM-backend has
+only LUT's available to offload the blend-to-output transformation, what
+sometimes may not enough.
+.TP 7
 .BI "output-decorations=" true
 For headless-backend with GL-renderer only: draws output window decorations,
 similar to what wayland-backend does for floating output windows.
