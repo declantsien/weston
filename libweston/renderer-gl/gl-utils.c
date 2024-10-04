@@ -101,6 +101,7 @@
  * │ GL_RGBA16F          │ 3.0 │ 3.0 │ 3.2 │ GL_RGBA         │ GL_HALF_FLOAT,                   │
  * │                     │     │     │     │                 │ GL_FLOAT                         │
  * │ GL_RGBA32F          │ 3.0 │     │ 3.2 │ GL_RGBA         │ GL_FLOAT                         │
+ * │ GL_BGRA8_EXT        │ E⁶  │ E⁶  │ E⁶  │ GL_BGRA_EXT     │ GL_UNSIGNED_BYTE                 │
  * │ GL_RGBA8UI          │ 3.0 │     │ 3.0 │ GL_RGBA_INTEGER │ GL_UNSIGNED_BYTE                 │
  * │ GL_RGBA8I           │ 3.0 │     │ 3.0 │ GL_RGBA_INTEGER │ GL_BYTE                          │
  * │ GL_RGB10_A2UI       │ 3.0 │     │ 3.0 │ GL_RGBA_INTEGER │ GL_UNSIGNED_INT_2_10_10_10_REV   │
@@ -224,6 +225,10 @@ is_valid_format_es3(struct gl_renderer *gr,
 		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_NORM16) &&
 			external_format == GL_RGBA;
 
+	case GL_BGRA8_EXT:
+		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888) &&
+			external_format == GL_BGRA_EXT;
+
 	default:
 		return false;
 	}
@@ -258,6 +263,10 @@ is_valid_type_es3(struct gl_renderer *gr,
 
 	case GL_SRG8_EXT:
 		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_SRGB_RG8) &&
+			type == GL_UNSIGNED_BYTE;
+
+	case GL_BGRA8_EXT:
+		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888) &&
 			type == GL_UNSIGNED_BYTE;
 
 	case GL_R8I:
@@ -451,6 +460,14 @@ is_valid_combination_es3(struct gl_renderer *gr,
 			return false;
 		}
 
+	case GL_BGRA_EXT:
+		switch (type) {
+		case GL_UNSIGNED_BYTE:
+			return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888);
+		default:
+			return false;
+		};
+
 	default:
 		return false;
 	}
@@ -544,12 +561,64 @@ is_valid_combination_es2(struct gl_renderer *gr,
 			return false;
 		}
 
+	case GL_BGRA_EXT:
+		switch (type) {
+		case GL_UNSIGNED_BYTE:
+			return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888);
+		default:
+			return false;
+		};
+
 	default:
 		return false;
 	}
 }
 
 #endif /* !defined(NDEBUG) */
+
+/* Check whether the sized BGRA feature is available. This function should only
+ * be used at renderer setup once the extensions have been initialised.
+ */
+bool
+gl_has_sized_bgra(struct gl_renderer *gr)
+{
+	bool has_sized_bgra = false;
+	GLuint tex, rb;
+
+	if (!gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888))
+		return false;
+
+	/* Empty error queue. */
+	while (glGetError() != GL_NO_ERROR);
+
+	/* Check texture creation only when texture immutability isn't available
+	 * because GL_EXT_texture_storage specifies that the sized format must
+	 * be used. */
+	if (!gl_features_has(gr, FEATURE_TEXTURE_IMMUTABILITY)) {
+		glGenTextures(1, &tex);
+		glBindTexture(GL_TEXTURE_2D, tex);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_BGRA8_EXT, 16, 16, 0,
+			     GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
+		if (glGetError() != GL_NO_ERROR)
+			goto error_tex;
+	}
+
+	/* Check renderbuffer creation. */
+	glGenRenderbuffers(1, &rb);
+	glBindRenderbuffer(GL_RENDERBUFFER, rb);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_BGRA8_EXT, 16, 16);
+	if (glGetError() != GL_NO_ERROR)
+		goto error_rb;
+
+	has_sized_bgra = true;
+
+ error_rb:
+	glDeleteRenderbuffers(1, &rb);
+ error_tex:
+	glDeleteTextures(1, &tex);
+
+	return has_sized_bgra;
+}
 
 /* Check whether gl_texture_2d_init() supports texture creation for a given
  * coloured sized internal format or not.
@@ -573,6 +642,9 @@ gl_texture_is_format_supported(struct gl_renderer *gr,
 
 	case GL_SRG8_EXT:
 		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_SRGB_RG8);
+
+	case GL_BGRA8_EXT:
+		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888);
 
 	case GL_R16F:
 	case GL_RG16F:
@@ -660,8 +732,8 @@ gl_texture_is_format_supported(struct gl_renderer *gr,
  * Implementations support at least this subset of formats: GL_R8, GL_RG8,
  * GL_RGB8, GL_RGB565, GL_RGBA8, GL_RGBA4 and GL_RGB5_A1. Additional formats are
  * supported depending on extensions: GL_R16F, GL_RG16F, GL_RGB16F, GL_RGBA16F,
- * GL_R32F, GL_RG32F, GL_RGB32F, GL_RGBA32F, GL_R11F_G11F_B10F, GL_RGB9_E5 and
- * GL_RGB10_A2.
+ * GL_R32F, GL_RG32F, GL_RGB32F, GL_RGBA32F, GL_R11F_G11F_B10F, GL_RGB9_E5,
+ * GL_RGB10_A2 and GL_BGRA8_EXT.
  *
  * This is implemented by implicitly converting 'format' into an external
  * format. If the red and red-green texture formats aren't supported
@@ -821,6 +893,13 @@ gl_texture_2d_init(struct gl_renderer *gr,
 			if (!gl_extensions_has(gr, EXTENSION_OES_REQUIRED_INTERNALFORMAT))
 				format = GL_RGBA;
 			external_format = GL_RGBA;
+			type = GL_UNSIGNED_BYTE;
+			break;
+
+		case GL_BGRA8_EXT:
+			if (!gl_features_has(gr, FEATURE_SIZED_BGRA))
+				format = GL_BGRA_EXT;
+			external_format = GL_BGRA_EXT;
 			type = GL_UNSIGNED_BYTE;
 			break;
 
@@ -994,6 +1073,9 @@ gl_fbo_is_format_supported(struct gl_renderer *gr,
 			gl_extensions_has(gr, EXTENSION_OES_RGB8_RGBA8) ||
 			gl_extensions_has(gr, EXTENSION_OES_REQUIRED_INTERNALFORMAT);
 
+	case GL_BGRA8_EXT:
+		return gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888);
+
 	case GL_SRGB8_ALPHA8:
 	case GL_R8I:
 	case GL_R8UI:
@@ -1079,8 +1161,8 @@ gl_fbo_is_format_supported(struct gl_renderer *gr,
  *
  * Implementations support at least these formats: GL_RGBA4, GL_RGB5_A1 and
  * GL_RGB565. Additional formats are supported depending on extensions: GL_R8,
- * GL_RG8, GL_RGB8, GL_RGBA8, GL_R16F, GL_RG16F, GL_RGB16F, GL_RGBA16F and
- * GL_R11F_G11F_B10F.
+ * GL_RG8, GL_RGB8, GL_RGBA8, GL_R16F, GL_RG16F, GL_RGB16F, GL_RGBA16F,
+ * GL_R11F_G11F_B10F and GL_BGRA8_EXT.
  *
  * See gl_fbo_is_format_supported().
  */
@@ -1099,6 +1181,9 @@ gl_fbo_init(struct gl_renderer *gr,
 		weston_log("Error: FBO format not supported.\n");
 		return false;
 	}
+
+	if (format == GL_BGRA8_EXT && !gl_features_has(gr, FEATURE_SIZED_BGRA))
+		format = GL_BGRA_EXT;
 
 	glGenFramebuffers(1, &fb);
 	glBindFramebuffer(GL_FRAMEBUFFER, fb);

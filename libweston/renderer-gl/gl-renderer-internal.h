@@ -182,6 +182,10 @@ enum gl_feature_flag {
 
 	/* GL renderer can create two-component red-green textures. */
 	FEATURE_TEXTURE_RG = 1ull << 7,
+
+	/* GL renderer supports the GL_EXT_texture_format_BGRA8888 extension
+	 * with the GL_BGRA8_EXT sized internal format revision (23/06/2024). */
+	FEATURE_SIZED_BGRA = 1ull << 8,
 };
 
 /* Keep the following in sync with vertex.glsl. */
@@ -505,6 +509,9 @@ gl_features_has(struct gl_renderer *gr,
 {
 	return (bool) (gr->features & ((uint64_t) flag));
 }
+
+bool
+gl_has_sized_bgra(struct gl_renderer *gr);
 
 bool
 gl_texture_is_format_supported(struct gl_renderer *gr,
