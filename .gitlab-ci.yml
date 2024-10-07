@@ -438,6 +438,18 @@ aarch64-debian-container_prep:
   - ninja -C "$BUILDDIR" coverage-html > "$BUILDDIR/meson-logs/ninja-coverage-html.txt"
   - ninja -C "$BUILDDIR" coverage-xml
 
+# Enable etnaviv renderer in full ARM builds
+.build-options-full-etna:
+  extends:
+    - .build-options-full
+  variables:
+    MESON_OPTIONS: >
+      -Doptimization=0
+      -Db_coverage=true
+      -Dwerror=true
+      -Dtest-skip-is-failure=true
+      -Drenderer-etna=true
+
 x86_64-debian-lts-full-build:
   extends:
     - .test-env-debian-lts-x86_64
@@ -461,7 +473,7 @@ aarch64-debian-lts-full-build:
 aarch64-debian-full-build:
   extends:
     - .test-env-debian-aarch64
-    - .build-options-full
+    - .build-options-full-etna
 
 x86_64-clang-debian-lts-full-build:
   extends:
@@ -485,7 +497,7 @@ aarch64-clang-debian-full-build:
   extends:
     - .test-env-debian-aarch64
     - .build-with-clang
-    - .build-options-full
+    - .build-options-full-etna
 
 # Docs should be invariant on all architectures, so we only do it on Debian
 # x86-64.
