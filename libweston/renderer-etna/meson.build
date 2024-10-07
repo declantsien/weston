@@ -3,6 +3,9 @@ if not get_option('renderer-etna')
 endif
 
 config_h.set('ENABLE_ETNA', '1')
+if get_option('test-etna')
+	config_h.set('ENABLE_ETNA_TESTS', '1')
+endif
 
 srcs_renderer_etna = [
 	'etna-renderer.c',

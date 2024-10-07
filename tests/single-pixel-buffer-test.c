@@ -51,6 +51,12 @@ static const struct setup_args my_setup_args[] = {
 		.renderer = WESTON_RENDERER_GL,
 		.meta.name = "GL"
 	},
+#ifdef ENABLE_ETNA_TESTS
+	{
+		.renderer = WESTON_RENDERER_ETNA,
+		.meta.name = "etnaviv"
+	},
+#endif
 };
 
 static enum test_result_code

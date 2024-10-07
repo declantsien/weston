@@ -59,6 +59,13 @@ static const struct setup_args my_setup_args[] = {
 		.color_management = true,
 		.meta.name = "GL sRGB EOTF"
 	},
+#ifdef ENABLE_ETNA_TESTS
+	{
+		.renderer = WESTON_RENDERER_ETNA,
+		.color_management = false,
+		.meta.name = "etnaviv"
+	},
+#endif
 };
 
 static enum test_result_code

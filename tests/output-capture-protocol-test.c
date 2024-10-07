@@ -48,6 +48,13 @@ static const struct setup_args my_setup_args[] = {
 		.renderer = WESTON_RENDERER_GL,
 		.expected_drm_format = DRM_FORMAT_ARGB8888,
 	},
+#ifdef ENABLE_ETNA_TESTS
+	{
+		.meta.name = "etnaviv",
+		.renderer = WESTON_RENDERER_ETNA,
+		.expected_drm_format = DRM_FORMAT_ARGB8888,
+	},
+#endif
 };
 
 static enum test_result_code

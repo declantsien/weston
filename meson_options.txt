@@ -216,6 +216,12 @@ option(
 	description: 'Tests: consider skip to be a failure'
 )
 option(
+	'test-etna',
+	type: 'boolean',
+	value: false,
+	description: 'Tests: run tests with etnaviv renderer (requires Vivante 2D GPU)'
+)
+option(
 	'doc',
 	type: 'boolean',
 	value: false,
