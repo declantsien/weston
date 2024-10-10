@@ -53,6 +53,7 @@ enum exit_code {
 static int debug_;
 static int verbose_;
 static int timeout_;
+static int dryrun_;
 
 #define pr_ver(...) do { \
 	if (verbose_) \
@@ -908,7 +909,7 @@ calibrator_run(struct calibrator *cal)
 	calibrator_show(cal);
 	display_run(cal->display);
 
-	if (cal->result != CAL_EXIT_SUCCESS)
+	if (cal->result != CAL_EXIT_SUCCESS || dryrun_)
 		return cal->result;
 
 	send_calibration(cal, cal->values);
@@ -948,7 +949,8 @@ help(void)
 		"  --debug         Print messages to help debugging.\n"
 		"  -h, --help      Display this help message\n"
 		"  -v, --verbose   Print list header and calibration result.\n"
-		"  --timeout       Abort after <timeout> seconds without input.\n");
+		"  --timeout       Abort after <timeout> seconds without input.\n"
+		"  -d, --dry-run   calibrate & verify, but don't apply.\n");
 }
 
 int
@@ -964,10 +966,11 @@ main(int argc, char *argv[])
 		{ "debug",   no_argument,       &debug_,   1 },
 		{ "verbose", no_argument,       &verbose_, 1 },
 		{ "timeout", required_argument, NULL,      't' },
-		{ 0,         0,                 NULL,      0  }
+		{ "dry-run", no_argument,       &dryrun_,  1 },
+		{ 0,         0,                 NULL,      0 }
 	};
 
-	while ((c = getopt_long(argc, argv, "hvt", opts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hvtd", opts, NULL)) != -1) {
 		switch (c) {
 		case 'h':
 			help();
@@ -982,6 +985,9 @@ main(int argc, char *argv[])
 				pr_err("invalid timeout value\n");
 				return CAL_EXIT_ERROR;
 			}
+			break;
+		case 'd':
+			dryrun_ = 1;
 			break;
 		case 0:
 			break;
