@@ -5549,28 +5549,14 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
 /** Copy surface contents to system memory.
  *
  * \param surface The surface to copy from.
- * \param target Pointer to the target memory buffer.
- * \param size Size of the target buffer in bytes.
+ * \param buffer The buffer to copy to.
  * \param src_x X location on contents to copy from.
  * \param src_y Y location on contents to copy from.
- * \param width Width in pixels of the area to copy.
- * \param height Height in pixels of the area to copy.
  * \return 0 for success, -1 for failure.
  *
  * Surface contents are maintained by the renderer. They can be in a
  * reserved weston_buffer or as a copy, e.g. a GL texture, or something
  * else.
- *
- * Surface contents are copied into memory pointed to by target,
- * which has size bytes of space available. The target memory
- * may be larger than needed, but being smaller returns an error.
- * The extra bytes in target may or may not be written; their content is
- * unspecified. Size must be large enough to hold the image.
- *
- * The image in the target memory will be arranged in rows from
- * top to bottom, and pixels on a row from left to right. The pixel
- * format is PIXMAN_a8b8g8r8, 4 bytes per pixel, and stride is exactly
- * width * 4.
  *
  * Parameters src_x and src_y define the upper-left corner in buffer
  * coordinates (pixels) to copy from. Parameters width and height
@@ -5592,33 +5578,37 @@ weston_surface_get_bounding_box(struct weston_surface *surface)
  */
 WL_EXPORT int
 weston_surface_copy_content(struct weston_surface *surface,
-			    void *target, size_t size,
-			    int src_x, int src_y,
-			    int width, int height)
+			    struct weston_buffer *buffer,
+			    int src_x, int src_y)
 {
 	struct weston_renderer *rer = surface->compositor->renderer;
 	int cw, ch;
-	const size_t bytespp = 4; /* PIXMAN_a8b8g8r8 */
+
+	if (!buffer || !surface) {
+		weston_log("%s: error: invalid parameter\n", __func__);
+		return -1;
+	}
 
 	if (!rer->surface_copy_content)
 		return -1;
 
+	if (src_x < 0 || src_y < 0) {
+		weston_log("%s: error: invalid offset %d,%d values\n",
+			   __func__, src_x, src_y);
+                return -1;
+	}
+
 	weston_surface_get_content_size(surface, &cw, &ch);
 
-	if (src_x < 0 || src_y < 0)
+	if ((src_x + buffer->width) > cw || (src_y + buffer->height) > ch) {
+		weston_log("%s: error: buffer %dx%d offset %d,%d not "
+			   "appropriate for surface %dx%d \n", __func__,
+			   buffer->width, buffer->height, src_x, src_y,
+			   cw, ch);
 		return -1;
+	}
 
-	if (width <= 0 || height <= 0)
-		return -1;
-
-	if (src_x + width > cw || src_y + height > ch)
-		return -1;
-
-	if (width * bytespp * height > size)
-		return -1;
-
-	return rer->surface_copy_content(surface, target, size,
-					 src_x, src_y, width, height);
+	return rer->surface_copy_content(surface, buffer, src_x, src_y);
 }
 
 static void

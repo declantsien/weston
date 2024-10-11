@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2013 DENSO CORPORATION
- *
+ * Copyright (C) 2024 Robert Bosch GmbH
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -36,6 +37,7 @@
 #include <sys/mman.h>
 #include <getopt.h>
 #include <errno.h>
+#include <gbm.h>
 #include <wayland-cursor.h>
 #include <wayland-client-protocol.h>
 #include "shared/cairo-util.h"
@@ -47,6 +49,14 @@
 #include "shared/file-util.h"
 #include "ivi-application-client-protocol.h"
 #include "ivi-hmi-controller-client-protocol.h"
+#include "linux-dmabuf-unstable-v1-client-protocol.h"
+#include "pixel-formats.h"
+#include <pixman.h>
+#include "shared/weston-drm-fourcc.h"
+#include <limits.h>
+#include <xf86drm.h>
+
+#define MAX_BUFFER_PLANES 4
 
 /**
  * A reference implementation how to use ivi-hmi-controller interface to
@@ -75,6 +85,58 @@
 /*****************************************************************************
  *  structure, globals
  ****************************************************************************/
+enum {
+	SHM_BUFFER,
+	DMA_BUFFER
+};
+
+struct buffer {
+	struct wl_buffer *proxy;
+	void * data;
+	size_t len;
+	pixman_image_t *image;
+	int buffer_type;
+};
+
+struct client_surface {
+	uint32_t id;
+	uint32_t source_width;
+	uint32_t source_height;
+	uint32_t dest_width;
+	uint32_t dest_height;
+	uint32_t dest_x;
+	uint32_t dest_y;
+};
+
+struct surfaceDumpData {
+	struct zwp_linux_dmabuf_v1 *dmabuf;
+	struct buffer *buffer;
+	int width;
+	int height;
+	int stride;
+	// gbm information
+    struct {
+        struct {
+            int drm_fd;
+            struct gbm_device *gbm;
+        } device;
+        struct gbm_bo *bo;
+        int plane_fd[MAX_BUFFER_PLANES];
+        void *map;
+    } gbm_buffer_info;
+	int gbm_setup_fail;
+
+	struct wl_array *client_surfaces;
+	uint32_t id;
+	uint32_t panel_height;
+};
+
+// to save lastest coordinates of pointer
+struct pointer_coordinates {
+	double_t x;
+	double_t y;
+};
+
 enum cursor_type {
 	CURSOR_BOTTOM_LEFT,
 	CURSOR_BOTTOM_RIGHT,
@@ -92,7 +154,16 @@ enum cursor_type {
 
 	CURSOR_BLANK
 };
+
+struct output {
+	struct wl_output 	*wlOutput;
+	uint32_t		screen_width;
+	uint32_t		screen_height;
+	int			changed;
+};
+
 struct wlContextCommon {
+	struct output 			*output;
 	struct wl_display		*wlDisplay;
 	struct wl_registry		*wlRegistry;
 	struct wl_compositor		*wlCompositor;
@@ -112,6 +183,8 @@ struct wlContextCommon {
 	struct wl_surface		*pointer_surface;
 	enum   cursor_type		current_cursor;
 	uint32_t			enter_serial;
+	struct surfaceDumpData		*surfaceDumpData;
+	struct pointer_coordinates	*pointer_coordinates;
 };
 
 struct wlContextStruct {
@@ -154,9 +227,11 @@ hmi_homescreen_setting {
 	struct hmi_homescreen_srf sidebyside;
 	struct hmi_homescreen_srf fullscreen;
 	struct hmi_homescreen_srf random;
+	struct hmi_homescreen_srf surfacedump;
 	struct hmi_homescreen_srf home;
 	struct hmi_homescreen_srf workspace_background;
-
+	struct hmi_homescreen_srf surface_dump_overlay;
+	struct hmi_homescreen_srf surface_dump_hint;
 	struct wl_list workspace_list;
 	struct wl_list launcher_list;
 
@@ -165,6 +240,8 @@ hmi_homescreen_setting {
 	uint32_t	transition_duration;
 	uint32_t	surface_id_offset;
 	int32_t		screen_num;
+	char		*drm_render_node;
+	int		surface_dump_active;
 };
 
 /*****************************************************************************
@@ -178,6 +255,44 @@ shm_format(void *data, struct wl_shm *pWlShm, uint32_t format)
 
 	pCtx->formats |= (1 << format);
 }
+
+static void
+dmabuf_modifiers(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf,
+                 uint32_t format, uint32_t modifier_hi, uint32_t modifier_lo)
+{
+    /* XXX: unimplemented */
+}
+
+static void
+dmabuf_format(void *data, struct zwp_linux_dmabuf_v1 *zwp_linux_dmabuf, uint32_t format)
+{
+	/* XXX: unimplemented */
+}
+
+static void
+create_succeeded(void *data,
+                 struct zwp_linux_buffer_params_v1 *params,
+                 struct wl_buffer *new_buffer)
+{
+    /* not used for zwp_linux_buffer_params_v1_create_immed() */
+}
+
+static void
+create_failed(void *data, struct zwp_linux_buffer_params_v1 *params)
+{
+    fprintf(stderr, "%s: error: zwp_linux_buffer_params.create failed.\n",
+	    __func__);
+}
+
+static const struct zwp_linux_dmabuf_v1_listener dmabuf_listener = {
+	dmabuf_format,
+	dmabuf_modifiers
+};
+
+static const struct zwp_linux_buffer_params_v1_listener params_listener = {
+    create_succeeded,
+    create_failed
+};
 
 static struct wl_shm_listener shm_listenter = {
 	shm_format
@@ -195,8 +310,37 @@ getIdOfWlSurface(struct wlContextCommon *pCtx, struct wl_surface *wlSurface)
 		if (pWlCtxSt->wlSurface == wlSurface)
 			return pWlCtxSt->id_surface;
 	}
-
 	return -1;
+}
+
+static int
+getSizeOfWlSurface(struct wlContextCommon *pCtx, struct wl_surface *wlSurface, int isWidth)
+{
+	struct wlContextStruct *pWlCtxSt = NULL;
+	if (NULL == pCtx || NULL == wlSurface )
+		return 0;
+	wl_list_for_each(pWlCtxSt, &pCtx->list_wlContextStruct, link) {
+		if (pWlCtxSt->wlSurface == wlSurface)
+		{
+			if (isWidth)
+				return cairo_image_surface_get_width(pWlCtxSt->ctx_image);
+			else
+				return cairo_image_surface_get_height(pWlCtxSt->ctx_image);
+		}
+	}
+	return -1;
+}
+
+static int
+getWidthOfWlSurface(struct wlContextCommon *pCtx, struct wl_surface *wlSurface)
+{
+	return getSizeOfWlSurface(pCtx, wlSurface, 1);
+}
+
+static int
+getHeightOfWlSurface(struct wlContextCommon *pCtx, struct wl_surface *wlSurface)
+{
+	return getSizeOfWlSurface(pCtx, wlSurface, 0);
 }
 
 static void
@@ -211,7 +355,7 @@ set_pointer_image(struct wlContextCommon *pCtx, uint32_t index)
 
 	if (CURSOR_BLANK == pCtx->current_cursor) {
 		wl_pointer_set_cursor(pCtx->wlPointer, pCtx->enter_serial,
-							  NULL, 0, 0);
+				      NULL, 0, 0);
 		return;
 	}
 
@@ -237,7 +381,7 @@ set_pointer_image(struct wlContextCommon *pCtx, uint32_t index)
 	wl_surface_attach(pCtx->pointer_surface, buffer, 0, 0);
 
 	wl_surface_damage(pCtx->pointer_surface, 0, 0,
-					  image->width, image->height);
+			  image->width, image->height);
 
 	wl_surface_commit(pCtx->pointer_surface);
 }
@@ -273,6 +417,9 @@ static void
 PointerHandleMotion(void *data, struct wl_pointer *wlPointer, uint32_t time,
 		    wl_fixed_t sx, wl_fixed_t sy)
 {
+	struct wlContextCommon *pCtx = data;
+	pCtx->pointer_coordinates->x = wl_fixed_to_double(sx);
+	pCtx->pointer_coordinates->y = wl_fixed_to_double(sy);	
 #ifdef _DEBUG
 	printf("ENTER PointerHandleMotion: x(%d), y(%d)\n", sx, sy);
 #endif
@@ -342,6 +489,292 @@ isWorkspaceSurface(uint32_t id, struct hmi_homescreen_setting *hmi_setting)
 	return 0;
 }
 
+static void
+save_to_image(struct surfaceDumpData *surfaceDumpData)
+{
+	FILE *fp;
+	char fullname[PATH_MAX];
+	cairo_surface_t *cairo_surface;
+	const struct pixel_format_info *pfmt = pixel_format_get_info(DRM_FORMAT_ARGB8888);
+	pixman_image_t *shot = 
+			pixman_image_create_bits(pfmt->pixman_format,
+						 surfaceDumpData->width,
+						 surfaceDumpData->height,
+						 surfaceDumpData->buffer->data,
+						 surfaceDumpData->stride);
+	assert(shot);
+	surfaceDumpData->buffer->image = shot;
+	cairo_surface = cairo_image_surface_create_for_data((void *)pixman_image_get_data(shot),
+							    CAIRO_FORMAT_ARGB32,
+							    pixman_image_get_width(shot),
+							    pixman_image_get_height(shot),
+							    pixman_image_get_stride(shot));
+	fp = file_create_dated(getenv("XDG_PICTURES_DIR"), "hmi-surface-dump-",
+			       ".png", fullname, sizeof(fullname));
+	if (fp) {
+		fclose (fp);
+		cairo_surface_write_to_png(cairo_surface, fullname);
+	}
+	cairo_surface_destroy(cairo_surface);
+	printf("! Image saved !\n");
+}
+
+static int
+calculate_stride(int width, int height)
+{
+	const struct pixel_format_info *pfmt;
+	int stride;
+	size_t bytes_pp;
+	pfmt = pixel_format_get_info(DRM_FORMAT_ARGB8888);
+	assert(pfmt);
+	assert(pixel_format_get_plane_count(pfmt) == 1);
+	bytes_pp = pfmt->bpp / 8;
+	stride = width * bytes_pp;
+	/* round up to multiple of 4 bytes for Pixman */
+	stride = (stride + 3) & ~3u;
+	assert(stride / bytes_pp >= (unsigned)width);
+	return stride;
+}
+
+static void
+cleanup_gbm(struct surfaceDumpData *sd_data)
+{
+    if (sd_data->gbm_buffer_info.device.gbm)
+        gbm_device_destroy(sd_data->gbm_buffer_info.device.gbm);
+
+    if (sd_data->gbm_buffer_info.device.drm_fd >= 0)
+        close(sd_data->gbm_buffer_info.device.drm_fd);
+}
+
+static int
+setup_gbm(struct surfaceDumpData *sd_data, const char *drm_render_node)
+{
+    sd_data->gbm_buffer_info.device.drm_fd = open(drm_render_node, O_RDWR);
+    if (sd_data->gbm_buffer_info.device.drm_fd < 0) {
+        fprintf(stderr, "failed to open drm render node %s\n",
+            drm_render_node);
+        return -1;
+    }
+
+    sd_data->gbm_buffer_info.device.gbm = gbm_create_device(sd_data->gbm_buffer_info.device.drm_fd);
+    if (sd_data->gbm_buffer_info.device.gbm == NULL) {
+        fprintf(stderr, "failed to create gbm device with drm render node %s,"
+                        " please try with another node. Ex: /dev/dri/card0\n",
+                drm_render_node);
+        return -1;
+    }
+
+    return 0;
+}
+
+static struct wl_buffer *
+create_shm_buffer_for_surface_dump(int width, int height, int stride,
+				   struct wl_shm *wlShm,
+				   struct buffer *out_buffer)
+{
+	struct wl_shm_pool *pool;
+	struct wl_buffer *buffer;
+	int fd, size;
+	void *data;
+
+	size = stride * height;
+	fd = os_create_anonymous_file(size);
+	if (fd < 0) {
+		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
+			size, strerror(errno));
+		return NULL;
+	}
+
+	data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (data == MAP_FAILED) {
+		fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+		close(fd);
+		return NULL;
+	}
+
+	pool = wl_shm_create_pool(wlShm, fd, size);
+	close(fd);
+	buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride,
+					   WL_SHM_FORMAT_XRGB8888);
+	wl_shm_pool_destroy(pool);
+	out_buffer->data = data;
+
+	return buffer;
+}
+
+static struct wl_buffer *
+create_dma_buffer_for_surface_dump(int width, int height,
+				   struct surfaceDumpData *sd_data)
+{
+    struct zwp_linux_buffer_params_v1 *params;
+    struct wl_buffer *out_buffer = NULL;
+    int ret;
+    uint32_t stride[MAX_BUFFER_PLANES];
+
+	sd_data->gbm_buffer_info.plane_fd[0] = -1;
+
+    sd_data->gbm_buffer_info.bo = gbm_bo_create(sd_data->gbm_buffer_info.device.gbm, width,
+						height, DRM_FORMAT_ARGB8888, GBM_BO_USE_RENDERING);
+    if (!sd_data->gbm_buffer_info.bo) {
+        fprintf(stderr, "%s: error: unable to create gbm bo, error %s\n",
+		__func__, strerror(errno));
+        return out_buffer;
+    }
+
+    params = zwp_linux_dmabuf_v1_create_params(sd_data->dmabuf);
+
+	ret = drmPrimeHandleToFD(sd_data->gbm_buffer_info.device.drm_fd,
+				 gbm_bo_get_handle_for_plane(sd_data->gbm_buffer_info.bo, 0).u32,
+				 0,
+				 &sd_data->gbm_buffer_info.plane_fd[0]);
+	if (ret < 0 || sd_data->gbm_buffer_info.plane_fd[0] < 0) {
+		fprintf(stderr, "%s: error: failed to get dma buffer fd\n", __func__);
+		goto error;
+	}
+
+	stride[0] = sd_data->stride;
+
+	zwp_linux_buffer_params_v1_add(params,
+				       sd_data->gbm_buffer_info.plane_fd[0],
+				       0,
+				       gbm_bo_get_offset(sd_data->gbm_buffer_info.bo, 0),
+				       stride[0],
+				       DRM_FORMAT_MOD_INVALID >> 32,
+				       DRM_FORMAT_MOD_INVALID & 0xffffffff);
+
+    zwp_linux_buffer_params_v1_add_listener(params, &params_listener, sd_data);
+
+	sd_data->gbm_buffer_info.map = gbm_bo_map(sd_data->gbm_buffer_info.bo, 0, 0, width, height, 0,
+				       		  stride, &(sd_data->buffer->data));
+    if (!sd_data->gbm_buffer_info.map) {
+        fprintf(stderr, "%s: error: failed to map DMA buffer\n", __func__);
+        goto error;
+    }
+
+    out_buffer = zwp_linux_buffer_params_v1_create_immed(params, width, height, DRM_FORMAT_ARGB8888, 0);
+
+error:
+    zwp_linux_buffer_params_v1_destroy(params);
+
+    return out_buffer;
+}
+
+static void capture_surface_shot(struct ivi_hmi_controller *hmi_ctrl,
+				 struct wl_shm *wlShm,
+				 struct surfaceDumpData *sd_data)
+{
+	uint32_t id_surface = sd_data->id;
+	uint32_t width = sd_data->width;
+	uint32_t height = sd_data->height;
+
+	sd_data->buffer = xzalloc(sizeof(struct buffer));
+	sd_data->stride = calculate_stride(width, height);
+
+	if ((sd_data->dmabuf != NULL) && !sd_data->gbm_setup_fail) {
+		sd_data->buffer->proxy = create_dma_buffer_for_surface_dump(width, height,
+									    sd_data);
+	}
+
+	if (!sd_data->buffer->proxy) {
+		sd_data->buffer->proxy = create_shm_buffer_for_surface_dump(width, height,
+									    sd_data->stride,
+									    wlShm,
+									    sd_data->buffer);
+	}
+
+	if (!sd_data->buffer->proxy) {
+        fprintf(stderr, "error: unable to create buffer\n");
+	free(sd_data->buffer);
+	}
+
+	ivi_hmi_controller_take_surface_dump(hmi_ctrl, sd_data->buffer->proxy, id_surface);
+}
+
+/**
+ * Internal method to prepare parts of UI
+ */
+static void
+createShmBuffer(struct wlContextStruct *p_wlCtx)
+{
+	struct wl_shm_pool *pool;
+
+	int fd = -1;
+	int size = 0;
+	int width = 0;
+	int height = 0;
+	int stride = 0;
+
+	width  = cairo_image_surface_get_width(p_wlCtx->ctx_image);
+	height = cairo_image_surface_get_height(p_wlCtx->ctx_image);
+	stride = cairo_image_surface_get_stride(p_wlCtx->ctx_image);
+
+	size = stride * height;
+
+	fd = os_create_anonymous_file(size);
+	if (fd < 0) {
+		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
+			size, strerror(errno));
+		return ;
+	}
+
+	p_wlCtx->data =
+		mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+	if (MAP_FAILED == p_wlCtx->data) {
+		fprintf(stderr, "mmap failed: %s\n", strerror(errno));
+		close(fd);
+		return;
+	}
+
+	pool = wl_shm_create_pool(p_wlCtx->cmm->wlShm, fd, size);
+	p_wlCtx->wlBuffer = wl_shm_pool_create_buffer(pool, 0,
+						      width,
+						      height,
+						      stride,
+						      WL_SHM_FORMAT_ARGB8888);
+
+	if (NULL == p_wlCtx->wlBuffer) {
+		fprintf(stderr, "wl_shm_create_buffer failed: %s\n",
+			strerror(errno));
+		close(fd);
+		return;
+	}
+
+	wl_shm_pool_destroy(pool);
+	close(fd);
+}
+
+static void
+enlarge_surface_dump_overlay(struct wlContextCommon *pCtx)
+{
+	struct wlContextStruct *pWlCtxSt = NULL;
+	if (NULL == pCtx)
+		return;
+	wl_list_for_each(pWlCtxSt, &pCtx->list_wlContextStruct, link) {
+		if (pWlCtxSt->id_surface == pCtx->hmi_setting->surface_dump_overlay.id)
+		{
+			int width = pCtx->output->screen_width;
+			int height = pCtx->output->screen_height - pCtx->surfaceDumpData->panel_height;
+
+			cairo_surface_t *surface = NULL;
+			cairo_t *cr = NULL;
+			surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+							     width, height);
+			cr = cairo_create(surface);
+			cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+			cairo_rectangle(cr, 0, 0, width, height);
+			cairo_fill(cr);
+			cairo_destroy(cr);
+			pWlCtxSt->ctx_image = surface;
+
+			createShmBuffer(pWlCtxSt);
+			wl_surface_attach(pWlCtxSt->wlSurface, pWlCtxSt->wlBuffer, 0, 0);
+			wl_surface_damage(pWlCtxSt->wlSurface, 0, 0, width, height);
+			wl_surface_commit(pWlCtxSt->wlSurface);
+		}
+	}
+}
+
 /**
  * Decide which request is sent to hmi-controller
  */
@@ -364,6 +797,12 @@ touch_up(struct ivi_hmi_controller *hmi_ctrl, uint32_t id_surface,
 	} else if (id_surface == hmi_setting->random.id) {
 		ivi_hmi_controller_switch_mode(hmi_ctrl,
 				IVI_HMI_CONTROLLER_LAYOUT_MODE_RANDOM);
+	} else if (id_surface == hmi_setting->surfacedump.id) {
+		if (!hmi_setting->surface_dump_active) {
+			hmi_setting->surface_dump_active = 1;
+			ivi_hmi_controller_enable_surface_dump_overlay(hmi_ctrl, 1);
+			ivi_hmi_controller_get_client_surfaces(hmi_ctrl);
+		}
 	} else if (id_surface == hmi_setting->home.id) {
 		*is_home_on = !(*is_home_on);
 		if (*is_home_on) {
@@ -373,6 +812,43 @@ touch_up(struct ivi_hmi_controller *hmi_ctrl, uint32_t id_surface,
 			ivi_hmi_controller_home(hmi_ctrl,
 						IVI_HMI_CONTROLLER_HOME_OFF);
 		}
+	}
+}
+
+/**
+ * Decide which surface to capture
+ */
+static void
+calculate_surface_to_dump(struct wlContextCommon *pCtx)
+{
+	struct client_surface *surface;
+	struct surfaceDumpData *sd_data = pCtx->surfaceDumpData;
+	uint32_t id_surface = getIdOfWlSurface(pCtx, pCtx->enterSurface);
+
+	if (id_surface == pCtx->hmi_setting->surface_dump_overlay.id) {
+		uint32_t x = pCtx->pointer_coordinates->x;
+		uint32_t y = pCtx->pointer_coordinates->y;
+
+		if (sd_data->client_surfaces) {
+			wl_array_for_each(surface, sd_data->client_surfaces) {
+				if (y >= surface->dest_y && y <= (surface->dest_y + surface->dest_height)) {
+					if (x >= surface->dest_x && x <= (surface->dest_x + surface->dest_width)) {
+						sd_data->id = surface->id;
+						sd_data->width = surface->source_width;
+						sd_data->height = surface->source_height;
+						return;
+					}
+				}
+			}
+		}
+		sd_data->id = pCtx->hmi_setting->background.id;
+		sd_data->width = pCtx->output->screen_width;
+		sd_data->height = pCtx->output->screen_height;
+		
+	} else {
+		sd_data->id = id_surface;
+		sd_data->width = getWidthOfWlSurface(pCtx, pCtx->enterSurface);
+		sd_data->height = getHeightOfWlSurface(pCtx, pCtx->enterSurface);
 	}
 }
 
@@ -395,18 +871,25 @@ PointerHandleButton(void *data, struct wl_pointer *wlPointer, uint32_t serial,
 
 	switch (state) {
 	case WL_POINTER_BUTTON_STATE_RELEASED:
-		touch_up(hmi_ctrl, id_surface, &pCtx->is_home_on,
-			 pCtx->hmi_setting);
-		break;
-
-	case WL_POINTER_BUTTON_STATE_PRESSED:
-
-		if (isWorkspaceSurface(id_surface, pCtx->hmi_setting)) {
-			ivi_hmi_controller_workspace_control(hmi_ctrl,
-							     pCtx->wlSeat,
-							     serial);
+		if (!pCtx->hmi_setting->surface_dump_active) {
+			touch_up(hmi_ctrl, id_surface, &pCtx->is_home_on,
+				pCtx->hmi_setting);
+		} else {
+			calculate_surface_to_dump(pCtx);
+			capture_surface_shot(hmi_ctrl,
+					     pCtx->wlShm,
+					     pCtx->surfaceDumpData);
 		}
-
+		
+		break;
+	case WL_POINTER_BUTTON_STATE_PRESSED:
+		if (!pCtx->hmi_setting->surface_dump_active) {
+			if (isWorkspaceSurface(id_surface, pCtx->hmi_setting)) {
+				ivi_hmi_controller_workspace_control(hmi_ctrl,
+								     pCtx->wlSeat,
+								     serial);
+			}
+		}
 		break;
 	}
 #ifdef _DEBUG
@@ -457,9 +940,20 @@ TouchHandleDown(void *data, struct wl_touch *wlTouch, uint32_t serial,
 	 * hmi-controller-homescreen doesn't receive any event till
 	 * hmi-controller sends back it.
 	 */
-	if (isWorkspaceSurface(id_surface, pCtx->hmi_setting)) {
-		ivi_hmi_controller_workspace_control(hmi_ctrl, pCtx->wlSeat,
-						     serial);
+	if (!pCtx->hmi_setting->surface_dump_active) {
+		if (isWorkspaceSurface(id_surface, pCtx->hmi_setting)) {
+			ivi_hmi_controller_workspace_control(hmi_ctrl, pCtx->wlSeat,
+							     serial);
+		}
+	} else {
+		if (id_surface == pCtx->hmi_setting->surface_dump_overlay.id) {
+			pCtx->pointer_coordinates->x = (int32_t)wl_fixed_to_double(x_w);
+			pCtx->pointer_coordinates->y = (int32_t)wl_fixed_to_double(y_w);
+			calculate_surface_to_dump(pCtx);
+			capture_surface_shot(hmi_ctrl,
+					     pCtx->wlShm,
+					     pCtx->surfaceDumpData);
+		}
 	}
 }
 
@@ -572,8 +1066,121 @@ ivi_hmi_controller_workspace_end_control(void *data,
 	}
 }
 
+static void
+ivi_hmi_controller_surface_dump_done(void *data, struct ivi_hmi_controller *hmi_ctrl)
+{
+	struct wlContextCommon *p_wlCtx = data;
+	save_to_image(p_wlCtx->surfaceDumpData);
+	p_wlCtx->hmi_setting->surface_dump_active = 0;
+	ivi_hmi_controller_enable_surface_dump_overlay(p_wlCtx->hmiCtrl, 0);
+	free(p_wlCtx->surfaceDumpData->buffer);
+}
+
+static void
+ivi_hmi_controller_dump_error(void *data, struct ivi_hmi_controller *hmi_ctrl,
+					uint32_t error)
+{
+	printf("Surface capture failed, error:%d \n", error);
+	struct wlContextCommon *p_wlCtx = data;
+	p_wlCtx->hmi_setting->surface_dump_active = 0;
+	ivi_hmi_controller_enable_surface_dump_overlay(p_wlCtx->hmiCtrl, 0);
+	free(p_wlCtx->surfaceDumpData->buffer);
+}
+
+static void
+ivi_hmi_controller_panel_height(void *data,
+				struct ivi_hmi_controller *hmi_ctrl,
+				uint32_t panel_height)
+{
+	struct wlContextCommon *p_wlCtx = data;
+	p_wlCtx->surfaceDumpData->panel_height = panel_height;
+	enlarge_surface_dump_overlay(p_wlCtx);
+}
+
+static void
+ivi_hmi_controller_client_surfaces(void *data, struct ivi_hmi_controller *hmi_ctrl,
+				   struct wl_array *client_surfaces)
+{
+	struct wlContextCommon *p_wlCtx = data;
+	struct surfaceDumpData *sd_data = p_wlCtx->surfaceDumpData;
+	if (client_surfaces->size == 0)
+		sd_data->client_surfaces = NULL;
+	else
+		sd_data->client_surfaces = client_surfaces;
+}
+
 static const struct ivi_hmi_controller_listener hmi_controller_listener = {
-	ivi_hmi_controller_workspace_end_control
+	ivi_hmi_controller_workspace_end_control,
+	ivi_hmi_controller_surface_dump_done,
+	ivi_hmi_controller_dump_error,
+	ivi_hmi_controller_panel_height,
+	ivi_hmi_controller_client_surfaces
+};
+
+static void
+output_listener_geometry(void *data,
+                         struct wl_output *output,
+                         int32_t x,
+                         int32_t y,
+                         int32_t physical_width,
+                         int32_t physical_height,
+                         int32_t subpixel,
+                         const char *make,
+                         const char *model,
+                         int32_t transform)
+{
+    (void)output;
+    (void)x;
+    (void)y;
+    (void)subpixel;
+    (void)make;
+    (void)model;
+}
+
+static void
+output_listener_mode(void *data,
+                     struct wl_output *output,
+                     uint32_t flags,
+                     int32_t width,
+                     int32_t height,
+                     int32_t refresh)
+{
+    (void)output;
+    (void)refresh;
+
+    if (flags & WL_OUTPUT_MODE_CURRENT)
+    {
+		struct output *output = data;
+		if (output->changed == 0) {
+			output->screen_width = width;
+			output->screen_height = height;
+		}
+    }
+}
+
+static void
+output_listener_done(void *data,
+                     struct wl_output *output)
+{
+    (void)data;
+    (void)output;
+}
+
+static void
+output_listener_scale(void *data,
+                      struct wl_output *output,
+                      int32_t factor)
+{
+    (void)data;
+    (void)output;
+    (void)factor;
+}
+
+static struct wl_output_listener wl_output_listener = {
+    .geometry = output_listener_geometry,
+    .mode = output_listener_mode,
+    .done = output_listener_done,
+    .scale = output_listener_scale
 };
 
 /**
@@ -608,13 +1215,24 @@ registry_handle_global(void *data, struct wl_registry *registry, uint32_t name,
 	} else if (!strcmp(interface, "ivi_hmi_controller")) {
 		p_wlCtx->hmiCtrl =
 			wl_registry_bind(registry, name,
-					 &ivi_hmi_controller_interface, 1);
-
+					 &ivi_hmi_controller_interface, 3);
 		ivi_hmi_controller_add_listener(p_wlCtx->hmiCtrl,
 				&hmi_controller_listener, p_wlCtx);
 	} else if (!strcmp(interface, "wl_output")) {
 		p_wlCtx->hmi_setting->screen_num++;
-	}
+			p_wlCtx->output = xzalloc(sizeof(struct output));
+			p_wlCtx->output->changed = 0;
+			p_wlCtx->output->wlOutput = wl_registry_bind(registry, name,
+				&wl_output_interface, 1);
+			wl_output_add_listener(p_wlCtx->output->wlOutput,
+				&wl_output_listener, p_wlCtx->output);
+	} else if (strcmp(interface, "zwp_linux_dmabuf_v1") == 0) {
+        p_wlCtx->surfaceDumpData->dmabuf =
+			wl_registry_bind(registry, name,
+					 &zwp_linux_dmabuf_v1_interface, 3);
+        zwp_linux_dmabuf_v1_add_listener(p_wlCtx->surfaceDumpData->dmabuf,
+				&dmabuf_listener, p_wlCtx->surfaceDumpData);
+    }
 }
 
 static void
@@ -785,58 +1403,15 @@ destroy_cursors(struct wlContextCommon *cmm)
 	free(cmm->cursors);
 }
 
-/**
- * Internal method to prepare parts of UI
- */
-static void
-createShmBuffer(struct wlContextStruct *p_wlCtx)
+static void destroy_surface_dump_data(struct surfaceDumpData *sd_data)
 {
-	struct wl_shm_pool *pool;
-
-	int fd = -1;
-	int size = 0;
-	int width = 0;
-	int height = 0;
-	int stride = 0;
-
-	width  = cairo_image_surface_get_width(p_wlCtx->ctx_image);
-	height = cairo_image_surface_get_height(p_wlCtx->ctx_image);
-	stride = cairo_image_surface_get_stride(p_wlCtx->ctx_image);
-
-	size = stride * height;
-
-	fd = os_create_anonymous_file(size);
-	if (fd < 0) {
-		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
-			size, strerror(errno));
-		return ;
-	}
-
-	p_wlCtx->data =
-		mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-	if (MAP_FAILED == p_wlCtx->data) {
-		fprintf(stderr, "mmap failed: %s\n", strerror(errno));
-		close(fd);
-		return;
-	}
-
-	pool = wl_shm_create_pool(p_wlCtx->cmm->wlShm, fd, size);
-	p_wlCtx->wlBuffer = wl_shm_pool_create_buffer(pool, 0,
-						      width,
-						      height,
-						      stride,
-						      WL_SHM_FORMAT_ARGB8888);
-
-	if (NULL == p_wlCtx->wlBuffer) {
-		fprintf(stderr, "wl_shm_create_buffer failed: %s\n",
-			strerror(errno));
-		close(fd);
-		return;
-	}
-
-	wl_shm_pool_destroy(pool);
-	close(fd);
+	cleanup_gbm(sd_data);
+	if (sd_data != NULL) {
+        if (sd_data->buffer != NULL) {
+            free(sd_data->buffer);
+        }
+        free(sd_data);
+    }
 }
 
 static void
@@ -849,6 +1424,7 @@ destroyWLContextCommon(struct wlContextCommon *p_wlCtx)
 
 	if (p_wlCtx->wlCompositor)
 		wl_compositor_destroy(p_wlCtx->wlCompositor);
+	destroy_surface_dump_data(p_wlCtx->surfaceDumpData);
 }
 
 static void
@@ -1022,6 +1598,20 @@ create_workspace_background(struct wlContextStruct *p_wlCtx,
 }
 
 static void
+create_surface_dump_overlay(struct wlContextStruct *p_wlCtx,
+				struct hmi_homescreen_srf *srf)
+{
+	create_ivisurfaceFromColor(p_wlCtx, srf->id, 1, 1, srf->color);
+}
+
+static void
+create_surface_dump_hint(struct wlContextStruct *p_wlCtx, const uint32_t id_surface,
+		const char *imageFile)
+{
+	create_ivisurfaceFromFile(p_wlCtx, id_surface, imageFile);
+}
+
+static void
 create_launchers(struct wlContextCommon *cmm, struct wl_list *launcher_list)
 {
 	struct hmi_homescreen_launcher **launchers;
@@ -1080,6 +1670,7 @@ hmi_homescreen_setting_create(void)
 	uint32_t workspace_layer_id;
 	uint32_t icon_surface_id = 0;
 	char *filename;
+	setting->surface_dump_active = 0;
 
 	wl_list_init(&setting->workspace_list);
 	wl_list_init(&setting->launcher_list);
@@ -1153,6 +1744,15 @@ hmi_homescreen_setting_create(void)
 	weston_config_section_get_uint(
 		shellSection, "random-id", &setting->random.id, 1006);
 
+	filename = file_name_with_datadir("camera.png");
+	weston_config_section_get_string(
+			shellSection, "surfacedump-image", &setting->surfacedump.filePath,
+			filename);
+	free(filename);
+	
+	weston_config_section_get_uint(
+			shellSection, "surfacedump-id", &setting->surfacedump.id, 1008);
+
 	filename = file_name_with_datadir("home.png");
 	weston_config_section_get_string(
 		shellSection, "home-image", &setting->home.filePath,
@@ -1170,9 +1770,29 @@ hmi_homescreen_setting_create(void)
 		shellSection, "workspace-background-id",
 		&setting->workspace_background.id, 2001);
 
+	weston_config_section_get_color(
+		shellSection, "surfacedump-overlay-color",
+		&setting->surface_dump_overlay.color, 0x99000000);
+
+	weston_config_section_get_uint(
+		shellSection, "surfacedump-overlay-id",
+		&setting->surface_dump_overlay.id, 2002);
+
+	filename = file_name_with_datadir("surfacedump_hint.png");
+	weston_config_section_get_string(
+		shellSection, "surfacedump-hint-image", &setting->surface_dump_hint.filePath,
+		filename);
+	free(filename);
+	
+	weston_config_section_get_uint(
+		shellSection, "surfacedump-hint-id", &setting->surface_dump_hint.id, 2003);
+
+	weston_config_section_get_string(
+		shellSection, "drm-render-node",
+		&setting->drm_render_node, "/dev/dri/card0");
+
 	weston_config_section_get_uint(
 		shellSection, "surface-id-offset", &setting->surface_id_offset, 10);
-
 	icon_surface_id = workspace_layer_id + 1;
 
 	while (weston_config_next_section(config, &section, &name)) {
@@ -1219,8 +1839,11 @@ int main(int argc, char **argv)
 	struct wlContextStruct wlCtx_Button_2;
 	struct wlContextStruct wlCtx_Button_3;
 	struct wlContextStruct wlCtx_Button_4;
+	struct wlContextStruct wlCtx_Button_5;
 	struct wlContextStruct wlCtx_HomeButton;
 	struct wlContextStruct wlCtx_WorkSpaceBackGround;
+	struct wlContextStruct wlCtx_SurfaceDumpOverlay;
+	struct wlContextStruct wlCtx_SurfaceDumpHint;
 	struct wl_list launcher_wlCtxList;
 	int ret = 0;
 	struct hmi_homescreen_setting *hmi_setting;
@@ -1234,9 +1857,14 @@ int main(int argc, char **argv)
 	memset(&wlCtx_Button_2,   0x00, sizeof(wlCtx_Button_2));
 	memset(&wlCtx_Button_3,   0x00, sizeof(wlCtx_Button_3));
 	memset(&wlCtx_Button_4,   0x00, sizeof(wlCtx_Button_4));
+	memset(&wlCtx_Button_5,   0x00, sizeof(wlCtx_Button_5));
 	memset(&wlCtx_HomeButton, 0x00, sizeof(wlCtx_HomeButton));
 	memset(&wlCtx_WorkSpaceBackGround, 0x00,
 	       sizeof(wlCtx_WorkSpaceBackGround));
+	memset(&wlCtx_SurfaceDumpOverlay, 0x00,
+		   sizeof(wlCtx_SurfaceDumpOverlay));
+	memset(&wlCtx_SurfaceDumpHint, 0x00,
+		   sizeof(wlCtx_SurfaceDumpHint));
 	wl_list_init(&launcher_wlCtxList);
 	wl_list_init(&wlCtxCommon.list_wlContextStruct);
 
@@ -1247,6 +1875,8 @@ int main(int argc, char **argv)
 		printf("Error: wl_display_connect failed.\n");
 		return -1;
 	}
+
+	wlCtxCommon.surfaceDumpData = xzalloc(sizeof(struct surfaceDumpData));
 
 	/* get wl_registry */
 	wlCtxCommon.formats = 0;
@@ -1283,8 +1913,11 @@ int main(int argc, char **argv)
 	wlCtx_Button_2.cmm   = &wlCtxCommon;
 	wlCtx_Button_3.cmm   = &wlCtxCommon;
 	wlCtx_Button_4.cmm   = &wlCtxCommon;
+	wlCtx_Button_5.cmm   = &wlCtxCommon;
 	wlCtx_HomeButton.cmm = &wlCtxCommon;
 	wlCtx_WorkSpaceBackGround.cmm = &wlCtxCommon;
+	wlCtx_SurfaceDumpOverlay.cmm = &wlCtxCommon;
+	wlCtx_SurfaceDumpHint.cmm = &wlCtxCommon;
 
 	/* create desktop widgets */
 	create_launchers(&wlCtxCommon, &hmi_setting->launcher_list);
@@ -1305,6 +1938,11 @@ int main(int argc, char **argv)
 			     hmi_setting->panel.filePath);
 	}
 
+	create_surface_dump_overlay(&wlCtx_SurfaceDumpOverlay, &hmi_setting->surface_dump_overlay);
+	create_surface_dump_hint(&wlCtx_SurfaceDumpHint,
+				 hmi_setting->surface_dump_hint.id,
+				 hmi_setting->surface_dump_hint.filePath);
+
 	create_button(&wlCtx_Button_1, hmi_setting->tiling.id,
 		      hmi_setting->tiling.filePath, 0);
 
@@ -1317,10 +1955,19 @@ int main(int argc, char **argv)
 	create_button(&wlCtx_Button_4, hmi_setting->random.id,
 		      hmi_setting->random.filePath, 3);
 
+	create_button(&wlCtx_Button_5, hmi_setting->surfacedump.id,
+			  hmi_setting->surfacedump.filePath, 4);
+
 	create_home_button(&wlCtx_HomeButton, hmi_setting->home.id,
 			   hmi_setting->home.filePath);
 
 	UI_ready(wlCtxCommon.hmiCtrl);
+
+	wlCtxCommon.pointer_coordinates = xzalloc(sizeof(struct pointer_coordinates));
+
+	wlCtxCommon.surfaceDumpData->gbm_setup_fail =
+		setup_gbm(wlCtxCommon.surfaceDumpData, hmi_setting->drm_render_node);
+	ivi_hmi_controller_get_panel_height(wlCtxCommon.hmiCtrl);
 
 	while (ret != -1)
 		ret = wl_display_dispatch(wlCtxCommon.wlDisplay);

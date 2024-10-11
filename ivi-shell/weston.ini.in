@@ -19,6 +19,8 @@ application-layer-id=4000
 
 transition-duration=300
 
+drm-render-node=/dev/dri/card0
+
 background-image=@westondatadir@/background.png
 background-id=1001
 panel-image=@westondatadir@/panel.png
@@ -34,8 +36,14 @@ random-image=@westondatadir@/random.png
 random-id=1006
 home-image=@westondatadir@/home.png
 home-id=1007
+surfacedump-image=@westondatadir@/camera.png
+surfacedump-id=1008
 workspace-background-color=0x99000000
 workspace-background-id=2001
+surfacedump-overlay-color=0x00000000
+surfacedump-overlay-id=2002
+surfacedump-hint-image=@westondatadir@/surfacedump_hint.png
+surfacedump-hint-id=2003
 
 [ivi-launcher]
 workspace-id=0

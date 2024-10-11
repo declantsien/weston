@@ -91,9 +91,8 @@ struct weston_renderer {
 
 	/** See weston_surface_copy_content() */
 	int (*surface_copy_content)(struct weston_surface *surface,
-				    void *target, size_t size,
-				    int src_x, int src_y,
-				    int width, int height);
+				    struct weston_buffer *buffer,
+				    int src_x, int src_y);
 
 	/** See weston_compositor_import_dmabuf() */
 	bool (*import_dmabuf)(struct weston_compositor *ec,

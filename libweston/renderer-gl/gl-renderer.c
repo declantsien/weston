@@ -3648,11 +3648,60 @@ pack_color(pixman_format_code_t format, float *c)
 	}
 }
 
+static void
+cleanup_fbo(GLuint *fbo, GLenum target)
+{
+	glBindFramebuffer(target, 0);
+	glDeleteFramebuffers(1, fbo);
+}
+
+static inline bool
+check_fbo_status(GLenum target)
+{
+	return (glCheckFramebufferStatus(target) !=
+			GL_FRAMEBUFFER_COMPLETE);
+}
+
 static int
-gl_renderer_surface_copy_content(struct weston_surface *surface,
-				 void *target, size_t size,
-				 int src_x, int src_y,
-				 int width, int height)
+setup_fbo_with_texture(GLuint *fbo, GLenum bind_target, GLuint texture,
+                       GLenum tex_target)
+{
+	glGenFramebuffers(1, fbo);
+	glBindFramebuffer(bind_target, *fbo);
+	glFramebufferTexture2D(bind_target, GL_COLOR_ATTACHMENT0,
+	                       tex_target, texture, 0);
+
+	if (check_fbo_status(bind_target)) {
+	        weston_log("%s: error: fbo incomplete\n", __func__);
+	        cleanup_fbo(fbo, bind_target);
+	        return -1;
+	}
+
+	return 0;
+}
+
+static GLuint
+generate_texture_egl_image(struct gl_renderer *gr, EGLImageKHR egl_image,
+                           GLenum target)
+{
+	GLuint texture;
+
+	glGenTextures(1, &texture);
+	glBindTexture(target, texture);
+	glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	gr->image_target_texture_2d(target, egl_image);
+
+	glBindTexture(target, 0);
+
+	return texture;
+}
+
+static int
+surface_copy_to_dmabuf(struct weston_surface *surface,
+		       struct weston_buffer *dma_buffer,
+		       int src_x, int src_y)
 {
 	static const GLfloat verts[4 * 2] = {
 		0.0f, 0.0f,
@@ -3676,15 +3725,109 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 		.view_alpha = 1.0f,
 		.input_tex_filter = GL_NEAREST,
 	};
-	const pixman_format_code_t format = PIXMAN_a8b8g8r8;
-	const GLenum gl_format = GL_RGBA; /* PIXMAN_a8b8g8r8 little-endian */
+	struct gl_renderer *gr = get_renderer(surface->compositor);
+	struct gl_surface_state *gs = get_surface_state(surface);
+	struct weston_buffer *buffer = gs->buffer_ref.buffer;
+	struct linux_dmabuf_buffer *dmabuf = dma_buffer->dmabuf;
+	EGLImageKHR egl_image;
+	GLuint texture;
+	GLuint fbo;
+	GLenum texture_target;
+	unsigned int ret = -1;
+
+	egl_image = import_simple_dmabuf(gr, &dmabuf->attributes);
+	if (egl_image == EGL_NO_IMAGE_KHR) {
+		weston_log("%s: error: not able to create egl image "
+			   "from DMA buffer\n", __func__);
+		return ret;
+	}
+
+	texture_target = choose_texture_target(gr, &dmabuf->attributes);
+	texture = generate_texture_egl_image(gr, egl_image,
+					     texture_target);
+
+	if (setup_fbo_with_texture(&fbo, GL_DRAW_FRAMEBUFFER,
+				   texture, texture_target)) {
+                goto error_dst_fbo;
+        }
+
+	gl_shader_config_set_input_textures(&sconf, gs);
+
+	glViewport(0, 0, buffer->width, buffer->height);
+	glDisable(GL_BLEND);
+	if (buffer->buffer_origin == ORIGIN_TOP_LEFT)
+		ARRAY_COPY(sconf.projection.d, projmat_normal);
+	else
+		ARRAY_COPY(sconf.projection.d, projmat_yinvert);
+	sconf.projection.type = WESTON_MATRIX_TRANSFORM_SCALE |
+				WESTON_MATRIX_TRANSFORM_TRANSLATE;
+
+	if (!gl_renderer_use_program(gr, &sconf))
+		goto error_shader;
+
+	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
+	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+	glVertexAttribPointer(SHADER_ATTRIB_LOC_POSITION, 2, GL_FLOAT, GL_FALSE,
+			      0, verts);
+	glVertexAttribPointer(SHADER_ATTRIB_LOC_TEXCOORD, 2, GL_FLOAT, GL_FALSE,
+			      0, verts);
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
+	glDisableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
+
+	glFinish();
+
+	ret = 0;
+
+error_shader:
+	cleanup_fbo(&fbo, GL_DRAW_FRAMEBUFFER);
+error_dst_fbo:
+	glDeleteTextures(1, &texture);
+
+	gr->destroy_image(gr->egl_display, egl_image);
+
+	return ret;
+}
+
+static int
+surface_copy_to_shm(struct weston_surface *surface,
+		    struct weston_buffer *shm_buffer,
+		    int src_x, int src_y)
+{
+	static const GLfloat verts[4 * 2] = {
+		0.0f, 0.0f,
+		1.0f, 0.0f,
+		1.0f, 1.0f,
+		0.0f, 1.0f
+	};
+	static const GLfloat projmat_normal[16] = { /* transpose */
+		 2.0f,  0.0f, 0.0f, 0.0f,
+		 0.0f,  2.0f, 0.0f, 0.0f,
+		 0.0f,  0.0f, 1.0f, 0.0f,
+		-1.0f, -1.0f, 0.0f, 1.0f
+	};
+	static const GLfloat projmat_yinvert[16] = { /* transpose */
+		 2.0f,  0.0f, 0.0f, 0.0f,
+		 0.0f, -2.0f, 0.0f, 0.0f,
+		 0.0f,  0.0f, 1.0f, 0.0f,
+		-1.0f,  1.0f, 0.0f, 1.0f
+	};
+	struct gl_shader_config sconf = {
+		.view_alpha = 1.0f,
+		.input_tex_filter = GL_NEAREST,
+	};
+	const pixman_format_code_t format =
+		shm_buffer->pixel_format->pixman_format;
+	const GLenum gl_format =
+		 shm_buffer->pixel_format->gl_format;
 	struct gl_renderer *gr = get_renderer(surface->compositor);
 	struct gl_surface_state *gs;
 	struct gl_buffer_state *gb;
 	struct weston_buffer *buffer;
-	int cw, ch;
+	int cw, ch, width, height;
 	GLuint fbo;
 	GLuint tex;
+	void *target;
 	GLenum status;
 	int ret = -1;
 
@@ -3698,10 +3841,18 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	cw = buffer->width;
 	ch = buffer->height;
 
+	width = shm_buffer->width;
+	height = shm_buffer->height;
+
+	target = wl_shm_buffer_get_data(shm_buffer->shm_buffer);
+
+	wl_shm_buffer_begin_access(shm_buffer->shm_buffer);
+
 	switch (buffer->type) {
 	case WESTON_BUFFER_SOLID:
 		*(uint32_t *)target = pack_color(format, gb->color);
-		return 0;
+		ret = 0;
+		goto out;
 	case WESTON_BUFFER_SHM:
 	case WESTON_BUFFER_DMABUF:
 	case WESTON_BUFFER_RENDERER_OPAQUE:
@@ -3724,7 +3875,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 	if (status != GL_FRAMEBUFFER_COMPLETE) {
 		weston_log("%s: fbo error: %#x\n", __func__, status);
-		goto out;
+		goto error;
 	}
 
 	glViewport(0, 0, cw, ch);
@@ -3737,7 +3888,7 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 				WESTON_MATRIX_TRANSFORM_TRANSLATE;
 
 	if (!gl_renderer_use_program(gr, &sconf))
-		goto out;
+		goto error;
 
 	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_POSITION);
 	glEnableVertexAttribArray(SHADER_ATTRIB_LOC_TEXCOORD);
@@ -3752,12 +3903,38 @@ gl_renderer_surface_copy_content(struct weston_surface *surface,
 	glReadPixels(src_x, src_y, width, height, gl_format,
 		     GL_UNSIGNED_BYTE, target);
 	ret = 0;
-
-out:
+error:
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteTextures(1, &tex);
+out:
+	wl_shm_buffer_end_access(shm_buffer->shm_buffer);
 
 	return ret;
+}
+
+static int
+gl_renderer_surface_copy_content(struct weston_surface *surface,
+				 struct weston_buffer *buffer,
+				 int src_x, int src_y)
+{
+	if ((src_x + buffer->width) > surface->width ||
+	    (src_y + buffer->height) > surface->height) {
+                weston_log("%s: error: src %dx%d buffer dimension %dx%d "
+			   "is inappropriate for surface %dx%d\n", __func__,
+			   src_x, src_y, buffer->width, buffer->height,
+			   surface->width, surface->height);
+                return -1;
+        }
+
+	if (buffer->type == WESTON_BUFFER_DMABUF)
+		return surface_copy_to_dmabuf(surface, buffer, src_x, src_y);
+
+	if (buffer->type == WESTON_BUFFER_SHM)
+		return surface_copy_to_shm(surface, buffer, src_x, src_y);
+
+	weston_log("%s: error: buffer type not supported\n", __func__);
+
+	return -1;
 }
 
 static void

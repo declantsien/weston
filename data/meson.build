@@ -1,5 +1,6 @@
 install_data(
 	[
+		'camera.png',
 		'background.png',
 		'border.png',
 		'fullscreen.png',
@@ -20,6 +21,7 @@ install_data(
 		'sign_close.png',
 		'sign_maximize.png',
 		'sign_minimize.png',
+		'surfacedump_hint.png',
 		'terminal.png',
 		'tiling.png',
 		'wayland.png',
