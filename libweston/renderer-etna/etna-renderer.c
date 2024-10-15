@@ -59,6 +59,7 @@ struct etna_renderer {
 	struct etna_cmd_stream *etna_stream;
 
 	struct weston_drm_format_array supported_formats;
+	int supertile_version;
 };
 
 struct etna_renderbuffer {
@@ -523,9 +524,8 @@ etna_renderer_repaint_output(struct weston_output *output,
 	etna_set_state(stream, VIVS_DE_CONFIG, 0);
 	etna_set_state(stream, VIVS_DE_SRC_ORIGIN_FRACTION, 0);
 
-	/* FIXME: handle different supertile versions */
 	etna_set_state(stream, VIVS_DE_TILE_CONFIG,
-		       VIVS_DE_TILE_CONFIG_SUPERTILE_VERSION(1));
+		       VIVS_DE_TILE_CONFIG_SUPERTILE_VERSION(er->supertile_version));
 
 	/* set target */
 	etna_set_state_from_bo(stream, VIVS_DE_DEST_ADDRESS, rb->bo);
@@ -971,6 +971,7 @@ etna_renderer_init(struct weston_compositor *ec)
 	if (!er->etna_dev)
 		goto out_close_fd;
 
+	er->supertile_version = 1;
 
 	/* search for a 2D capable GPU core */
 	for (int gpu_core = 0; ;gpu_core++) {
@@ -986,6 +987,17 @@ etna_renderer_init(struct weston_compositor *ec)
 		if (etna_gpu_get_param(er->etna_gpu,
 				       ETNA_GPU_FEATURES_0, &feat))
 			continue;
+
+		if (feat & chipFeatures_PIPE_3D) {
+			uint64_t feat;
+
+			if (etna_gpu_get_param(er->etna_gpu,
+					       ETNA_GPU_FEATURES_6, &feat))
+				continue;
+
+			if (feat & chipMinorFeatures5_HALTI5)
+				er->supertile_version = 2;
+		}
 
 		if (!(feat & chipFeatures_PIPE_2D))
 			continue;
