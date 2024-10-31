@@ -54,6 +54,7 @@ static int debug_;
 static int verbose_;
 static int timeout_;
 static int dryrun_;
+static int restart_;
 
 #define pr_ver(...) do { \
 	if (verbose_) \
@@ -252,6 +253,21 @@ sample_undo(struct calibrator *cal)
 		weston_touch_coordinate_destroy(s->pending);
 		s->pending = NULL;
 	}
+}
+
+static void
+samples_reset(struct calibrator *cal)
+{
+	int i;
+
+	for (i = NR_SAMPLES - 1; i >= 0; i--) {
+		cal->current_sample = i;
+		sample_undo(cal);
+	}
+
+	cal->finished = false;
+	cal->exiting = false;
+	cal->num_tp = 0;
 }
 
 static void
@@ -593,6 +609,8 @@ wait_timer_done(struct toytimer *tt)
 		} else {
 			pr_err("calibration failed\n");
 			feedback_show(cal, &cross);
+			if (restart_)
+				samples_reset(cal);
 		}
 		enter_state_wait(cal);
 	} else {
@@ -950,7 +968,8 @@ help(void)
 		"  -h, --help      Display this help message\n"
 		"  -v, --verbose   Print list header and calibration result.\n"
 		"  --timeout       Abort after <timeout> seconds without input.\n"
-		"  -d, --dry-run   calibrate & verify, but don't apply.\n");
+		"  -d, --dry-run   calibrate & verify, but don't apply.\n"
+		"  -r, --restart   Restart calibration on failure.\n");
 }
 
 int
@@ -967,10 +986,11 @@ main(int argc, char *argv[])
 		{ "verbose", no_argument,       &verbose_, 1 },
 		{ "timeout", required_argument, NULL,      't' },
 		{ "dry-run", no_argument,       &dryrun_,  1 },
+		{ "restart", no_argument,       &restart_, 1 },
 		{ 0,         0,                 NULL,      0 }
 	};
 
-	while ((c = getopt_long(argc, argv, "hvtd", opts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hvtdr", opts, NULL)) != -1) {
 		switch (c) {
 		case 'h':
 			help();
@@ -988,6 +1008,9 @@ main(int argc, char *argv[])
 			break;
 		case 'd':
 			dryrun_ = 1;
+			break;
+		case 'r':
+			restart_ = 1;
 			break;
 		case 0:
 			break;
