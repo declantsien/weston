@@ -159,10 +159,12 @@ struct calibrator {
 	int width;
 	int height;
 
-	bool cancelled;
-
 	const struct poly *current_poly;
 	bool exiting;
+	bool finished;
+
+	float values[6];
+	enum exit_code result;
 
 	struct toytimer wait_timer;
 	bool timer_pending;
@@ -269,7 +271,7 @@ sample_finish(struct calibrator *cal)
 		sample_start(cal, cal->current_sample + 1);
 	} else {
 		pr_dbg("got all touches\n");
-		cal->exiting = true;
+		cal->finished = true;
 	}
 }
 
@@ -471,6 +473,50 @@ feedback_hide(struct calibrator *cal)
 	widget_schedule_redraw(cal->widget);
 }
 
+static int
+calibrator_compute_and_verify(struct calibrator *cal)
+{
+	struct wl_display *dpy;
+	struct sample *s;
+	bool wait;
+	int i, ret;
+
+	/* wait for all conversions to return */
+	dpy = display_get_display(cal->display);
+	do {
+		wait = false;
+
+		for (i = 0; i < NR_SAMPLES; i++)
+			if (cal->samples[i].pending)
+				wait = true;
+
+		if (wait) {
+			ret = wl_display_roundtrip(dpy);
+			if (ret < 0)
+				return CAL_EXIT_ERROR;
+		}
+	} while (wait);
+
+	for (i = 0; i < NR_SAMPLES; i++) {
+		s = &cal->samples[i];
+		if (!s->conv_done || !s->touch_done)
+			return CAL_EXIT_ERROR;
+	}
+
+	if (compute_calibration(cal, cal->values) < 0)
+		return CAL_EXIT_ERROR;
+
+	if (verify_calibration(cal, cal->values) < 0)
+		return CAL_EXIT_ERROR;
+
+	pr_ver("Calibration values:");
+	for (i = 0; i < 6; i++)
+		pr_ver(" %f", cal->values[i]);
+	pr_ver("\n");
+
+	return CAL_EXIT_SUCCESS;
+}
+
 static void
 try_enter_state_idle(struct calibrator *cal)
 {
@@ -502,7 +548,24 @@ wait_timer_done(struct toytimer *tt)
 
 	assert(cal->state == STATE_WAIT);
 	cal->timer_pending = false;
-	try_enter_state_idle(cal);
+
+	if (cal->exiting) {
+		display_exit(cal->display);
+	} else if (cal->finished) {
+		/* all samples finished: compute, verify and provide final feedback */
+		cal->exiting = true;
+		cal->result = calibrator_compute_and_verify(cal);
+		if (cal->result == CAL_EXIT_SUCCESS) {
+			pr_err("calibration successful\n");
+			feedback_show(cal, &check);
+		} else {
+			pr_err("calibration failed\n");
+			feedback_show(cal, &cross);
+		}
+		enter_state_wait(cal);
+	} else {
+		try_enter_state_idle(cal);
+	}
 }
 
 static void
@@ -594,7 +657,7 @@ cancel_calibration_handler(void *data, struct weston_touch_calibrator *interface
 	struct calibrator *cal = data;
 
 	pr_dbg("calibration cancelled by the display server, quitting.\n");
-	cal->cancelled = true;
+	cal->result = CAL_EXIT_CANCELLED;
 	display_exit(cal->display);
 }
 
@@ -806,58 +869,16 @@ static int
 calibrator_run(struct calibrator *cal)
 {
 	struct wl_display *dpy;
-	struct sample *s;
-	bool wait;
-	int i;
 	int ret;
-	float result[6];
 
 	calibrator_show(cal);
 	display_run(cal->display);
 
-	if (cal->cancelled)
-		return CAL_EXIT_CANCELLED;
+	if (cal->result != CAL_EXIT_SUCCESS)
+		return cal->result;
 
-	/* remove the window, no more input events */
-	widget_destroy(cal->widget);
-	cal->widget = NULL;
-	window_destroy(cal->window);
-	cal->window = NULL;
-
-	/* wait for all conversions to return */
+	send_calibration(cal, cal->values);
 	dpy = display_get_display(cal->display);
-	do {
-		wait = false;
-
-		for (i = 0; i < NR_SAMPLES; i++)
-			if (cal->samples[i].pending)
-				wait = true;
-
-		if (wait) {
-			ret = wl_display_roundtrip(dpy);
-			if (ret < 0)
-				return CAL_EXIT_ERROR;
-		}
-	} while (wait);
-
-	for (i = 0; i < NR_SAMPLES; i++) {
-		s = &cal->samples[i];
-		if (!s->conv_done || !s->touch_done)
-			return CAL_EXIT_ERROR;
-	}
-
-	if (compute_calibration(cal, result) < 0)
-		return CAL_EXIT_ERROR;
-
-	if (verify_calibration(cal, result) < 0)
-		return CAL_EXIT_ERROR;
-
-	pr_ver("Calibration values:");
-	for (i = 0; i < 6; i++)
-		pr_ver(" %f", result[i]);
-	pr_ver("\n");
-
-	send_calibration(cal, result);
 	ret = wl_display_roundtrip(dpy);
 	if (ret < 0)
 		return CAL_EXIT_ERROR;
