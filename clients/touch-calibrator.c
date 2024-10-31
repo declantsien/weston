@@ -52,6 +52,7 @@ enum exit_code {
 
 static int debug_;
 static int verbose_;
+static int timeout_;
 
 #define pr_ver(...) do { \
 	if (verbose_) \
@@ -518,6 +519,30 @@ calibrator_compute_and_verify(struct calibrator *cal)
 }
 
 static void
+start_idle_timeout(struct toytimer *tt)
+{
+	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
+
+	if (timeout_ <= 0)
+		return;
+
+	toytimer_arm_once_usec(tt, timeout_ * 1000 * 1000);
+	cal->timer_pending = true;
+}
+
+static void
+stop_idle_timeout(struct toytimer *tt)
+{
+	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
+
+	if (timeout_ <= 0)
+		return;
+
+	toytimer_disarm(tt);
+	cal->timer_pending = false;
+}
+
+static void
 try_enter_state_idle(struct calibrator *cal)
 {
 	if (cal->num_tp != 0)
@@ -532,6 +557,8 @@ try_enter_state_idle(struct calibrator *cal)
 
 	if (cal->exiting)
 		display_exit(cal->display);
+	else
+		start_idle_timeout(&cal->wait_timer);
 }
 
 static void
@@ -546,10 +573,14 @@ wait_timer_done(struct toytimer *tt)
 {
 	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
 
-	assert(cal->state == STATE_WAIT);
+	assert(cal->state == STATE_WAIT || cal->state == STATE_IDLE);
 	cal->timer_pending = false;
 
-	if (cal->exiting) {
+	if (cal->state == STATE_IDLE) {
+		pr_err("idle timeout reached, quitting.\n");
+		cal->result = CAL_EXIT_CANCELLED;
+		display_exit(cal->display);
+	} else if (cal->exiting) {
 		display_exit(cal->display);
 	} else if (cal->finished) {
 		/* all samples finished: compute, verify and provide final feedback */
@@ -632,6 +663,8 @@ calibrator_create(struct display *display, const char *match_name)
 	cal->state = STATE_IDLE;
 	cal->num_tp = 0;
 
+	start_idle_timeout(&cal->wait_timer);
+
 	return cal;
 }
 
@@ -694,6 +727,7 @@ down_handler(void *data, struct weston_touch_calibrator *interface,
 	case STATE_IDLE:
 		sample_touch_down(cal, xu, yu);
 		cal->state = STATE_DOWN;
+		stop_idle_timeout(&cal->wait_timer);
 		break;
 	case STATE_DOWN:
 	case STATE_UP:
@@ -913,7 +947,8 @@ help(void)
 		"Options:\n"
 		"  --debug         Print messages to help debugging.\n"
 		"  -h, --help      Display this help message\n"
-		"  -v, --verbose   Print list header and calibration result.\n");
+		"  -v, --verbose   Print list header and calibration result.\n"
+		"  --timeout       Abort after <timeout> seconds without input.\n");
 }
 
 int
@@ -928,16 +963,25 @@ main(int argc, char *argv[])
 		{ "help",    no_argument,       NULL,      'h' },
 		{ "debug",   no_argument,       &debug_,   1 },
 		{ "verbose", no_argument,       &verbose_, 1 },
+		{ "timeout", required_argument, NULL,      't' },
 		{ 0,         0,                 NULL,      0  }
 	};
 
-	while ((c = getopt_long(argc, argv, "hv", opts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hvt", opts, NULL)) != -1) {
 		switch (c) {
 		case 'h':
 			help();
 			return CAL_EXIT_SUCCESS;
 		case 'v':
 			verbose_ = 1;
+			break;
+		case 't':
+			if (optarg)
+				timeout_ = atoi(optarg);
+			if (timeout_ <= 0) {
+				pr_err("invalid timeout value\n");
+				return CAL_EXIT_ERROR;
+			}
 			break;
 		case 0:
 			break;
