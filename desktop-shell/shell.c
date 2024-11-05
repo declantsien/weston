@@ -4550,10 +4550,14 @@ shell_output_destroy(struct shell_output *shell_output)
 
 	shell_for_each_layer(shell, shell_output_changed_move_layer, NULL);
 
-	if (shell_output->panel_surface)
+	if (shell_output->panel_surface) {
 		wl_list_remove(&shell_output->panel_surface_listener.link);
-	if (shell_output->background_surface)
+		shell_output->panel_surface->committed = NULL;
+	}
+	if (shell_output->background_surface) {
 		wl_list_remove(&shell_output->background_surface_listener.link);
+		shell_output->background_surface->committed = NULL;
+	}
 	wl_list_remove(&shell_output->destroy_listener.link);
 	wl_list_remove(&shell_output->link);
 	free(shell_output);
