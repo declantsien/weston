@@ -220,13 +220,32 @@ drm_fb_addfb(struct drm_device *device, struct drm_fb *fb)
 	/* If we have a modifier set, we must only use the WithModifiers
 	 * entrypoint; we cannot import it through legacy ioctls. */
 	if (device->fb_modifiers && fb->modifier != DRM_FORMAT_MOD_INVALID) {
+		uint32_t strides[4] = { };
+		uint64_t modifier;
+
+		modifier = fb->modifier;
+		for (i = 0; i < ARRAY_LENGTH(strides) && fb->handles[i]; i++)
+			strides[i] = fb->strides[i];
+
+		if (fourcc_mod_broadcom_mod(modifier) == DRM_FORMAT_MOD_BROADCOM_SAND128) {
+			uint32_t stride_multiplicator;
+
+			modifier =
+				DRM_FORMAT_MOD_BROADCOM_SAND128_COL_HEIGHT (strides[0]);
+
+			stride_multiplicator =
+				fb->format->format == DRM_FORMAT_NV12 ? 1 : 2;
+			for (i = 0; i < ARRAY_LENGTH(strides) && strides[i]; i++)
+				strides[i] = fb->width * stride_multiplicator;
+		}
+
 		/* KMS demands that if a modifier is set, it must be the same
 		 * for all planes. */
 		for (i = 0; i < ARRAY_LENGTH(mods) && fb->handles[i]; i++)
-			mods[i] = fb->modifier;
+			mods[i] = modifier;
 		ret = drmModeAddFB2WithModifiers(fb->fd, fb->width, fb->height,
 						 fb->format->format,
-						 fb->handles, fb->strides,
+						 fb->handles, strides,
 						 fb->offsets, mods, &fb->fb_id,
 						 DRM_MODE_FB_MODIFIERS);
 		return ret;
