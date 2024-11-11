@@ -60,6 +60,9 @@ struct gl_shader {
 	GLint proj_uniform;
 	GLint surface_to_buffer_uniform;
 	GLint tex_uniforms[3];
+	GLint swizzle_idx[3];
+	GLint swizzle_mask[3];
+	GLint swizzle_sub[3];
 	GLint tex_uniform_wireframe;
 	GLint view_alpha_uniform;
 	GLint color_uniform;
@@ -257,6 +260,7 @@ create_fragment_shader_config_string(const struct gl_shader_requirements *req)
 	char *str;
 
 	size = asprintf(&str,
+			"#define DEF_IS_OPENGL_ES_3 %s\n"
 			"#define DEF_TINT %s\n"
 			"#define DEF_INPUT_IS_PREMULT %s\n"
 			"#define DEF_WIREFRAME %s\n"
@@ -264,6 +268,7 @@ create_fragment_shader_config_string(const struct gl_shader_requirements *req)
 			"#define DEF_COLOR_MAPPING %s\n"
 			"#define DEF_COLOR_POST_CURVE %s\n"
 			"#define DEF_VARIANT %s\n",
+			req->is_opengl_es_3 ? "true" : "false",
 			req->tint ? "true" : "false",
 			req->input_is_premult ? "true" : "false",
 			req->wireframe ? "true" : "false",
@@ -363,6 +368,17 @@ gl_shader_create(struct gl_renderer *gr,
 	if (requirements->wireframe)
 		shader->tex_uniform_wireframe =
 			glGetUniformLocation(shader->program, "tex_wireframe");
+	if (gr->gl_version < gl_version(3, 0)) {
+		shader->swizzle_idx[0] = glGetUniformLocation(shader->program, "swizzle_idx[0]");
+		shader->swizzle_idx[1] = glGetUniformLocation(shader->program, "swizzle_idx[1]");
+		shader->swizzle_idx[2] = glGetUniformLocation(shader->program, "swizzle_idx[2]");
+		shader->swizzle_mask[0] = glGetUniformLocation(shader->program, "swizzle_mask[0]");
+		shader->swizzle_mask[1] = glGetUniformLocation(shader->program, "swizzle_mask[1]");
+		shader->swizzle_mask[2] = glGetUniformLocation(shader->program, "swizzle_mask[2]");
+		shader->swizzle_sub[0] = glGetUniformLocation(shader->program, "swizzle_sub[0]");
+		shader->swizzle_sub[1] = glGetUniformLocation(shader->program, "swizzle_sub[1]");
+		shader->swizzle_sub[2] = glGetUniformLocation(shader->program, "swizzle_sub[2]");
+	}
 	shader->view_alpha_uniform = glGetUniformLocation(shader->program, "view_alpha");
 	if (requirements->variant == SHADER_VARIANT_SOLID) {
 		shader->color_uniform = glGetUniformLocation(shader->program,
@@ -639,8 +655,12 @@ gl_shader_load_config(struct gl_renderer *gr,
 		      struct gl_shader *shader,
 		      const struct gl_shader_config *sconf)
 {
+	GLint *swizzles;
+	int swizzle_idx[4];
+	float swizzle_mask[4];
+	float swizzle_sub[4];
 	GLsizei n_params;
-	int i;
+	int i, j;
 
 	glUniformMatrix4fv(shader->proj_uniform,
 			   1, GL_FALSE, sconf->projection.d);
@@ -659,6 +679,30 @@ gl_shader_load_config(struct gl_renderer *gr,
 	assert(sconf->input_num <= SHADER_INPUT_TEX_MAX);
 	for (i = 0; i < sconf->input_num; i++) {
 		assert(shader->tex_uniforms[i] != -1);
+
+		/* If the OpenGL ES implementation lacks swizzles as texture
+		 * parameters (OpenGL ES 2), the fragment shader loads swizzling
+		 * info from uniforms. */
+		if (gr->gl_version < gl_version(3, 0)) {
+			swizzles = sconf->input_param[i].swizzles.array;
+			for (j = 0; j < 4; j++) {
+				swizzle_idx[j] = swizzles[j] - GL_RED;
+				if (swizzle_idx[j] >= 0) {
+					/* Swizzle is R, G, B or A. */
+					swizzle_mask[j] = 1.0f;
+					swizzle_sub[j] = 0.0f;
+				} else {
+					/* Swizzle is 0 or 1. */
+					swizzle_idx[j] = 0;
+					swizzle_mask[j] = 0.0f;
+					swizzle_sub[j] = (float) swizzles[j];
+				}
+			}
+			glUniform4iv(shader->swizzle_idx[i], 1, swizzle_idx);
+			glUniform4fv(shader->swizzle_mask[i], 1, swizzle_mask);
+			glUniform4fv(shader->swizzle_sub[i], 1, swizzle_sub);
+		}
+
 		glUniform1i(shader->tex_uniforms[i], TEX_UNIT_IMAGES + i);
 		glActiveTexture(GL_TEXTURE0 + TEX_UNIT_IMAGES + i);
 		glBindTexture(sconf->input_param[i].target,

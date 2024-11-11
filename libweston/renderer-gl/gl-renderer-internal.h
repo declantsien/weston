@@ -268,6 +268,8 @@ struct gl_extension_table {
  */
 struct gl_shader_requirements
 {
+	bool is_opengl_es_3:1;
+
 	unsigned texcoord_input:1; /* enum gl_shader_texcoord_input */
 
 	unsigned variant:4; /* enum gl_shader_texture_variant */
@@ -283,7 +285,7 @@ struct gl_shader_requirements
 	 * The total size of all bitfields plus pad_bits_ must fill up exactly
 	 * how many bytes the compiler allocates for them together.
 	 */
-	unsigned pad_bits_:18;
+	unsigned pad_bits_:17;
 };
 static_assert(sizeof(struct gl_shader_requirements) ==
 	      4 /* total bitfield size in bytes */,
