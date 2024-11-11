@@ -69,6 +69,7 @@
 #define SWIZZLES_R1BG { GL_RED,   1,        GL_BLUE,  GL_GREEN }
 #define SWIZZLES_RABG { GL_RED,   GL_ALPHA, GL_BLUE,  GL_GREEN }
 #define SWIZZLES_RG01 { GL_RED,   GL_GREEN, 0,        1        }
+#define SWIZZLES_GR01 { GL_GREEN, GL_RED,   0,        1        }
 #define SWIZZLES_RGB1 { GL_RED,   GL_GREEN, GL_BLUE,  1        }
 #define SWIZZLES_RGBA { GL_RED,   GL_GREEN, GL_BLUE,  GL_ALPHA }
 
@@ -131,6 +132,13 @@ static const struct pixel_format_info pixel_format_table[] = {
 		GL_TYPE(GL_UNSIGNED_BYTE),
 	},
 	{
+		DRM_FORMAT(R16),
+		BITS_RGBA_FIXED(16, 0, 0, 0),
+		.bpp = 16,
+		.hide_from_clients = true,
+		GL_FORMAT_INFO(GL_R16_EXT, GL_RED, GL_UNSIGNED_SHORT, R001),
+	},
+	{
 		DRM_FORMAT(GR88),
 		BITS_RGBA_FIXED(8, 8, 0, 0),
 		.bpp = 16,
@@ -138,6 +146,27 @@ static const struct pixel_format_info pixel_format_table[] = {
 		GL_FORMAT_INFO(GL_RG8, GL_RG, GL_UNSIGNED_BYTE, RG01),
 		GL_FORMAT(GL_RG8_EXT),
 		GL_TYPE(GL_UNSIGNED_BYTE),
+	},
+	{
+		DRM_FORMAT(RG88),
+		BITS_RGBA_FIXED(8, 8, 0, 0),
+		.bpp = 16,
+		.hide_from_clients = true,
+		GL_FORMAT_INFO(GL_RG8, GL_RG, GL_UNSIGNED_BYTE, GR01),
+	},
+	{
+		DRM_FORMAT(GR1616),
+		BITS_RGBA_FIXED(16, 16, 0, 0),
+		.bpp = 32,
+		.hide_from_clients = true,
+		GL_FORMAT_INFO(GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT, RG01),
+	},
+	{
+		DRM_FORMAT(RG1616),
+		BITS_RGBA_FIXED(16, 16, 0, 0),
+		.bpp = 32,
+		.hide_from_clients = true,
+		GL_FORMAT_INFO(GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT, GR01),
 	},
 	{
 		DRM_FORMAT(XRGB4444),
@@ -523,6 +552,19 @@ static const struct pixel_format_info pixel_format_table[] = {
 		GL_FORMAT(GL_RGBA16_EXT),
 		GL_TYPE(GL_UNSIGNED_SHORT),
 #endif
+	},
+	{
+		DRM_FORMAT(XRGB16161616),
+		BITS_RGBA_FIXED(16, 16, 16, 0),
+		.bpp = 64,
+		GL_FORMAT_INFO(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, BGR1),
+	},
+	{
+		DRM_FORMAT(ARGB16161616),
+		BITS_RGBA_FIXED(16, 16, 16, 16),
+		.bpp = 64,
+		.opaque_substitute = DRM_FORMAT_XRGB16161616,
+		GL_FORMAT_INFO(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, BGRA),
 	},
 	{
 		DRM_FORMAT(XBGR16161616F),
