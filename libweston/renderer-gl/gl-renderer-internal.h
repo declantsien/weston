@@ -474,6 +474,8 @@ struct gl_renderer {
 
 	GLenum pbo_usage;
 
+	bool blend_state;
+
 	struct wl_list dmabuf_images;
 	struct wl_list dmabuf_formats;
 	struct wl_list pending_capture_list;
