@@ -323,6 +323,9 @@ struct weston_color_mapping_3dlut {
 
 	/** Optimal 3D LUT size along each dimension */
 	unsigned optimal_len;
+
+	/** Optimal shaper 3x1D LUT (shaper) size along each dimension. */
+	unsigned shaper_optimal_len;
 };
 
 /**
