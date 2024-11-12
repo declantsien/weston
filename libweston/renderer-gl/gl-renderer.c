@@ -65,6 +65,16 @@
 
 #define BUFFER_DAMAGE_COUNT 2
 
+#define SWIZZLES_0A0G { 0,        GL_ALPHA, 0,        GL_GREEN }
+#define SWIZZLES_0B0R { 0,        GL_BLUE,  0,        GL_RED   }
+#define SWIZZLES_0G0A { 0,        GL_GREEN, 0,        GL_ALPHA }
+#define SWIZZLES_0R0B { 0,        GL_RED,   0,        GL_BLUE  }
+#define SWIZZLES_G000 { GL_GREEN, 0,        0,        0        }
+#define SWIZZLES_GR00 { GL_GREEN, GL_RED,   0,        0        }
+#define SWIZZLES_R000 { GL_RED,   0,        0,        0        }
+#define SWIZZLES_RG00 { GL_RED,   GL_GREEN, 0,        0        }
+#define SWIZZLES_RGB0 { GL_RED,   GL_GREEN, GL_BLUE,  0        }
+
 enum gl_debug_mode {
 	DEBUG_MODE_NONE = 0,
 	DEBUG_MODE_WIREFRAME,
@@ -211,6 +221,10 @@ struct dmabuf_format {
 struct yuv_plane_descriptor {
 	uint32_t format;
 	int plane_index;
+	union {
+		struct { int r, g, b, a; };
+		int array[4];
+	} swizzles;
 };
 
 struct yuv_format_descriptor {
@@ -357,10 +371,51 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_XUXV,
 		{{
 			.format = DRM_FORMAT_GR88,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
-			.format = DRM_FORMAT_ARGB8888,
-			.plane_index = 0
+			.format = DRM_FORMAT_ABGR8888,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_0G0A,
+		}}
+	}, {
+		.format = DRM_FORMAT_YVYU,
+		.output_planes = 2,
+		.shader_variant = SHADER_VARIANT_Y_XUXV,
+		{{
+			.format = DRM_FORMAT_GR88,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_ABGR8888,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_0A0G,
+		}}
+	}, {
+		.format = DRM_FORMAT_UYVY,
+		.output_planes = 2,
+		.shader_variant = SHADER_VARIANT_Y_XUXV,
+		{{
+			.format = DRM_FORMAT_GR88,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_G000,
+		}, {
+			.format = DRM_FORMAT_ABGR8888,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_0R0B,
+		}}
+	}, {
+		.format = DRM_FORMAT_VYUY,
+		.output_planes = 2,
+		.shader_variant = SHADER_VARIANT_Y_XUXV,
+		{{
+			.format = DRM_FORMAT_GR88,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_G000,
+		}, {
+			.format = DRM_FORMAT_ABGR8888,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_0B0R,
 		}}
 	}, {
 		.format = DRM_FORMAT_NV12,
@@ -368,10 +423,25 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_UV,
 		{{
 			.format = DRM_FORMAT_R8,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_GR88,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_RG00,
+		}}
+	}, {
+		.format = DRM_FORMAT_NV21,
+		.output_planes = 2,
+		.shader_variant = SHADER_VARIANT_Y_UV,
+		{{
+			.format = DRM_FORMAT_R8,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_GR88,
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_GR00,
 		}}
 	}, {
 		.format = DRM_FORMAT_NV16,
@@ -379,10 +449,25 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_UV,
 		{{
 			.format = DRM_FORMAT_R8,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_GR88,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_RG00,
+		}}
+	}, {
+		.format = DRM_FORMAT_NV61,
+		.output_planes = 2,
+		.shader_variant = SHADER_VARIANT_Y_UV,
+		{{
+			.format = DRM_FORMAT_R8,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_GR88,
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_GR00,
 		}}
 	}, {
 		.format = DRM_FORMAT_NV24,
@@ -390,32 +475,55 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_UV,
 		{{
 			.format = DRM_FORMAT_R8,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_GR88,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_RG00,
 		}}
 	}, {
+		.format = DRM_FORMAT_NV42,
+		.output_planes = 2,
+		.shader_variant = SHADER_VARIANT_Y_UV,
+		{{
+			.format = DRM_FORMAT_R8,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_GR88,
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_GR00,
+		}}
+	}, {
+		/* XXX The 6 lsb per component aren't masked out. Add a new
+		 * sampling variant? or maybe a new post-sampling step? */
 		.format = DRM_FORMAT_P010,
 		.output_planes = 2,
 		.shader_variant = SHADER_VARIANT_Y_UV,
 		{{
 			.format = DRM_FORMAT_R16,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000
 		}, {
 			.format = DRM_FORMAT_GR1616,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_RG00
 		}}
 	}, {
+		/* XXX The 4 lsb per component aren't masked out. Add a new
+		 * sampling variant?  or maybe a new post-sampling step? */
 		.format = DRM_FORMAT_P012,
 		.output_planes = 2,
 		.shader_variant = SHADER_VARIANT_Y_UV,
 		{{
 			.format = DRM_FORMAT_R16,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000
 		}, {
 			.format = DRM_FORMAT_GR1616,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_RG00
 		}}
 	}, {
 		.format = DRM_FORMAT_P016,
@@ -423,10 +531,12 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_UV,
 		{{
 			.format = DRM_FORMAT_R16,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000
 		}, {
 			.format = DRM_FORMAT_GR1616,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_RG00
 		}}
 	}, {
 		.format = DRM_FORMAT_YUV420,
@@ -434,13 +544,33 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_U_V,
 		{{
 			.format = DRM_FORMAT_R8,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_R8,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_R8,
-			.plane_index = 2
+			.plane_index = 2,
+			.swizzles.array = SWIZZLES_R000,
+		}}
+	}, {
+		.format = DRM_FORMAT_YVU420,
+		.output_planes = 3,
+		.shader_variant = SHADER_VARIANT_Y_U_V,
+		{{
+			.format = DRM_FORMAT_R8,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_R8,
+			.plane_index = 2,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_R8,
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_R000,
 		}}
 	}, {
 		.format = DRM_FORMAT_YUV444,
@@ -448,21 +578,42 @@ struct yuv_format_descriptor yuv_formats[] = {
 		.shader_variant = SHADER_VARIANT_Y_U_V,
 		{{
 			.format = DRM_FORMAT_R8,
-			.plane_index = 0
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_R8,
-			.plane_index = 1
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_R000,
 		}, {
 			.format = DRM_FORMAT_R8,
-			.plane_index = 2
+			.plane_index = 2,
+			.swizzles.array = SWIZZLES_R000,
+		}}
+	}, {
+		.format = DRM_FORMAT_YVU444,
+		.output_planes = 3,
+		.shader_variant = SHADER_VARIANT_Y_U_V,
+		{{
+			.format = DRM_FORMAT_R8,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_R8,
+			.plane_index = 2,
+			.swizzles.array = SWIZZLES_R000,
+		}, {
+			.format = DRM_FORMAT_R8,
+			.plane_index = 1,
+			.swizzles.array = SWIZZLES_R000,
 		}}
 	}, {
 		.format = DRM_FORMAT_XYUV8888,
 		.output_planes = 1,
 		.shader_variant = SHADER_VARIANT_XYUV,
 		{{
-			.format = DRM_FORMAT_XBGR8888,
-			.plane_index = 0
+			.format = DRM_FORMAT_ABGR8888,
+			.plane_index = 0,
+			.swizzles.array = SWIZZLES_RGB0,
 		}}
 	}
 };
@@ -2766,7 +2917,7 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 	int pitch, hsub, vsub;
 	int offset[3] = { 0, 0, 0 };
 	unsigned int num_planes;
-	unsigned int i;
+	unsigned int i, j;
 	const struct yuv_format_descriptor *yuv = NULL;
 
 	/* When sampling YUV input textures and converting to RGB by hand, we
@@ -2813,20 +2964,36 @@ gl_renderer_attach_shm(struct weston_surface *es, struct weston_buffer *buffer)
 
 		num_planes = yuv->output_planes;
 		for (out = 0; out < num_planes; out++) {
-			const GLint swizzles_rg[] = { GL_RED, GL_ALPHA, 0, 1 };
 			const struct pixel_format_info *info;
+			GLint *swizzles;
 
 			info = pixel_format_get_info(yuv->plane[out].format);
 			assert(info);
-			texture_format[out] = info->gl;
+			texture_format[out].internal = info->gl.internal;
+			texture_format[out].external = info->gl.external;
+			texture_format[out].type = info->gl.type;
+
+			/* The YUV swizzles take precedence over the ones from
+			 * the texture format. */
+			ARRAY_COPY(texture_format[out].swizzles.array,
+				   yuv->plane[out].swizzles.array);
 
 			/* Emulate red-green texture behaviour when
 			 * gl_texture_2d_init() implicitly falls back to a
 			 * luminance-alpha texture format. */
 			if (!gl_features_has(gr, FEATURE_TEXTURE_RG) &&
-			    texture_format[out].internal == GL_RG8)
-				ARRAY_COPY(texture_format[out].swizzles.array,
-					   swizzles_rg);
+			    (texture_format[out].internal == GL_RG8 ||
+			     texture_format[out].internal == GL_RG16_EXT)) {
+				swizzles = texture_format[out].swizzles.array;
+				for (j = 0; j < 4; j++) {
+					if (swizzles[j] == GL_GREEN)
+						swizzles[j] = GL_ALPHA;
+					else if (swizzles[j] == GL_BLUE)
+						swizzles[j] = 0;
+					else if (swizzles[j] == GL_ALPHA)
+						swizzles[j] = 1;
+				}
+			}
 
 			assert(yuv->plane[out].plane_index < (int) shm_plane_count);
 			offset[out] = shm_offset[yuv->plane[out].plane_index];
@@ -4427,7 +4594,8 @@ gl_renderer_display_create(struct weston_compositor *ec,
 {
 	struct gl_renderer *gr;
 	const struct pixel_format_info *info, *info_argb8888, *info_xrgb8888;
-	int ret, nformats, i;
+	int ret, nformats, i, j;
+	bool supported;
 
 	gr = zalloc(sizeof *gr);
 	if (gr == NULL)
@@ -4556,13 +4724,20 @@ gl_renderer_display_create(struct weston_compositor *ec,
 			wl_display_add_shm_format(ec->wl_display, info->format);
 	}
 
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_YUV420);
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_YUV444);
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_NV12);
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_NV16);
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_NV24);
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_YUYV);
-	wl_display_add_shm_format(ec->wl_display, WL_SHM_FORMAT_XYUV8888);
+	/* Register supported wl_shm YUV formats. */
+	for (i = 0; i < (int) ARRAY_LENGTH(yuv_formats); i++) {
+		supported = true;
+		for (j = 0; j < yuv_formats[i].output_planes; j++) {
+			info = pixel_format_get_info(yuv_formats[i].plane[j].format);
+			if (info->gl.internal == 0 ||
+			    !gl_texture_is_format_supported(gr, info->gl.internal)) {
+				supported = false;
+				break;
+			}
+		}
+		if (supported)
+			wl_display_add_shm_format(ec->wl_display, yuv_formats[i].format);
+	}
 
 	return 0;
 
