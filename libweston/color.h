@@ -221,8 +221,9 @@ struct weston_color_curve_lut_3x1d {
 	 * \param len The number of elements in each 1D LUT.
 	 * \param values Array of 3 x len elements. First R channel
 	 * LUT, immediately followed by G channel LUT, and then B channel LUT.
+	 * \return True on success, false otherwise.
 	 */
-	void
+	bool
 	(*fill_in)(struct weston_color_transform *xform,
 		   float *values, unsigned len);
 
@@ -300,6 +301,7 @@ struct weston_color_mapping_3dlut {
 	 * \param xform This color transformation object.
 	 * \param values Memory to hold the resulting data array.
 	 * \param len The number of elements in each dimension.
+	 * \return True on success, false otherwise.
 	 *
 	 * The array \c values must be at least 3 * len * len * len elements
 	 * in size.
@@ -315,7 +317,7 @@ struct weston_color_mapping_3dlut {
 	 *     c = 1 for green output value, and
 	 *     c = 2 for blue output value
 	 */
-	void
+	bool
 	(*fill_in)(struct weston_color_transform *xform,
 		   float *values, unsigned len);
 

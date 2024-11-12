@@ -67,7 +67,7 @@ cmlcms_reasonable_3D_points(void)
 	return 33;
 }
 
-static void
+static bool
 fill_in_curves(cmsToneCurve *curves[3], float *values, unsigned len)
 {
 	float *R_lut = values;
@@ -86,24 +86,26 @@ fill_in_curves(cmsToneCurve *curves[3], float *values, unsigned len)
 		G_lut[i] = cmsEvalToneCurveFloat(curves[1], x);
 		B_lut[i] = cmsEvalToneCurveFloat(curves[2], x);
 	}
+
+	return true;
 }
 
-static void
+static bool
 cmlcms_fill_in_pre_curve(struct weston_color_transform *xform_base,
 			 float *values, unsigned len)
 {
 	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
 
-	fill_in_curves(xform->pre_curve, values, len);
+	return fill_in_curves(xform->pre_curve, values, len);
 }
 
-static void
+static bool
 cmlcms_fill_in_post_curve(struct weston_color_transform *xform_base,
 			 float *values, unsigned len)
 {
 	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
 
-	fill_in_curves(xform->post_curve, values, len);
+	return fill_in_curves(xform->post_curve, values, len);
 }
 
 /**
@@ -121,7 +123,7 @@ ensure_unorm(float v)
 	return v;
 }
 
-static void
+static bool
 cmlcms_fill_in_3dlut(struct weston_color_transform *xform_base,
 		     float *lut, unsigned int len)
 {
@@ -148,6 +150,8 @@ cmlcms_fill_in_3dlut(struct weston_color_transform *xform_base,
 			}
 		}
 	}
+
+	return true;
 }
 
 void
