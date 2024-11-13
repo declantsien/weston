@@ -662,6 +662,7 @@ color_manager_init(struct color_manager *cm, struct client *client)
 	assert(cm->supported_tf == ((1 << XX_COLOR_MANAGER_V4_TRANSFER_FUNCTION_GAMMA22) |
 				    (1 << XX_COLOR_MANAGER_V4_TRANSFER_FUNCTION_GAMMA28) |
 				    (1 << XX_COLOR_MANAGER_V4_TRANSFER_FUNCTION_SRGB) |
+				    (1 << XX_COLOR_MANAGER_V4_TRANSFER_FUNCTION_BT709) |
 				    (1 << XX_COLOR_MANAGER_V4_TRANSFER_FUNCTION_ST2084_PQ)));
 }
 

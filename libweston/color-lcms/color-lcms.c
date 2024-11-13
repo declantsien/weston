@@ -529,6 +529,7 @@ weston_color_manager_create(struct weston_compositor *compositor)
 	cm->base.supported_tf_named = (1 << WESTON_TF_GAMMA22) |
 				      (1 << WESTON_TF_GAMMA28) |
 				      (1 << WESTON_TF_SRGB) |
+				      (1 << WESTON_TF_BT709) |
 				      (1 << WESTON_TF_ST2084_PQ);
 
 	wl_list_init(&cm->color_transform_list);
