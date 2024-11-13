@@ -725,6 +725,12 @@ cmlcms_get_color_profile_from_params(struct weston_color_manager *cm_base,
 	free(str);
 
 	*cprof_out = &cprof->base;
+
+	{
+		struct cmlcms_color_profile *prof = to_cmlcms_cprof(*cprof_out);
+		prof->icc.profile = cm->sRGB_profile->icc.profile;
+	}
+
 	return true;
 }
 
