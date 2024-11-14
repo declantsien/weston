@@ -55,6 +55,7 @@ static int verbose_;
 static int timeout_;
 static int dryrun_;
 static int restart_;
+static int verify_;
 
 #define pr_ver(...) do { \
 	if (verbose_) \
@@ -270,7 +271,7 @@ samples_reset(struct calibrator *cal)
 	cal->num_tp = 0;
 }
 
-static void
+static bool
 sample_finish(struct calibrator *cal)
 {
 	struct sample *s = current_sample(cal);
@@ -285,12 +286,32 @@ sample_finish(struct calibrator *cal)
 	weston_touch_coordinate_add_listener(s->pending,
 					     &coordinate_listener, s);
 
+	if (verify_) {
+		double thr = 0.0002;
+		double ex, ey, err;
+
+		while (!s->conv_done)
+			wl_display_roundtrip(display_get_display(cal->display));
+
+		ex = s->drawn_cal.x - s->touched.x;
+		ey = s->drawn_cal.y - s->touched.y;
+		err = ex * ex + ey * ey;
+		pr_dbg("Verify[%d] (%f, %f)\n", s->ind, err, thr);
+
+		if (err > thr) {
+			sample_undo(cal);
+			return false;
+		}
+	}
+
 	if (cal->current_sample + 1 < NR_SAMPLES) {
 		sample_start(cal, cal->current_sample + 1);
 	} else {
 		pr_dbg("got all touches\n");
 		cal->finished = true;
 	}
+
+	return true;
 }
 
 /*
@@ -798,6 +819,7 @@ static void
 frame_handler(void *data, struct weston_touch_calibrator *interface)
 {
 	struct calibrator *cal = data;
+	const struct poly *poly = &check;
 
 	switch (cal->state) {
 	case STATE_IDLE:
@@ -805,8 +827,9 @@ frame_handler(void *data, struct weston_touch_calibrator *interface)
 		/* no-op */
 		break;
 	case STATE_UP:
-		feedback_show(cal, &check);
-		sample_finish(cal);
+		if (!sample_finish(cal))
+			poly = &cross;
+		feedback_show(cal, poly);
 		enter_state_wait(cal);
 		break;
 	case STATE_WAIT:
@@ -856,7 +879,8 @@ calibrator_show(struct calibrator *cal)
 	cal->calibrator =
 		weston_touch_calibration_create_calibrator(cal->calibration,
 							   surface,
-							   cal->device_name);
+							   cal->device_name,
+							   verify_);
 	weston_touch_calibrator_add_listener(cal->calibrator,
 					     &calibrator_listener, cal);
 }
@@ -969,7 +993,8 @@ help(void)
 		"  -v, --verbose   Print list header and calibration result.\n"
 		"  --timeout       Abort after <timeout> seconds without input.\n"
 		"  -d, --dry-run   calibrate & verify, but don't apply.\n"
-		"  -r, --restart   Restart calibration on failure.\n");
+		"  -r, --restart   Restart calibration on failure.\n"
+		"  --verify        Verify current calibration.\n");
 }
 
 int
@@ -987,6 +1012,7 @@ main(int argc, char *argv[])
 		{ "timeout", required_argument, NULL,      't' },
 		{ "dry-run", no_argument,       &dryrun_,  1 },
 		{ "restart", no_argument,       &restart_, 1 },
+		{ "verify",  no_argument,       &verify_,  1 },
 		{ 0,         0,                 NULL,      0 }
 	};
 
