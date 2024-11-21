@@ -26,9 +26,9 @@
 #include "config.h"
 
 #include "id-number-allocator.h"
+#include <libweston/weston-assert.h>
 #include "shared/helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
 
 struct weston_idalloc {
 	struct weston_compositor *compositor;

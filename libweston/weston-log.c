@@ -337,9 +337,9 @@ weston_log_subscription_remove(struct weston_log_subscription *sub)
  * weston_compositor_add_log_scope()
  * @returns NULL if none found, or a pointer to a weston_log_scope
  *
- * @ingroup internal-log
+ * @ingroup log
  */
-struct weston_log_scope *
+WL_EXPORT struct weston_log_scope *
 weston_log_get_scope(struct weston_log_context *log_ctx, const char *name)
 {
 	struct weston_log_scope *scope;

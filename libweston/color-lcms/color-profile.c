@@ -33,10 +33,10 @@
 #include "color.h"
 #include "color-lcms.h"
 #include "color-management.h"
+#include <libweston/weston-assert.h>
 #include "shared/helpers.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
-#include "shared/weston-assert.h"
 
 struct xyz_arr_flt {
 	float v[3];

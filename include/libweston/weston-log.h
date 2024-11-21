@@ -78,6 +78,9 @@ weston_compositor_add_log_scope(struct weston_compositor *compositor,
 				weston_log_scope_cb destroy_subscription,
 				void *user_data);
 
+struct weston_log_scope *
+weston_log_get_scope(struct weston_log_context *log_ctx, const char *name);
+
 void
 weston_log_scope_destroy(struct weston_log_scope *scope);
 

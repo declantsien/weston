@@ -32,16 +32,47 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
-struct weston_compositor;
+#include <libweston/libweston.h>
+#include <libweston/weston-log.h>
+
+/**
+ * Weston-assert macros
+ *
+ * This header contains macros that should be used by libweston and its users.
+ * The two main advantages are:
+ *
+ * 1. When an weston-assert is hit, we print more meaningful messages.
+ * 2. We log the messages using our log infrastructure.
+ *
+ * ATTENTION: DO NOT USE THIS IN OUR LOG INFRASTRUCTURE IMPLEMENTATION!
+ *
+ * The results of doing that are undefined, as it could cause a bad recursion.
+ * If the log infrastructure hits an weston-assert, it will try to log the
+ * failure message using the log infrastructure itself (which has hit an assert
+ * before, so is probably in an unreliable state). That may result in another
+ * weston-assert hit and, if that happens, we have an infinite loop.
+ */
 
 __attribute__((noreturn, format(printf, 2, 3)))
 static inline void
 weston_assert_fail_(const struct weston_compositor *compositor, const char *fmt, ...)
 {
+	struct weston_log_scope *scope = NULL;
 	va_list ap;
 
+	if (!compositor)
+		fprintf(stderr, "WARNING: weston-assert should not be used without a " \
+				"valid compositor.\n");
+
+	if (compositor && !(scope = weston_log_get_scope(compositor->weston_log_ctx, "log")))
+		fprintf(stderr, "WARNING: weston-assert failed to retrieve compositor's " \
+				"log scope, so we'll log to stderr.\n");
+
 	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
+	if (scope)
+		weston_log_scope_vprintf(scope, fmt, ap);
+	else
+		vfprintf(stderr, fmt, ap);
 	va_end(ap);
 
 	abort();

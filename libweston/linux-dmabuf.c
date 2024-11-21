@@ -32,13 +32,13 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 
+#include "libweston-internal.h"
 #include <libweston/libweston.h>
+#include <libweston/weston-assert.h>
 #include "linux-dmabuf.h"
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
 #include "shared/os-compatibility.h"
 #include "shared/helpers.h"
-#include "libweston-internal.h"
-#include "shared/weston-assert.h"
 #include "shared/weston-drm-fourcc.h"
 
 static void
