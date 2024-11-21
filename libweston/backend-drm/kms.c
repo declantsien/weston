@@ -39,7 +39,7 @@
 #include "shared/helpers.h"
 #include "shared/weston-drm-fourcc.h"
 #include "drm-internal.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 #include "presentation-time-server-protocol.h"
 
 #ifndef DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP

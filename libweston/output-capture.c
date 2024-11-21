@@ -29,9 +29,9 @@
 
 #include <libweston/libweston.h>
 #include <libweston/weston-log.h>
+#include <libweston/pixel-formats.h>
 #include "libweston-internal.h"
 #include "output-capture.h"
-#include "pixel-formats.h"
 #include "shared/helpers.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/xalloc.h"

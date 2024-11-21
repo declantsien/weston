@@ -32,9 +32,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#include <libweston/pixel-formats.h>
 #include "pixman-renderer.h"
 #include "color.h"
-#include "pixel-formats.h"
 #include "output-capture.h"
 #include "shared/helpers.h"
 #include "shared/weston-drm-fourcc.h"

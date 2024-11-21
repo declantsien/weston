@@ -35,7 +35,7 @@
 
 #include "gl-renderer.h"
 #include "gl-renderer-internal.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 #include "shared/weston-egl-ext.h"
 
 #include <assert.h>

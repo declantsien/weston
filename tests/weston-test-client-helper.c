@@ -37,13 +37,13 @@
 #include <sys/mman.h>
 #include <cairo.h>
 
+#include <libweston/zalloc.h>
+#include <libweston/pixel-formats.h>
 #include "test-config.h"
-#include "pixel-formats.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/os-compatibility.h"
 #include "shared/string-helpers.h"
 #include "shared/xalloc.h"
-#include <libweston/zalloc.h>
 #include "weston-test-client-helper.h"
 #include "image-iter.h"
 #include "weston-output-capture-client-protocol.h"

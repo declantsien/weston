@@ -36,7 +36,7 @@
 #include <string.h>
 
 #include "drm-internal.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 #include "renderer-gl/gl-renderer.h"
 
 #define POISON_PTR ((void *)8)

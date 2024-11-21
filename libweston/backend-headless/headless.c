@@ -39,7 +39,7 @@
 #include <libweston/backend-headless.h>
 #include "shared/helpers.h"
 #include "linux-explicit-synchronization.h"
-#include "pixel-formats.h"
+#include <libweston/pixel-formats.h>
 #include "pixman-renderer.h"
 #include "renderer-gl/gl-renderer.h"
 #include "gl-borders.h"
