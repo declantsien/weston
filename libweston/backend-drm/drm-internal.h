@@ -163,11 +163,12 @@ enum try_view_on_plane_failure_reasons {
 	FAILURE_REASONS_INADEQUATE_CONTENT_PROTECTION = 1 << 6,
 	FAILURE_REASONS_INCOMPATIBLE_TRANSFORM = 1 << 7,
 	FAILURE_REASONS_NO_BUFFER = 1 << 8,
-	FAILURE_REASONS_BUFFER_TYPE = 1 << 9,
-	FAILURE_REASONS_GLOBAL_ALPHA = 1 << 10,
-	FAILURE_REASONS_NO_GBM = 1 << 11,
-	FAILURE_REASONS_GBM_BO_IMPORT_FAILED = 1 << 12,
-	FAILURE_REASONS_GBM_BO_GET_HANDLE_FAILED = 1 << 13,
+	FAILURE_REASONS_BUFFER_TOO_BIG = 1 << 9,
+	FAILURE_REASONS_BUFFER_TYPE = 1 << 10,
+	FAILURE_REASONS_GLOBAL_ALPHA = 1 << 11,
+	FAILURE_REASONS_NO_GBM = 1 << 12,
+	FAILURE_REASONS_GBM_BO_IMPORT_FAILED = 1 << 13,
+	FAILURE_REASONS_GBM_BO_GET_HANDLE_FAILED = 1 << 14,
 };
 
 /**
@@ -784,7 +785,8 @@ wdrm_colorspace_from_output(struct weston_output *output);
 #ifdef BUILD_DRM_GBM
 extern struct drm_fb *
 drm_fb_get_from_paint_node(struct drm_output_state *state,
-			   struct weston_paint_node *pnode);
+			   struct weston_paint_node *pnode,
+			   uint32_t *try_view_on_plane_failure_reasons);
 
 extern bool
 drm_can_scanout_dmabuf(struct weston_backend *backend,
@@ -792,7 +794,8 @@ drm_can_scanout_dmabuf(struct weston_backend *backend,
 #else
 static inline struct drm_fb *
 drm_fb_get_from_paint_node(struct drm_output_state *state,
-			   struct weston_paint_node *pnode)
+			   struct weston_paint_node *pnode,
+			   uint32_t *try_view_on_plane_failure_reasons)
 {
 	return NULL;
 }

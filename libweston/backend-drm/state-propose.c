@@ -42,6 +42,8 @@
 #include "linux-dmabuf.h"
 #include "presentation-time-server-protocol.h"
 #include "linux-dmabuf-unstable-v1-server-protocol.h"
+#include "shared/string-helpers.h"
+#include "shared/weston-assert.h"
 
 enum drm_output_propose_state_mode {
 	DRM_OUTPUT_PROPOSE_STATE_MIXED, /**< mix renderer & planes */
@@ -321,7 +323,8 @@ dmabuf_feedback_maybe_update(struct drm_device *device, struct weston_view *ev,
 	/* Direct scanout won't happen even if client re-allocates using
 	 * params from the scanout tranche, so keep only the renderer tranche. */
 	if (try_view_on_plane_failure_reasons & (FAILURE_REASONS_FORCE_RENDERER |
-						 FAILURE_REASONS_NO_PLANES_AVAILABLE)) {
+						 FAILURE_REASONS_NO_PLANES_AVAILABLE |
+						 FAILURE_REASONS_INADEQUATE_CONTENT_PROTECTION)) {
 		action_needed = ACTION_NEEDED_REMOVE_SCANOUT_TRANCHE;
 	/* Direct scanout may be possible if client re-allocates using the
 	 * params from the scanout tranche. */
@@ -388,6 +391,30 @@ dmabuf_feedback_maybe_update(struct drm_device *device, struct weston_view *ev,
 	dmabuf_feedback->action_needed = ACTION_NEEDED_NONE;
 }
 
+static const char *
+failure_reasons_to_str(enum try_view_on_plane_failure_reasons failure_reasons)
+{
+	switch(failure_reasons) {
+	case FAILURE_REASONS_NONE:			    return "none";
+	case FAILURE_REASONS_FORCE_RENDERER:		    return "force renderer";
+	case FAILURE_REASONS_FB_FORMAT_INCOMPATIBLE:	    return "fb format incompatible";
+	case FAILURE_REASONS_DMABUF_MODIFIER_INVALID:	    return "dmabuf modifier invalid";
+	case FAILURE_REASONS_ADD_FB_FAILED:		    return "add fb failed";
+	case FAILURE_REASONS_NO_PLANES_AVAILABLE:	    return "no planes available";
+	case FAILURE_REASONS_PLANES_REJECTED:		    return "planes rejected";
+	case FAILURE_REASONS_INADEQUATE_CONTENT_PROTECTION: return "inadequate content protection";
+	case FAILURE_REASONS_INCOMPATIBLE_TRANSFORM:	    return "incompatible transform";
+	case FAILURE_REASONS_NO_BUFFER:			    return "no buffer";
+	case FAILURE_REASONS_BUFFER_TOO_BIG:		    return "buffer too big";
+	case FAILURE_REASONS_BUFFER_TYPE:		    return "buffer type";
+	case FAILURE_REASONS_GLOBAL_ALPHA:		    return "global alpha";
+	case FAILURE_REASONS_NO_GBM:			    return "no gbm";
+	case FAILURE_REASONS_GBM_BO_IMPORT_FAILED:	    return "gbm bo import failed";
+	case FAILURE_REASONS_GBM_BO_GET_HANDLE_FAILED:	    return "gbm bo get handle failed";
+	}
+	return "???";
+}
+
 static struct drm_plane_state *
 drm_output_find_plane_for_view(struct drm_output_state *state,
 			       struct weston_paint_node *pnode,
@@ -413,42 +440,39 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 
 	bool view_matches_entire_output, scanout_has_view_assigned;
 	uint32_t possible_plane_mask = 0;
+	uint32_t fb_failure_reasons = 0;
 
 	pnode->try_view_on_plane_failure_reasons = FAILURE_REASONS_NONE;
-
-	/* check view for valid buffer, doesn't make sense to even try */
-	if (!weston_view_has_valid_buffer(ev)) {
-		pnode->try_view_on_plane_failure_reasons |=
-			FAILURE_REASONS_FB_FORMAT_INCOMPATIBLE;
-		return NULL;
-	}
 
 	/* filter out non-cursor views in renderer-only mode */
 	if (mode == DRM_OUTPUT_PROPOSE_STATE_RENDERER_ONLY &&
 	    ev->layer_link.layer != &b->compositor->cursor_layer)
 			return NULL;
 
+	/* check view for valid buffer, doesn't make sense to even try */
+	if (!weston_view_has_valid_buffer(ev)) {
+		pnode->try_view_on_plane_failure_reasons |=
+			FAILURE_REASONS_NO_BUFFER;
+		return NULL;
+	}
+
 	buffer = ev->surface->buffer_ref.buffer;
 	if (buffer->type == WESTON_BUFFER_SOLID) {
 		pnode->try_view_on_plane_failure_reasons |=
-			FAILURE_REASONS_FB_FORMAT_INCOMPATIBLE;
-		return NULL;
+			FAILURE_REASONS_BUFFER_TYPE;
 	} else if (buffer->type == WESTON_BUFFER_SHM) {
-		if (!output->cursor_plane || device->cursors_are_broken) {
+		if (!output->cursor_plane || device->cursors_are_broken)
 			pnode->try_view_on_plane_failure_reasons |=
-				FAILURE_REASONS_FB_FORMAT_INCOMPATIBLE;
-			return NULL;
-		}
+				FAILURE_REASONS_BUFFER_TYPE;
 
-		/* Even though this is a SHM buffer, pixel_format stores the
-		 * format code as DRM FourCC */
+		/* Even though this is a SHM buffer, pixel_format stores
+		 * the format code as DRM FourCC */
 		if (buffer->pixel_format->format != DRM_FORMAT_ARGB8888) {
 			drm_debug(b, "\t\t\t\t[view] not placing view %p on "
-			             "plane; SHM buffers must be ARGB8888 for "
+				     "plane; SHM buffers must be ARGB8888 for "
 				     "cursor view\n", ev);
 			pnode->try_view_on_plane_failure_reasons |=
 				FAILURE_REASONS_FB_FORMAT_INCOMPATIBLE;
-			return NULL;
 		}
 
 		if (buffer->width > device->cursor_width ||
@@ -457,11 +481,11 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 				     "(buffer (%dx%d) too large for cursor plane)\n",
 				     ev, buffer->width, buffer->height);
 			pnode->try_view_on_plane_failure_reasons |=
-				FAILURE_REASONS_FB_FORMAT_INCOMPATIBLE;
-			return NULL;
+				FAILURE_REASONS_BUFFER_TOO_BIG;
 		}
 
-		possible_plane_mask = (1 << output->cursor_plane->plane_idx);
+		if (pnode->try_view_on_plane_failure_reasons == FAILURE_REASONS_NONE)
+			possible_plane_mask = (1 << output->cursor_plane->plane_idx);
 	} else {
 		if (mode == DRM_OUTPUT_PROPOSE_STATE_RENDERER_ONLY) {
 			drm_debug(b, "\t\t\t\t[view] not assigning view %p "
@@ -477,20 +501,20 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 				possible_plane_mask |= 1 << plane->plane_idx;
 		}
 
-		if (!possible_plane_mask) {
+		if (!possible_plane_mask)
 			pnode->try_view_on_plane_failure_reasons |=
 				FAILURE_REASONS_INCOMPATIBLE_TRANSFORM;
-			return NULL;
-		}
 
-		fb = drm_fb_get_from_paint_node(state, pnode);
-		if (!fb) {
-			drm_debug(b, "\t\t\t[view] couldn't get FB for view: 0x%lx\n",
-				  (unsigned long) pnode->try_view_on_plane_failure_reasons);
-			return NULL;
+		fb = drm_fb_get_from_paint_node(state, pnode, &fb_failure_reasons);
+		if (fb) {
+			possible_plane_mask &= fb->plane_mask;
+		} else {
+			char *fr_str = bits_to_str(fb_failure_reasons, failure_reasons_to_str);
+			weston_assert_ptr(b->compositor, fr_str);
+			drm_debug(b, "\t\t\t[view] couldn't get FB for view: %s\n", fr_str);
+			free(fr_str);
+			pnode->try_view_on_plane_failure_reasons |= fb_failure_reasons;
 		}
-
-		possible_plane_mask &= fb->plane_mask;
 	}
 
 	view_matches_entire_output =
@@ -521,7 +545,6 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 			assert(plane == output->cursor_plane);
 			break;
 		case WDRM_PLANE_TYPE_PRIMARY:
-			assert(fb);
 			if (plane != output->scanout_plane)
 				continue;
 			if (mode != DRM_OUTPUT_PROPOSE_STATE_PLANES_ONLY)
@@ -530,7 +553,6 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 				continue;
 			break;
 		case WDRM_PLANE_TYPE_OVERLAY:
-			assert(fb);
 			assert(mode != DRM_OUTPUT_PROPOSE_STATE_RENDERER_ONLY);
 			/* if the view covers the whole output, put it in the
 			 * scanout plane, not overlay */
@@ -595,7 +617,7 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 		    plane->props[WDRM_PLANE_IN_FENCE_FD].prop_id == 0) {
 			drm_debug(b, "\t\t\t\t[%s] not placing view %p on %s: "
 			          "no in-fence support\n", p_name, ev, p_name);
-			return NULL;
+			continue;
 		}
 
 		if (!b->has_underlay && mm_has_underlay) {
@@ -620,9 +642,10 @@ drm_output_find_plane_for_view(struct drm_output_state *state,
 		if (plane->type == WDRM_PLANE_TYPE_CURSOR) {
 			ps = drm_output_prepare_cursor_paint_node(state, pnode, zpos);
 		} else {
-			ps = drm_output_try_paint_node_on_plane(plane, state,
-								pnode, mode,
-								fb, zpos);
+			if (fb)
+				ps = drm_output_try_paint_node_on_plane(plane, state,
+									pnode, mode,
+									fb, zpos);
 		}
 
 		if (ps) {
@@ -895,8 +918,12 @@ drm_output_propose_state(struct weston_output *output_base,
 			pixman_region32_fini(&clipped_view);
 			goto err_region;
 		} else if (!ps) {
+			char *fr_str = bits_to_str(pnode->try_view_on_plane_failure_reasons,
+						   failure_reasons_to_str);
+			weston_assert_ptr(b->compositor, fr_str);
 			drm_debug(b, "\t\t\t\t[view] view %p will be placed "
-				     "on the renderer\n", ev);
+				     "on the renderer: %s\n", ev, fr_str);
+			free(fr_str);
 		}
 
 		if (!ps || drm_mixed_mode_check_underlay(mode, scanout_state, ps->zpos)) {
