@@ -321,9 +321,12 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 	if (pnode->valid_transform) {
 		switch (pnode->transform) {
 		case WL_OUTPUT_TRANSFORM_NORMAL:
+		case WL_OUTPUT_TRANSFORM_FLIPPED:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_180:
 			rot = VIVS_DE_ROT_ANGLE_SRC(DE_ROT_MODE_ROT0);
 			break;
 		case WL_OUTPUT_TRANSFORM_90:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_90:
 			rot = VIVS_DE_ROT_ANGLE_SRC(DE_ROT_MODE_ROT90);
 			weston_matrix_translate(&src_transform,
 						-ebs->width, 0, 0);
@@ -336,13 +339,24 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 			weston_matrix_rotate_xy(&src_transform, -1, 0);
 			break;
 		case WL_OUTPUT_TRANSFORM_270:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_270:
 			rot = VIVS_DE_ROT_ANGLE_SRC(DE_ROT_MODE_ROT270);
 			weston_matrix_translate(&src_transform,
 						0, -ebs->height, 0);
 			weston_matrix_rotate_xy(&src_transform, 0, 1);
 			break;
+		}
+		switch (pnode->transform) {
+		case WL_OUTPUT_TRANSFORM_FLIPPED:
+			rot |= VIVS_DE_ROT_ANGLE_SRC_MIRROR(DE_MIRROR_MODE_MIRROR_X);
+			break;
+		case WL_OUTPUT_TRANSFORM_FLIPPED_90:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_180:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_270:
+			rot |= VIVS_DE_ROT_ANGLE_SRC_MIRROR(DE_MIRROR_MODE_MIRROR_Y);
+			break;
 		default:
-			weston_log("unhandled output transform\n");
+			break;
 		}
 	}
 
@@ -391,10 +405,28 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 		uint16_t src_width;
 		uint16_t src_height;
 
-		src_origin = weston_matrix_transform_coord(&src_transform,
-				weston_coord(rects[i].x1, rects[i].y1));
-		src_bottom_right = weston_matrix_transform_coord(&src_transform,
-				weston_coord(rects[i].x2, rects[i].y2));
+		switch (pnode->transform) {
+		case WL_OUTPUT_TRANSFORM_FLIPPED:
+			src_origin = weston_matrix_transform_coord(&src_transform,
+					weston_coord(rects[i].x2, rects[i].y1));
+			src_bottom_right = weston_matrix_transform_coord(&src_transform,
+					weston_coord(rects[i].x1, rects[i].y2));
+			break;
+		case WL_OUTPUT_TRANSFORM_FLIPPED_90:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_180:
+		case WL_OUTPUT_TRANSFORM_FLIPPED_270:
+			src_origin = weston_matrix_transform_coord(&src_transform,
+					weston_coord(rects[i].x1, rects[i].y2));
+			src_bottom_right = weston_matrix_transform_coord(&src_transform,
+					weston_coord(rects[i].x2, rects[i].y1));
+			break;
+		default:
+			src_origin = weston_matrix_transform_coord(&src_transform,
+					weston_coord(rects[i].x1, rects[i].y1));
+			src_bottom_right = weston_matrix_transform_coord(&src_transform,
+					weston_coord(rects[i].x2, rects[i].y2));
+			break;
+		}
 
 		etna_set_state(stream, VIVS_DE_SRC_ORIGIN,
 			       VIVS_DE_SRC_ORIGIN_X((uint16_t)(src_origin.x)) |
@@ -429,6 +461,25 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 		etna_cmd_stream_emit(stream,
 				     VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(rects[i].x2) |
 				     VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(rects[i].y2));
+
+		if ((rot & VIVS_DE_ROT_ANGLE_SRC_MIRROR__MASK) !=
+		    VIVS_DE_ROT_ANGLE_SRC_MIRROR(DE_MIRROR_MODE_NONE) && i < nrects - 1) {
+			/*
+			 * Work around visual artifacts when drawing multiple
+			 * rectangles with source mirrioring enabled.
+			 */
+			etna_set_state(stream, 1, 0);
+			etna_set_state(stream, 1, 0);
+			etna_set_state(stream, 1, 0);
+
+			etna_set_state(stream, VIVS_GL_FLUSH_CACHE, VIVS_GL_FLUSH_CACHE_PE2D);
+			etna_set_state(stream, VIVS_GL_SEMAPHORE_TOKEN,
+				       VIVS_GL_SEMAPHORE_TOKEN_FROM(SYNC_RECIPIENT_FE) |
+				       VIVS_GL_SEMAPHORE_TOKEN_TO(SYNC_RECIPIENT_PE));
+			etna_cmd_stream_emit(stream, VIV_FE_STALL_HEADER_OP_STALL);
+			etna_cmd_stream_emit(stream, VIV_FE_STALL_TOKEN_FROM(SYNC_RECIPIENT_FE) |
+					     VIV_FE_STALL_TOKEN_TO(SYNC_RECIPIENT_PE));
+		}
 	}
 
 	etna_set_state(stream, 1, 0);
