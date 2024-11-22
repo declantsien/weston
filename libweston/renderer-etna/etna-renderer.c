@@ -292,7 +292,7 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 		etna_set_state(stream, VIVS_DE_CLEAR_PIXEL_VALUE32,
 			       ebs->clear_color);
 	} else {
-		dst_cfg = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
+		dst_cfg = VIVS_DE_DEST_CONFIG_COMMAND_STRETCH_BLT;
 		uint32_t stride = ebs->stride;
 
 		etna_set_state_from_bo(stream, VIVS_DE_SRC_ADDRESS, ebs->bo);
@@ -308,9 +308,8 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 		etna_set_state(stream, VIVS_DE_SRC_EX_CONFIG,
 				ebs->tiled == 2 ? VIVS_DE_SRC_EX_CONFIG_SUPER_TILED_ENABLE : 0);
 
-		/* FIXME: handle stretch blits */
-		etna_set_state(stream, VIVS_DE_STRETCH_FACTOR_LOW, 0);
-		etna_set_state(stream, VIVS_DE_STRETCH_FACTOR_HIGH, 0);
+		etna_set_state(stream, VIVS_DE_STRETCH_FACTOR_LOW, 0x10000);
+		etna_set_state(stream, VIVS_DE_STRETCH_FACTOR_HIGH, 0x10000);
 	}
 
 	dst_cfg |= VIVS_DE_DEST_CONFIG_FORMAT(rb->de_format) |
@@ -385,18 +384,35 @@ draw_paint_node(struct weston_paint_node *pnode, struct etna_renderbuffer *rb)
 	rects = pixman_region32_rectangles(&repaint, &nrects);
 
 	for (int i = 0; i < nrects; i++) {
+		uint16_t dst_width = rects[i].x2 - rects[i].x1;
+		uint16_t dst_height = rects[i].y2 - rects[i].y1;
 		struct weston_coord src_origin;
+		struct weston_coord src_bottom_right;
+		uint16_t src_width;
+		uint16_t src_height;
 
 		src_origin = weston_matrix_transform_coord(&src_transform,
 				weston_coord(rects[i].x1, rects[i].y1));
+		src_bottom_right = weston_matrix_transform_coord(&src_transform,
+				weston_coord(rects[i].x2, rects[i].y2));
 
 		etna_set_state(stream, VIVS_DE_SRC_ORIGIN,
 			       VIVS_DE_SRC_ORIGIN_X((uint16_t)(src_origin.x)) |
 			       VIVS_DE_SRC_ORIGIN_Y((uint16_t)(src_origin.y)));
 
+		src_width = src_bottom_right.x - src_origin.x;
+		src_height = src_bottom_right.y - src_origin.y;
+
 		etna_set_state(stream, VIVS_DE_SRC_SIZE,
-			       VIVS_DE_SRC_SIZE_X(rects[i].x2 - rects[i].x1) |
-			       VIVS_DE_SRC_SIZE_Y(rects[i].y2 - rects[i].y1));
+			       VIVS_DE_SRC_SIZE_X(src_width) |
+			       VIVS_DE_SRC_SIZE_Y(src_height));
+
+		etna_set_state(stream, VIVS_DE_STRETCH_FACTOR_LOW,
+			       VIVS_DE_STRETCH_FACTOR_LOW_X(((src_width - 1) << 16) /
+							     (dst_width - 1)));
+		etna_set_state(stream, VIVS_DE_STRETCH_FACTOR_HIGH,
+			       VIVS_DE_STRETCH_FACTOR_HIGH_Y(((src_height - 1) << 16) /
+							      (dst_height - 1)));
 
 #if 0
 		weston_log("draw rect %d/%d -> %d/%d, src origin %d/%d\n",
