@@ -99,6 +99,10 @@ struct atom_x11 {
 	xcb_atom_t		 wl_surface_serial;
 	xcb_atom_t		 allow_commits;
 	xcb_atom_t		 weston_focus_ping;
+	xcb_atom_t		 cardinal;
+	xcb_atom_t		 xkb_names;
+	xcb_atom_t		 wm_size_hints;
+	xcb_atom_t		 wm_class;
 };
 
 const char *

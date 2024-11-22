@@ -141,6 +141,10 @@ x11_get_atoms(xcb_connection_t *connection, struct atom_x11 *atom)
 		{ "WL_SURFACE_ID",			F(wl_surface_id) },
 		{ "WL_SURFACE_SERIAL", 			F(wl_surface_serial) },
 		{ "_WESTON_FOCUS_PING",			F(weston_focus_ping) },
+		{ "CARDINAL",				F(cardinal) },
+		{ "_XKB_RULES_NAMES",			F(xkb_names) },
+		{ "WM_SIZE_HINTS",			F(wm_size_hints) },
+		{ "WM_CLASS",				F(wm_class) },
 	};
 
 	xcb_intern_atom_cookie_t cookies[ARRAY_LENGTH(atoms)];
