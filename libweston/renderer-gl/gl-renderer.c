@@ -65,15 +65,15 @@
 
 #define BUFFER_DAMAGE_COUNT 2
 
-#define SWIZZLES_AG00 { GL_ALPHA, GL_GREEN, 0,       0 }
-#define SWIZZLES_BR00 { GL_BLUE,  GL_RED,   0,       0 }
-#define SWIZZLES_G000 { GL_GREEN, 0,        0,       0 }
-#define SWIZZLES_GA00 { GL_GREEN, GL_ALPHA, 0,       0 }
-#define SWIZZLES_GR00 { GL_GREEN, GL_RED,   0,       0 }
-#define SWIZZLES_R000 { GL_RED,   0,        0,       0 }
-#define SWIZZLES_RB00 { GL_RED,   GL_BLUE,  0,       0 }
-#define SWIZZLES_RG00 { GL_RED,   GL_GREEN, 0,       0 }
-#define SWIZZLES_RGB0 { GL_RED,   GL_GREEN, GL_BLUE, 0 }
+#define SWIZZLES_AG00 { GL_ALPHA, GL_GREEN, 0,      0 }
+#define SWIZZLES_BR00 { GL_BLUE,  GL_RED,   0,      0 }
+#define SWIZZLES_G000 { GL_GREEN, 0,        0,      0 }
+#define SWIZZLES_GA00 { GL_GREEN, GL_ALPHA, 0,      0 }
+#define SWIZZLES_GR00 { GL_GREEN, GL_RED,   0,      0 }
+#define SWIZZLES_R000 { GL_RED,   0,        0,      0 }
+#define SWIZZLES_RB00 { GL_RED,   GL_BLUE,  0,      0 }
+#define SWIZZLES_RG00 { GL_RED,   GL_GREEN, 0,      0 }
+#define SWIZZLES_BGR0 { GL_BLUE,  GL_GREEN, GL_RED, 0 }
 
 enum gl_debug_mode {
 	DEBUG_MODE_NONE = 0,
@@ -616,7 +616,7 @@ struct yuv_format_descriptor yuv_formats[] = {
 		{{
 			.format = DRM_FORMAT_ABGR8888,
 			.plane_index = 0,
-			.swizzles.array = SWIZZLES_RGB0,
+			.swizzles.array = SWIZZLES_BGR0,
 		}}
 	}
 };
