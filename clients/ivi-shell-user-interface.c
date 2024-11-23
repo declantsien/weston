@@ -1065,8 +1065,8 @@ create_launchers(struct wlContextCommon *cmm, struct wl_list *launcher_list)
 	free(launchers);
 }
 
-char**
-parse_command(const char *str)
+static char **
+parse_command(char *str)
 {
 	char **argv;
 	char *saveptr;
