@@ -145,6 +145,10 @@ struct wayland_output {
 
 	struct weston_mode mode;
 	struct weston_mode native_mode;
+	struct weston_mode window_mode;
+	bool maximized;
+	bool fullscreen;
+	bool enabled;
 
 	struct wl_callback *frame_cb;
 };
@@ -1160,19 +1164,42 @@ handle_xdg_toplevel_configure(void *data, struct xdg_toplevel *toplevel,
 {
 	struct wayland_output *output = data;
 	bool should_send_resize = false;
+	uint32_t *p;
+
+	output->maximized = false;
+	output->fullscreen = false;
 
 	output->parent.configure_width = width;
 	output->parent.configure_height = height;
 
 	output->parent.wait_for_configure = false;
 
+	wl_array_for_each(p, states) {
+		uint32_t state = *p;
+		switch (state) {
+		case XDG_TOPLEVEL_STATE_FULLSCREEN:
+			output->fullscreen = true;
+			break;
+		case XDG_TOPLEVEL_STATE_MAXIMIZED:
+			output->maximized = true;
+			break;
+		}
+	}
+
 	if (width > 0 && height > 0) {
-		if (output->frame) {
-			int32_t top, bottom, left, right;
-			frame_border_sizes(output->frame, &top, &bottom,
-					   &left, &right);
-			width -= left + right;
-			height -= top + bottom;
+		if (output->fullscreen) {
+			if (output->frame) {
+				frame_destroy(output->frame);
+				output->frame = NULL;
+			}
+		} else {
+			if (output->frame) {
+				int32_t top, bottom, left, right;
+				frame_border_sizes(output->frame, &top, &bottom,
+						   &left, &right);
+				width -= left + right;
+				height -= top + bottom;
+			}
 		}
 
 		if (output->native_mode.width != width ||
@@ -1181,6 +1208,39 @@ handle_xdg_toplevel_configure(void *data, struct xdg_toplevel *toplevel,
 
 		output->native_mode.width = width;
 		output->native_mode.height = height;
+
+		if (should_send_resize &&
+		    weston_output_mode_set_native(&output->base,
+						  &output->native_mode,
+						  output->base.current_scale) < 0) {
+			output->native_mode.width = output->mode.width;
+			output->native_mode.height = output->mode.height;
+			weston_log("Mode switch failed\n");
+		}
+	} else if (!output->fullscreen && !output->maximized) {
+
+		if (!output->frame && output->enabled) {
+			struct wayland_backend *b = output->backend;
+
+			if (!b->theme) {
+				b->theme = theme_create();
+				assert(b->theme);
+			}
+
+			output->frame = frame_create(b->theme, 100, 100,
+						     FRAME_BUTTON_CLOSE,
+						     output->title, NULL);
+
+			if (output->keyboard_count)
+				frame_set_flag(output->frame, FRAME_FLAG_ACTIVE);
+		}
+
+		if (output->native_mode.width != width ||
+		    output->native_mode.height != height)
+			should_send_resize = true;
+
+		output->native_mode.width = output->window_mode.width;
+		output->native_mode.height = output->window_mode.height;
 
 		if (should_send_resize &&
 		    weston_output_mode_set_native(&output->base,
@@ -1323,6 +1383,8 @@ wayland_output_enable(struct weston_output *base)
 		wayland_output_set_windowed(output);
 	}
 
+	output->enabled = true;
+
 	return 0;
 
 err_output:
@@ -1423,6 +1485,7 @@ wayland_output_create(struct weston_backend *backend, const char *name)
 	output->base.detach_head = wayland_output_detach_head;
 
 	output->backend = b;
+	output->enabled = false;
 
 	weston_compositor_add_pending_output(&output->base, compositor);
 
@@ -1550,6 +1613,10 @@ wayland_output_set_size(struct weston_output *base, int width, int height)
 
 	output->mode.width = output_width;
 	output->mode.height = output_height;
+
+	output->window_mode.width = output_width;
+	output->window_mode.height = output_height;
+
 	output->mode.refresh = 60000;
 	wl_list_insert(&output->base.mode_list, &output->mode.link);
 
