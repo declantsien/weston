@@ -8755,8 +8755,8 @@ xdg_output_manager_get_xdg_output(struct wl_client *client,
 				  struct wl_resource *output_resource)
 {
 	int version = wl_resource_get_version(manager);
-	struct weston_head *head = wl_resource_get_user_data(output_resource);
-	struct weston_output *output = head->output;
+	struct weston_head *head;
+	struct weston_output *output;
 	struct wl_resource *resource;
 
 	resource = wl_resource_create(client, &zxdg_output_v1_interface,
@@ -8766,11 +8766,21 @@ xdg_output_manager_get_xdg_output(struct wl_client *client,
 		return;
 	}
 
+	wl_resource_set_implementation(resource, &xdg_output_interface,
+				       NULL, xdg_output_unlist);
+
+	head = weston_head_from_resource(output_resource);
+	if (!head) {
+		/* head might have been removed already */
+		wl_list_init(wl_resource_get_link(resource));
+		return;
+	}
+
 	wl_list_insert(&head->xdg_output_resource_list,
 		       wl_resource_get_link(resource));
 
-	wl_resource_set_implementation(resource, &xdg_output_interface,
-				       NULL, xdg_output_unlist);
+	output = head->output;
+	assert(output);
 
 	zxdg_output_v1_send_logical_position(resource,
 					     output->pos.c.x,
