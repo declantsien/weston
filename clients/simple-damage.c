@@ -120,7 +120,7 @@ create_shm_buffer(struct display *display, struct buffer *buffer,
 	pitch = width * 4;
 	size = pitch * height;
 
-	fd = os_create_anonymous_file(size);
+	fd = weston_os_create_anonymous_file(size);
 	if (fd < 0) {
 		fprintf(stderr, "creating a buffer file for %d B failed: %s\n",
 			size, strerror(errno));

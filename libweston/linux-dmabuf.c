@@ -542,7 +542,7 @@ weston_dmabuf_feedback_format_table_create(const struct weston_drm_format_array 
 	/* Creates formats file table and mmap it */
 	format_table->size = weston_drm_format_array_count_pairs(renderer_formats) *
 			     sizeof(*format_table->data);
-	format_table->fd = os_create_anonymous_file(format_table->size);
+	format_table->fd = weston_os_create_anonymous_file(format_table->size);
 	if (format_table->fd < 0) {
 		weston_log("error: failed to create format table file: %s\n",
 			   strerror(errno));

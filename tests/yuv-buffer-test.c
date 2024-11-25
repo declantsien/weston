@@ -88,7 +88,7 @@ yuv_buffer_create(struct client *client,
 	buf->width = width;
 	buf->height = height;
 
-	fd = os_create_anonymous_file(buf->bytes);
+	fd = weston_os_create_anonymous_file(buf->bytes);
 	assert(fd >= 0);
 
 	buf->data = mmap(NULL, buf->bytes,

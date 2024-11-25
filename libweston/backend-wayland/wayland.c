@@ -330,7 +330,7 @@ wayland_output_get_shm_buffer(struct wayland_output *output)
 
 	stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, width);
 
-	fd = os_create_anonymous_file(height * stride);
+	fd = weston_os_create_anonymous_file(height * stride);
 	if (fd < 0) {
 		weston_log("could not create an anonymous file buffer: %s\n",
 			   strerror(errno));

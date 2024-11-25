@@ -53,7 +53,7 @@ DECLARE_FIXTURE_SETUP(fixture_setup);
  * behave like older clients, and allow ftruncate() to shrink the file’s size,
  * so SIGBUS can still happen.
  *
- * There is no reason not to use os_create_anonymous_file() otherwise. */
+ * There is no reason not to use weston_os_create_anonymous_file() otherwise. */
 
 #ifndef HAVE_MKOSTEMP
 static int

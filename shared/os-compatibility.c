@@ -180,7 +180,7 @@ create_tmpfile_cloexec(char *tmpname)
  * XDG_RUNTIME_DIR.
  */
 int
-os_create_anonymous_file(off_t size)
+weston_os_create_anonymous_file(off_t size)
 {
 	static const char template[] = "/weston-shared-XXXXXX";
 	const char *path;
@@ -297,7 +297,7 @@ os_ro_anonymous_file_create(size_t size,
 	}
 
 	file->size = size;
-	file->fd = os_create_anonymous_file(size);
+	file->fd = weston_os_create_anonymous_file(size);
 	if (file->fd == -1)
 		goto err_free;
 
@@ -388,7 +388,7 @@ os_ro_anonymous_file_get_fd(struct ro_anonymous_file *file,
 	/* for all other cases we create a new anonymous file that can be mapped
 	 * with MAP_SHARED and copy the contents to it and return that instead
 	 */
-	fd = os_create_anonymous_file(file->size);
+	fd = weston_os_create_anonymous_file(file->size);
 	if (fd == -1)
 		return fd;
 

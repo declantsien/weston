@@ -503,7 +503,7 @@ create_shm_buffer(struct client *client, int width, int height,
 	buf->len = stride_bytes * height;
 	assert(buf->len / stride_bytes == (unsigned)height);
 
-	fd = os_create_anonymous_file(buf->len);
+	fd = weston_os_create_anonymous_file(buf->len);
 	assert(fd >= 0);
 
 	data = mmap(NULL, buf->len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
