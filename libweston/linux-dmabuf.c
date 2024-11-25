@@ -1064,6 +1064,12 @@ bind_linux_dmabuf(struct wl_client *client,
 	wl_array_for_each(fmt, &supported_formats->arr) {
 		modifiers = weston_drm_format_get_modifiers(fmt, &num_modifiers);
 		for (i = 0; i < num_modifiers; i++) {
+			if (modifiers[i] == DRM_FORMAT_MOD_LINEAR ||
+			    modifiers[i] == DRM_FORMAT_MOD_INVALID) {
+				zwp_linux_dmabuf_v1_send_format(resource,
+								fmt->format);
+			}
+
 			if (version >= ZWP_LINUX_DMABUF_V1_MODIFIER_SINCE_VERSION) {
 				uint32_t modifier_lo = modifiers[i] & 0xFFFFFFFF;
 				uint32_t modifier_hi = modifiers[i] >> 32;
@@ -1071,10 +1077,6 @@ bind_linux_dmabuf(struct wl_client *client,
 								  fmt->format,
 								  modifier_hi,
 								  modifier_lo);
-			} else if (modifiers[i] == DRM_FORMAT_MOD_LINEAR ||
-				   modifiers[i] == DRM_FORMAT_MOD_INVALID) {
-				zwp_linux_dmabuf_v1_send_format(resource,
-								fmt->format);
 			}
 		}
 	}
