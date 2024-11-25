@@ -310,6 +310,13 @@ weston_data_source_send_offer(struct weston_data_source *source,
 	struct weston_data_offer *offer;
 	char **p;
 
+	/* avoid duplicate data offers, if a data offer of the source is already
+	 * created for this client, we can reuse this data offer */
+	if (source->offer && source->offer->source == source &&
+	    wl_resource_get_client(source->offer->resource) ==
+	    wl_resource_get_client(target))
+		return source->offer;
+
 	offer = malloc(sizeof *offer);
 	if (offer == NULL)
 		return NULL;
