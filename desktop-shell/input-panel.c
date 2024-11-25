@@ -47,10 +47,84 @@ struct input_panel_surface {
 	struct wl_listener surface_destroy_listener;
 
 	struct weston_view_animation *anim;
+	bool reshow;
 
 	struct weston_output *output;
 	uint32_t panel;
 };
+
+static bool
+is_input_panel_surface(struct desktop_shell *shell,
+					   struct weston_surface *surface)
+{
+	struct input_panel_surface *ipsurf;
+
+	wl_list_for_each(ipsurf, &shell->input_panel.surfaces, link) {
+		if (ipsurf->surface == surface)
+			return true;
+	}
+
+	return false;
+}
+
+static int32_t
+input_panel_height(struct input_panel_surface *ipsurf)
+{
+	int32_t min_y = ipsurf->surface->height;
+	pixman_box32_t *rectangles;
+	int num_rects, i;
+
+	rectangles = pixman_region32_rectangles(&ipsurf->surface->input, &num_rects);
+
+	for (i = 0; i < num_rects; i++) {
+		if (rectangles[i].y1 < min_y)
+			min_y = rectangles[i].y1;
+	}
+
+	return ipsurf->surface->height - min_y;
+}
+
+enum handle_overlap_phase {
+	HANDLE_OVERLAP_SHRINK,
+	HANDLE_OVERLAP_PRE_RESTORE,
+	HANDLE_OVERLAP_RESTORE,
+};
+
+static void
+handle_overlap(struct input_panel_surface *ipsurf, enum handle_overlap_phase phase)
+{
+	int32_t ip_height = input_panel_height(ipsurf);
+	struct desktop_shell *shell	= ipsurf->shell;
+    struct weston_view *view;
+
+	wl_list_for_each(view, &shell->compositor->view_list, link) {
+		struct weston_surface *surface;
+		struct shell_surface *shsurf;
+
+		if (is_input_panel_surface(shell, view->surface))
+			continue;
+
+		surface = weston_surface_get_main_surface(view->surface);
+		if (surface == NULL)
+			continue;
+
+		shsurf = get_shell_surface(surface);
+		if (shsurf == NULL)
+			continue;
+
+		switch (phase) {
+		case HANDLE_OVERLAP_SHRINK:
+			shrink_for_input_panel(shell, ip_height, shsurf);
+			break;
+		case HANDLE_OVERLAP_PRE_RESTORE:
+			restore_after_input_panel(shell, shsurf, true);
+			break;
+		case HANDLE_OVERLAP_RESTORE:
+			restore_after_input_panel(shell, shsurf, false);
+			break;
+		}
+	}
+}
 
 static void
 input_panel_slide_done(struct weston_view_animation *animation, void *data)
@@ -58,6 +132,35 @@ input_panel_slide_done(struct weston_view_animation *animation, void *data)
 	struct input_panel_surface *ipsurf = data;
 
 	ipsurf->anim = NULL;
+
+	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
+		handle_overlap(ipsurf, HANDLE_OVERLAP_SHRINK);
+}
+
+static void
+input_panel_unslide_done(struct weston_view_animation *animation, void *data)
+{
+	struct input_panel_surface *ipsurf = data;
+	struct desktop_shell *shell = ipsurf->shell;
+	struct weston_view *view, *next;
+
+	ipsurf->anim = NULL;
+
+	if (ipsurf->reshow) {
+		ipsurf->reshow = false;
+		return;
+	}
+
+	if (!shell->locked)
+		weston_layer_unset_position(&shell->input_panel_layer);
+
+	wl_list_for_each_safe(view, next,
+			      &shell->input_panel_layer.view_list.link,
+			      layer_link.link)
+		weston_view_move_to_layer(view, NULL);
+
+	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
+		handle_overlap(ipsurf, HANDLE_OVERLAP_RESTORE);
 }
 
 static int
@@ -90,6 +193,11 @@ show_input_panel_surface(struct input_panel_surface *ipsurf)
 	struct weston_surface *focus;
 	struct weston_coord_global pos;
 
+	if (ipsurf->anim) {
+		ipsurf->reshow = true;
+		weston_view_animation_destroy(ipsurf->anim);
+	}
+
 	if (!weston_surface_is_mapped(ipsurf->surface))
 		return;
 
@@ -114,9 +222,6 @@ show_input_panel_surface(struct input_panel_surface *ipsurf)
 					  &shell->input_panel_layer.view_list);
 		break;
 	}
-
-	if (ipsurf->anim)
-		weston_view_animation_destroy(ipsurf->anim);
 
 	ipsurf->anim =
 		weston_slide_run(ipsurf->view,
@@ -150,25 +255,36 @@ show_input_panels(struct wl_listener *listener, void *data)
 }
 
 static void
+hide_input_panel_surface(struct input_panel_surface *ipsurf)
+{
+	if (ipsurf->anim)
+		weston_view_animation_destroy(ipsurf->anim);
+
+	ipsurf->anim =
+		weston_slide_run(ipsurf->view,
+				 0, ipsurf->surface->height * 0.9,
+				 input_panel_unslide_done, ipsurf);
+
+	if (ipsurf->shell->input_panel_shrink_mode && !ipsurf->panel)
+		handle_overlap(ipsurf, HANDLE_OVERLAP_PRE_RESTORE);
+}
+
+static void
 hide_input_panels(struct wl_listener *listener, void *data)
 {
 	struct desktop_shell *shell =
 		container_of(listener, struct desktop_shell,
 			     hide_input_panel_listener);
-	struct weston_view *view, *next;
+	struct input_panel_surface *ipsurf;
 
 	if (!shell->showing_input_panels)
 		return;
 
 	shell->showing_input_panels = false;
 
-	if (!shell->locked)
-		weston_layer_unset_position(&shell->input_panel_layer);
-
-	wl_list_for_each_safe(view, next,
-			      &shell->input_panel_layer.view_list.link,
-			      layer_link.link)
-		weston_view_move_to_layer(view, NULL);
+	wl_list_for_each(ipsurf, &shell->input_panel.surfaces, link) {
+		hide_input_panel_surface(ipsurf);
+	}
 }
 
 static void

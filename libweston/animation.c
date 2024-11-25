@@ -451,7 +451,7 @@ weston_slide_run(struct weston_view *view, float start, float stop,
 
 	weston_spring_init(&animation->spring, 400.0, 0.0, 1.0);
 	animation->spring.friction = 600;
-	animation->spring.clip = WESTON_SPRING_BOUNCE;
+	animation->spring.clip = WESTON_SPRING_CLAMP;
 
 	weston_view_animation_run(animation);
 

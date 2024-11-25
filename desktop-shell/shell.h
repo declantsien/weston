@@ -45,6 +45,12 @@ enum fade_type {
 	FADE_OUT
 };
 
+enum input_panel_shrink_mode {
+	INPUT_PANEL_SHRINK_NONE,
+	INPUT_PANEL_SHRINK_FOCUS,
+	INPUT_PANEL_SHRINK_ALL
+};
+
 struct focus_surface {
 	struct weston_curtain *curtain;
 };
@@ -131,6 +137,7 @@ struct desktop_shell {
 		struct wl_resource *binding;
 		struct wl_list surfaces;
 	} input_panel;
+	enum input_panel_shrink_mode input_panel_shrink_mode;
 
 	struct {
 		struct weston_curtain *curtain;
@@ -199,3 +206,12 @@ void
 shell_for_each_layer(struct desktop_shell *shell,
 		     shell_for_each_layer_func_t func,
 		     void *data);
+
+void
+shrink_for_input_panel(struct desktop_shell *shell,
+					   int32_t input_panel_height,
+					   struct shell_surface *shsurf);
+
+void
+restore_after_input_panel(struct desktop_shell *shell,
+						  struct shell_surface *shsurf, bool pre);
