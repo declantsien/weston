@@ -124,27 +124,10 @@ weston_spring_done(struct weston_spring *spring)
 		fabs(spring->current - spring->target) < 0.002;
 }
 
-typedef	void (*weston_view_animation_frame_func_t)(struct weston_view_animation *animation);
-
-struct weston_view_animation {
-	struct weston_view *view;
-	struct weston_animation animation;
-	struct weston_spring spring;
-	struct weston_transform transform;
-	struct wl_listener listener;
-	float start, stop;
-	weston_view_animation_frame_func_t frame;
-	weston_view_animation_frame_func_t reset;
-	weston_view_animation_done_func_t done;
-	struct wl_event_source *idle_destroy_source;
-	void *data;
-	void *private;
-};
-
 WL_EXPORT void
 weston_view_animation_destroy(struct weston_view_animation *animation)
 {
-	wl_list_remove(&animation->animation.link);
+	wl_list_remove(&animation->link);
 	wl_list_remove(&animation->listener.link);
 	weston_view_remove_transform(animation->view, &animation->transform);
 	if (animation->reset)
@@ -188,18 +171,15 @@ static void defer_animation_destroy(struct weston_view_animation *animation)
 				       animation);
 }
 
-static void
-weston_view_animation_frame(struct weston_animation *base,
+void
+weston_view_animation_frame(struct weston_view_animation *animation,
 			    struct weston_output *output,
 			    const struct timespec *time)
 {
-	struct weston_view_animation *animation =
-		container_of(base,
-			     struct weston_view_animation, animation);
 	struct weston_compositor *compositor =
 		animation->view->surface->compositor;
 
-	if (base->frame_counter <= 1)
+	if (animation->frame_counter <= 1)
 		animation->spring.timestamp = *time;
 
 	weston_spring_update(&animation->spring, time);
@@ -254,16 +234,14 @@ weston_view_animation_create(struct weston_view *view,
 	weston_matrix_init(&animation->transform.matrix);
 	wl_list_init(&animation->transform.link);
 
-	animation->animation.frame = weston_view_animation_frame;
-
 	animation->listener.notify = handle_animation_view_destroy;
 	wl_signal_add(&view->destroy_signal, &animation->listener);
 
 	if (view->output) {
 		wl_list_insert(&view->output->animation_list,
-			       &animation->animation.link);
+			       &animation->link);
 	} else {
-		wl_list_init(&animation->animation.link);
+		wl_list_init(&animation->link);
 		defer_animation_destroy(animation);
 	}
 
@@ -275,8 +253,8 @@ weston_view_animation_run(struct weston_view_animation *animation)
 {
 	struct timespec zero_time = { 0 };
 
-	animation->animation.frame_counter = 0;
-	weston_view_animation_frame(&animation->animation, NULL, &zero_time);
+	animation->frame_counter = 0;
+	weston_view_animation_frame(animation, NULL, &zero_time);
 }
 
 static void
