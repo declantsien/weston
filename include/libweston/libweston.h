@@ -1566,7 +1566,6 @@ struct weston_compositor {
 
 	struct xkb_rule_names xkb_names;
 	struct xkb_context *xkb_context;
-	struct weston_xkb_info *xkb_info;
 
 	int32_t kb_repeat_rate;
 	int32_t kb_repeat_delay;
