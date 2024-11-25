@@ -52,6 +52,10 @@ enum exit_code {
 
 static int debug_;
 static int verbose_;
+static int timeout_;
+static int dryrun_;
+static int restart_;
+static int verify_;
 
 #define pr_ver(...) do { \
 	if (verbose_) \
@@ -159,10 +163,12 @@ struct calibrator {
 	int width;
 	int height;
 
-	bool cancelled;
-
 	const struct poly *current_poly;
 	bool exiting;
+	bool finished;
+
+	float values[6];
+	enum exit_code result;
 
 	struct toytimer wait_timer;
 	bool timer_pending;
@@ -251,6 +257,21 @@ sample_undo(struct calibrator *cal)
 }
 
 static void
+samples_reset(struct calibrator *cal)
+{
+	int i;
+
+	for (i = NR_SAMPLES - 1; i >= 0; i--) {
+		cal->current_sample = i;
+		sample_undo(cal);
+	}
+
+	cal->finished = false;
+	cal->exiting = false;
+	cal->num_tp = 0;
+}
+
+static bool
 sample_finish(struct calibrator *cal)
 {
 	struct sample *s = current_sample(cal);
@@ -265,12 +286,32 @@ sample_finish(struct calibrator *cal)
 	weston_touch_coordinate_add_listener(s->pending,
 					     &coordinate_listener, s);
 
+	if (verify_) {
+		double thr = 0.0002;
+		double ex, ey, err;
+
+		while (!s->conv_done)
+			wl_display_roundtrip(display_get_display(cal->display));
+
+		ex = s->drawn_cal.x - s->touched.x;
+		ey = s->drawn_cal.y - s->touched.y;
+		err = ex * ex + ey * ey;
+		pr_dbg("Verify[%d] (%f, %f)\n", s->ind, err, thr);
+
+		if (err > thr) {
+			sample_undo(cal);
+			return false;
+		}
+	}
+
 	if (cal->current_sample + 1 < NR_SAMPLES) {
 		sample_start(cal, cal->current_sample + 1);
 	} else {
 		pr_dbg("got all touches\n");
-		cal->exiting = true;
+		cal->finished = true;
 	}
+
+	return true;
 }
 
 /*
@@ -471,6 +512,74 @@ feedback_hide(struct calibrator *cal)
 	widget_schedule_redraw(cal->widget);
 }
 
+static int
+calibrator_compute_and_verify(struct calibrator *cal)
+{
+	struct wl_display *dpy;
+	struct sample *s;
+	bool wait;
+	int i, ret;
+
+	/* wait for all conversions to return */
+	dpy = display_get_display(cal->display);
+	do {
+		wait = false;
+
+		for (i = 0; i < NR_SAMPLES; i++)
+			if (cal->samples[i].pending)
+				wait = true;
+
+		if (wait) {
+			ret = wl_display_roundtrip(dpy);
+			if (ret < 0)
+				return CAL_EXIT_ERROR;
+		}
+	} while (wait);
+
+	for (i = 0; i < NR_SAMPLES; i++) {
+		s = &cal->samples[i];
+		if (!s->conv_done || !s->touch_done)
+			return CAL_EXIT_ERROR;
+	}
+
+	if (compute_calibration(cal, cal->values) < 0)
+		return CAL_EXIT_ERROR;
+
+	if (verify_calibration(cal, cal->values) < 0)
+		return CAL_EXIT_ERROR;
+
+	pr_ver("Calibration values:");
+	for (i = 0; i < 6; i++)
+		pr_ver(" %f", cal->values[i]);
+	pr_ver("\n");
+
+	return CAL_EXIT_SUCCESS;
+}
+
+static void
+start_idle_timeout(struct toytimer *tt)
+{
+	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
+
+	if (timeout_ <= 0)
+		return;
+
+	toytimer_arm_once_usec(tt, timeout_ * 1000 * 1000);
+	cal->timer_pending = true;
+}
+
+static void
+stop_idle_timeout(struct toytimer *tt)
+{
+	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
+
+	if (timeout_ <= 0)
+		return;
+
+	toytimer_disarm(tt);
+	cal->timer_pending = false;
+}
+
 static void
 try_enter_state_idle(struct calibrator *cal)
 {
@@ -486,6 +595,8 @@ try_enter_state_idle(struct calibrator *cal)
 
 	if (cal->exiting)
 		display_exit(cal->display);
+	else
+		start_idle_timeout(&cal->wait_timer);
 }
 
 static void
@@ -500,9 +611,32 @@ wait_timer_done(struct toytimer *tt)
 {
 	struct calibrator *cal = container_of(tt, struct calibrator, wait_timer);
 
-	assert(cal->state == STATE_WAIT);
+	assert(cal->state == STATE_WAIT || cal->state == STATE_IDLE);
 	cal->timer_pending = false;
-	try_enter_state_idle(cal);
+
+	if (cal->state == STATE_IDLE) {
+		pr_err("idle timeout reached, quitting.\n");
+		cal->result = CAL_EXIT_CANCELLED;
+		display_exit(cal->display);
+	} else if (cal->exiting) {
+		display_exit(cal->display);
+	} else if (cal->finished) {
+		/* all samples finished: compute, verify and provide final feedback */
+		cal->exiting = true;
+		cal->result = calibrator_compute_and_verify(cal);
+		if (cal->result == CAL_EXIT_SUCCESS) {
+			pr_err("calibration successful\n");
+			feedback_show(cal, &check);
+		} else {
+			pr_err("calibration failed\n");
+			feedback_show(cal, &cross);
+			if (restart_)
+				samples_reset(cal);
+		}
+		enter_state_wait(cal);
+	} else {
+		try_enter_state_idle(cal);
+	}
 }
 
 static void
@@ -569,6 +703,8 @@ calibrator_create(struct display *display, const char *match_name)
 	cal->state = STATE_IDLE;
 	cal->num_tp = 0;
 
+	start_idle_timeout(&cal->wait_timer);
+
 	return cal;
 }
 
@@ -594,7 +730,7 @@ cancel_calibration_handler(void *data, struct weston_touch_calibrator *interface
 	struct calibrator *cal = data;
 
 	pr_dbg("calibration cancelled by the display server, quitting.\n");
-	cal->cancelled = true;
+	cal->result = CAL_EXIT_CANCELLED;
 	display_exit(cal->display);
 }
 
@@ -631,6 +767,7 @@ down_handler(void *data, struct weston_touch_calibrator *interface,
 	case STATE_IDLE:
 		sample_touch_down(cal, xu, yu);
 		cal->state = STATE_DOWN;
+		stop_idle_timeout(&cal->wait_timer);
 		break;
 	case STATE_DOWN:
 	case STATE_UP:
@@ -682,6 +819,7 @@ static void
 frame_handler(void *data, struct weston_touch_calibrator *interface)
 {
 	struct calibrator *cal = data;
+	const struct poly *poly = &check;
 
 	switch (cal->state) {
 	case STATE_IDLE:
@@ -689,8 +827,9 @@ frame_handler(void *data, struct weston_touch_calibrator *interface)
 		/* no-op */
 		break;
 	case STATE_UP:
-		feedback_show(cal, &check);
-		sample_finish(cal);
+		if (!sample_finish(cal))
+			poly = &cross;
+		feedback_show(cal, poly);
 		enter_state_wait(cal);
 		break;
 	case STATE_WAIT:
@@ -740,7 +879,8 @@ calibrator_show(struct calibrator *cal)
 	cal->calibrator =
 		weston_touch_calibration_create_calibrator(cal->calibration,
 							   surface,
-							   cal->device_name);
+							   cal->device_name,
+							   verify_);
 	weston_touch_calibrator_add_listener(cal->calibrator,
 					     &calibrator_listener, cal);
 }
@@ -806,58 +946,16 @@ static int
 calibrator_run(struct calibrator *cal)
 {
 	struct wl_display *dpy;
-	struct sample *s;
-	bool wait;
-	int i;
 	int ret;
-	float result[6];
 
 	calibrator_show(cal);
 	display_run(cal->display);
 
-	if (cal->cancelled)
-		return CAL_EXIT_CANCELLED;
+	if (cal->result != CAL_EXIT_SUCCESS || dryrun_)
+		return cal->result;
 
-	/* remove the window, no more input events */
-	widget_destroy(cal->widget);
-	cal->widget = NULL;
-	window_destroy(cal->window);
-	cal->window = NULL;
-
-	/* wait for all conversions to return */
+	send_calibration(cal, cal->values);
 	dpy = display_get_display(cal->display);
-	do {
-		wait = false;
-
-		for (i = 0; i < NR_SAMPLES; i++)
-			if (cal->samples[i].pending)
-				wait = true;
-
-		if (wait) {
-			ret = wl_display_roundtrip(dpy);
-			if (ret < 0)
-				return CAL_EXIT_ERROR;
-		}
-	} while (wait);
-
-	for (i = 0; i < NR_SAMPLES; i++) {
-		s = &cal->samples[i];
-		if (!s->conv_done || !s->touch_done)
-			return CAL_EXIT_ERROR;
-	}
-
-	if (compute_calibration(cal, result) < 0)
-		return CAL_EXIT_ERROR;
-
-	if (verify_calibration(cal, result) < 0)
-		return CAL_EXIT_ERROR;
-
-	pr_ver("Calibration values:");
-	for (i = 0; i < 6; i++)
-		pr_ver(" %f", result[i]);
-	pr_ver("\n");
-
-	send_calibration(cal, result);
 	ret = wl_display_roundtrip(dpy);
 	if (ret < 0)
 		return CAL_EXIT_ERROR;
@@ -892,7 +990,11 @@ help(void)
 		"Options:\n"
 		"  --debug         Print messages to help debugging.\n"
 		"  -h, --help      Display this help message\n"
-		"  -v, --verbose   Print list header and calibration result.\n");
+		"  -v, --verbose   Print list header and calibration result.\n"
+		"  --timeout       Abort after <timeout> seconds without input.\n"
+		"  -d, --dry-run   calibrate & verify, but don't apply.\n"
+		"  -r, --restart   Restart calibration on failure.\n"
+		"  --verify        Verify current calibration.\n");
 }
 
 int
@@ -907,16 +1009,34 @@ main(int argc, char *argv[])
 		{ "help",    no_argument,       NULL,      'h' },
 		{ "debug",   no_argument,       &debug_,   1 },
 		{ "verbose", no_argument,       &verbose_, 1 },
-		{ 0,         0,                 NULL,      0  }
+		{ "timeout", required_argument, NULL,      't' },
+		{ "dry-run", no_argument,       &dryrun_,  1 },
+		{ "restart", no_argument,       &restart_, 1 },
+		{ "verify",  no_argument,       &verify_,  1 },
+		{ 0,         0,                 NULL,      0 }
 	};
 
-	while ((c = getopt_long(argc, argv, "hv", opts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hvtdr", opts, NULL)) != -1) {
 		switch (c) {
 		case 'h':
 			help();
 			return CAL_EXIT_SUCCESS;
 		case 'v':
 			verbose_ = 1;
+			break;
+		case 't':
+			if (optarg)
+				timeout_ = atoi(optarg);
+			if (timeout_ <= 0) {
+				pr_err("invalid timeout value\n");
+				return CAL_EXIT_ERROR;
+			}
+			break;
+		case 'd':
+			dryrun_ = 1;
+			break;
+		case 'r':
+			restart_ = 1;
 			break;
 		case 0:
 			break;

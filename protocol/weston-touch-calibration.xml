@@ -86,12 +86,17 @@
 	If a weston_touch_calibrator protocol object exists in the compositor
 	already, then already_exists error is raised. This limitation is
 	compositor-wide and not specific to any particular client.
+
+	If the verify argument is non-zero, the compositor will not set the
+	identity matrix as the initial calibration matrix. Additionally, the
+	calibration result will not be saved by the compositor.
       </description>
       <arg name="surface" type="object" interface="wl_surface"
            summary="the surface to give the role to"/>
       <arg name="device" type="string" summary="the touch device to calibrate"/>
       <arg name="cal" type="new_id" interface="weston_touch_calibrator"
            summary="a new calibrator object"/>
+      <arg name="verify" type="uint" summary="verification mode active"/>
     </request>
 
     <request name="save">

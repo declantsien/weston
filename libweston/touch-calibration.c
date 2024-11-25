@@ -61,6 +61,9 @@ struct weston_touch_calibrator {
 
 	/** The current touch sequence has been cancelled. */
 	bool touch_cancelled;
+
+	/** Only verification mode -> no change of calibration. */
+	bool verify_only;
 };
 
 static struct weston_touch_calibrator *
@@ -202,7 +205,8 @@ map_calibrator(struct weston_touch_calibrator *calibrator)
 				  &c->calibrator_layer.view_list);
 
 	device->ops->get_calibration(device, &device->saved_calibration);
-	device->ops->set_calibration(device, &identity);
+	if (!calibrator->verify_only)
+		device->ops->set_calibration(device, &identity);
 }
 
 static void
@@ -476,7 +480,8 @@ touch_calibration_create_calibrator(
 	struct wl_resource *touch_calibration_resource,
 	struct wl_resource *surface_resource,
 	const char *syspath,
-	uint32_t calibrator_id)
+	uint32_t calibrator_id,
+	uint32_t verify_only)
 {
 	struct weston_compositor *compositor;
 	struct weston_touch_calibrator *calibrator;
@@ -502,6 +507,7 @@ touch_calibration_create_calibrator(
 		return;
 	}
 
+	calibrator->verify_only = !!verify_only;
 	calibrator->compositor = compositor;
 	calibrator->resource = wl_resource_create(client,
 					&weston_touch_calibrator_interface,
@@ -609,6 +615,11 @@ touch_calibration_save(struct wl_client *client,
 		calibration.m[i++] = *c;
 	}
 
+	/* Skip saving and setting when calibrator is in verification mode. */
+	calibrator = compositor->touch_calibrator;
+	if (calibrator && calibrator->verify_only)
+		return;
+
 	/* If calibration can't be saved, don't set it as current */
 	if (compositor->touch_calibration_save &&
 	    compositor->touch_calibration_save(compositor, device,
@@ -618,7 +629,6 @@ touch_calibration_save(struct wl_client *client,
 	/* If calibrator is still mapped, the compositor will use
 	 * saved_calibration when going back to normal touch handling.
 	 * Continuing calibrating after save request is undefined. */
-	calibrator = compositor->touch_calibrator;
 	if (calibrator &&
 	    calibrator->surface &&
 	    weston_surface_is_mapped(calibrator->surface))
