@@ -698,6 +698,8 @@ shared_output_update(struct shared_output *so)
 	/* Clear the buffer damage */
 	pixman_region32_fini(&sb->damage);
 	pixman_region32_init(&sb->damage);
+
+	so->cache_dirty = 0;
 }
 
 static void
