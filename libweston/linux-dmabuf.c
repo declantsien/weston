@@ -265,7 +265,7 @@ params_create_common(struct wl_client *client,
 
 		/* Only valid for first plane as other planes might be
 		 * sub-sampled according to fourcc format */
-		if (i == 0 &&
+		if (i == 0 && buffer->attributes.modifier == DRM_FORMAT_MOD_LINEAR &&
 		    buffer->attributes.offset[i] + buffer->attributes.stride[i] * height > size) {
 			wl_resource_post_error(params_resource,
 				ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_OUT_OF_BOUNDS,
