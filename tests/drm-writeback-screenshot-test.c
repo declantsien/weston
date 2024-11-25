@@ -89,12 +89,15 @@ TEST(drm_writeback_screenshot) {
 	char *fname;
 	bool match;
 	int frame;
+	struct output *first_available_output;
 
 	/* create client */
 	testlog("Creating client for test\n");
 	client = create_client_and_test_surface(100, 100, 100, 100);
 	assert(client);
 	surface = client->surface->wl_surface;
+	first_available_output = container_of(client->output_list.prev,
+					      struct output, link);
 
 	/* move pointer away from image so it does not interfere with the
 	 * comparison of the writeback screenshot with the reference image */
@@ -111,7 +114,7 @@ TEST(drm_writeback_screenshot) {
 
 	/* take screenshot */
 	testlog("Taking a screenshot\n");
-	screenshot = client_capture_output(client, client->output,
+	screenshot = client_capture_output(client, first_available_output,
                                            WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
 	assert(screenshot);
 	buffer_destroy(screenshot);
@@ -119,7 +122,7 @@ TEST(drm_writeback_screenshot) {
 	/* take another screenshot; this is important to ensure the
 	 * writeback state machine is working correctly */
 	testlog("Taking another screenshot\n");
-	screenshot = client_capture_output(client, client->output,
+	screenshot = client_capture_output(client, first_available_output,
                                            WESTON_CAPTURE_V1_SOURCE_WRITEBACK);
 	assert(screenshot);
 
