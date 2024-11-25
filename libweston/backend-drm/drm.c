@@ -2618,6 +2618,15 @@ drm_connector_fini(struct drm_connector *connector)
 }
 
 static void
+drm_head_output_power_off(struct drm_head *head)
+{
+        struct weston_output *output_base = weston_head_get_output(&head->base);
+        if (output_base) {
+                drm_set_dpms(output_base, WESTON_DPMS_OFF);
+        }
+}
+
+static void
 drm_head_log_info(struct drm_head *head, const char *msg)
 {
 	char *str;
@@ -3229,8 +3238,11 @@ drm_backend_update_connectors(struct drm_device *device,
 
 		if (head) {
 			ret = drm_head_update_info(head, conn);
-			if (head->base.device_changed)
+			if (head->base.device_changed) {
 				drm_head_log_info(head, "updated");
+				if (!(head->base.connected))
+					drm_head_output_power_off(head);
+			}
 		} else if (writeback) {
 			ret = drm_writeback_update_info(writeback, conn);
 		} else {
