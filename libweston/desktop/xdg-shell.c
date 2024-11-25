@@ -77,6 +77,7 @@ struct weston_desktop_xdg_surface {
 	bool configured;
 	struct wl_event_source *configure_idle;
 	struct wl_list configure_list; /* weston_desktop_xdg_surface_configure::link */
+	struct weston_desktop_xdg_popup *popup;
 
 	bool has_next_geometry;
 	struct weston_geometry next_geometry;
@@ -1062,6 +1063,13 @@ weston_desktop_xdg_popup_update_position(struct weston_desktop_surface *dsurface
 	struct weston_desktop_surface *parent_dsurface;
 	struct weston_coord_surface offset;
 
+	if (!popup->parent) {
+		wl_resource_post_error(popup->resource,
+				       XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT,
+				       "popup parent must be non-null");
+		return;
+	}
+
 	parent_dsurface = popup->parent->desktop_surface;
 	offset = weston_coord_surface(popup->geometry.x,
 				      popup->geometry.y,
@@ -1366,6 +1374,7 @@ weston_desktop_xdg_surface_protocol_get_popup(struct wl_client *wl_client,
 
 	popup->base.role = WESTON_DESKTOP_XDG_SURFACE_ROLE_POPUP;
 	popup->parent = parent;
+	parent->popup = popup;
 
 	popup->geometry =
 		weston_desktop_xdg_positioner_get_geometry(positioner,
@@ -1574,6 +1583,9 @@ weston_desktop_xdg_surface_destroy(struct weston_desktop_surface *dsurface,
 
 	wl_list_for_each_safe(configure, temp, &surface->configure_list, link)
 		free(configure);
+
+	if (surface->popup)
+		surface->popup->parent = NULL;
 
 	free(surface);
 }
