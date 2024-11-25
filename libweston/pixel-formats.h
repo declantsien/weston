@@ -88,15 +88,6 @@ struct pixel_format_info {
 	 *  i.e. alpha channel replaced with X. */
 	uint32_t opaque_substitute;
 
-	/** How the format should be sampled, expressed in terms of tokens
-	 *  from the EGL_WL_bind_wayland_display extension. If not set,
-	 *  assumed to be either RGB or RGBA, depending on whether or not
-	 *  the format contains an alpha channel. The samplers may still
-	 *  return alpha even for opaque formats; users must manually set
-	 *  the alpha channel to 1.0 (or ignore it) if the format is
-	 *  opaque. */
-	uint32_t sampler_type;
-
 	/** GL format information. */
 	struct gl_format_info gl;
 

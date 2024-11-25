@@ -83,7 +83,6 @@
 #define GL_INTERNALFORMAT(fmt) .gl_internalformat = (fmt)
 #define GL_FORMAT(fmt) .gl_format = (fmt)
 #define GL_TYPE(type) .gl_type = (type)
-#define SAMPLER_TYPE(type) .sampler_type = (type)
 #else
 #define GL_FORMAT_INFO(internal_, external_, type_, swizzles_) \
 	.gl = { \
@@ -95,7 +94,6 @@
 #define GL_INTERNALFORMAT(fmt) .gl_internalformat = 0
 #define GL_FORMAT(fmt) .gl_format = 0
 #define GL_TYPE(type) .gl_type = 0
-#define SAMPLER_TYPE(type) .sampler_type = 0
 #endif
 
 #define DRM_FORMAT(f) .format = DRM_FORMAT_ ## f, .drm_format_name = #f
@@ -602,27 +600,23 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(YUYV),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_XUXV_WL),
 		.num_planes = 1,
 		.hsub = 2,
 	},
 	{
 		DRM_FORMAT(YVYU),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_XUXV_WL),
 		.num_planes = 1,
 		.chroma_order = ORDER_VU,
 		.hsub = 2,
 	},
 	{
 		DRM_FORMAT(UYVY),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_XUXV_WL),
 		.num_planes = 1,
 		.luma_chroma_order = ORDER_CHROMA_LUMA,
 		.hsub = 2,
 	},
 	{
 		DRM_FORMAT(VYUY),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_XUXV_WL),
 		.num_planes = 1,
 		.luma_chroma_order = ORDER_CHROMA_LUMA,
 		.chroma_order = ORDER_VU,
@@ -630,35 +624,30 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(NV12),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 2,
 	},
 	{
 		DRM_FORMAT(NV15),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 2,
 	},
 	{
 		DRM_FORMAT(NV20),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 1,
 	},
 	{
 		DRM_FORMAT(NV30),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 1,
 		.vsub = 1,
 	},
 	{
 		DRM_FORMAT(NV21),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.chroma_order = ORDER_VU,
 		.hsub = 2,
@@ -666,14 +655,12 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(NV16),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 1,
 	},
 	{
 		DRM_FORMAT(NV61),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.chroma_order = ORDER_VU,
 		.hsub = 2,
@@ -681,46 +668,39 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(NV24),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 	},
 	{
 		DRM_FORMAT(NV42),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.chroma_order = ORDER_VU,
 	},
 	{
 		DRM_FORMAT(P010),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 2,
 	},
 	{
 		DRM_FORMAT(P012),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 2,
 	},
 	{
 		DRM_FORMAT(P016),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_UV_WL),
 		.num_planes = 2,
 		.hsub = 2,
 		.vsub = 2,
 	},
 	{
 		DRM_FORMAT(YUV410),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.hsub = 4,
 		.vsub = 4,
 	},
 	{
 		DRM_FORMAT(YVU410),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.chroma_order = ORDER_VU,
 		.hsub = 4,
@@ -728,14 +708,12 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(YUV411),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.hsub = 4,
 		.vsub = 1,
 	},
 	{
 		DRM_FORMAT(YVU411),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.chroma_order = ORDER_VU,
 		.hsub = 4,
@@ -743,14 +721,12 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(YUV420),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.hsub = 2,
 		.vsub = 2,
 	},
 	{
 		DRM_FORMAT(YVU420),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.chroma_order = ORDER_VU,
 		.hsub = 2,
@@ -758,14 +734,12 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(YUV422),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.hsub = 2,
 		.vsub = 1,
 	},
 	{
 		DRM_FORMAT(YVU422),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.chroma_order = ORDER_VU,
 		.hsub = 2,
@@ -773,12 +747,10 @@ static const struct pixel_format_info pixel_format_table[] = {
 	},
 	{
 		DRM_FORMAT(YUV444),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 	},
 	{
 		DRM_FORMAT(YVU444),
-		SAMPLER_TYPE(EGL_TEXTURE_Y_U_V_WL),
 		.num_planes = 3,
 		.chroma_order = ORDER_VU,
 	},
