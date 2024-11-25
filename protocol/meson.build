@@ -17,6 +17,7 @@ install_data(
 
 generated_protocols = [
 	[ 'color-management-v1', 'internal' ],
+	[ 'color-representation-v1', 'internal' ],
 	[ 'fullscreen-shell', 'unstable', 'v1' ],
 	[ 'fractional-scale', 'staging', 'v1' ],
 	[ 'input-method', 'unstable', 'v1' ],

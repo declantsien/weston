@@ -1225,12 +1225,6 @@ xform_realize_chain(struct cmlcms_color_transform *xform)
 	struct lcmsProfilePtr extra = { NULL };
 	cmsUInt32Number dwFlags;
 
-	/* TODO: address this when we implement param color profiles.*/
-	if (output_profile->type == CMLCMS_PROFILE_TYPE_PARAMS ||
-	    (xform->search_key.input_profile &&
-	     xform->search_key.input_profile->type == CMLCMS_PROFILE_TYPE_PARAMS))
-		return false;
-
 	render_intent = xform->search_key.render_intent;
 
 	/*
@@ -1392,6 +1386,30 @@ cmlcms_color_transform_create(struct weston_color_manager_lcms *cm,
 
 	wl_list_insert(&cm->color_transform_list, &xform->link);
 	assert(xform->status != CMLCMS_TRANSFORM_FAILED);
+
+	if (xform->search_key.output_profile == cm->sRGB_profile &&
+	    search_param->input_profile &&
+	    search_param->input_profile->type == CMLCMS_PROFILE_TYPE_PARAMS) {
+		struct weston_color_profile_params *params =
+			search_param->input_profile->params;
+		float luminance_multiplier;
+
+		switch (params->tf_info->tf) {
+		case WESTON_TF_ST2084_PQ:
+			xform->base.pre_curve.type = WESTON_COLOR_CURVE_TYPE_PQ;
+			break;
+		default:
+			xform->base.pre_curve.type = WESTON_COLOR_CURVE_TYPE_LINPOW;
+			break;
+		}
+
+		luminance_multiplier =
+			params->max_luminance / params->reference_white_luminance;
+		xform->base.mapping.u.mat.matrix[0] = luminance_multiplier;
+		xform->base.mapping.u.mat.matrix[4] = luminance_multiplier;
+		xform->base.mapping.u.mat.matrix[8] = luminance_multiplier;
+		xform->base.mapping.type = WESTON_COLOR_MAPPING_TYPE_MATRIX;
+	}
 
 	str = weston_color_transform_string(&xform->base);
 	weston_log_scope_printf(cm->transforms_scope, "  %s", str);

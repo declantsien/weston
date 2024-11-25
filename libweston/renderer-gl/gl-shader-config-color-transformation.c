@@ -79,6 +79,8 @@ gl_renderer_color_curve_fini(struct gl_renderer_color_curve *gl_curve)
 {
 	switch (gl_curve->type) {
 	case SHADER_COLOR_CURVE_IDENTITY:
+	case SHADER_COLOR_CURVE_PQ:
+	case SHADER_COLOR_CURVE_PQ_INVERSE:
 	case SHADER_COLOR_CURVE_LINPOW:
 	case SHADER_COLOR_CURVE_POWLIN:
 		break;
@@ -303,6 +305,14 @@ gl_renderer_color_transform_from(struct gl_renderer *gr,
 		ok = gl_color_curve_powlin(&gl_xform->pre_curve,
 					   &xform->pre_curve);
 		break;
+	case WESTON_COLOR_CURVE_TYPE_PQ:
+		gl_xform->pre_curve.type = SHADER_COLOR_CURVE_PQ;
+		ok = true;
+		break;
+	case WESTON_COLOR_CURVE_TYPE_PQ_INVERSE:
+		gl_xform->pre_curve.type = SHADER_COLOR_CURVE_PQ_INVERSE;
+		ok = true;
+		break;
 	}
 	if (!ok) {
 		gl_renderer_color_transform_destroy(gl_xform);
@@ -345,6 +355,14 @@ gl_renderer_color_transform_from(struct gl_renderer *gr,
 		ok = gl_color_curve_powlin(&gl_xform->post_curve,
 					   &xform->post_curve);
 		break;
+	case WESTON_COLOR_CURVE_TYPE_PQ:
+		gl_xform->post_curve.type = SHADER_COLOR_CURVE_PQ;
+		ok = true;
+		break;
+	case WESTON_COLOR_CURVE_TYPE_PQ_INVERSE:
+		gl_xform->post_curve.type = SHADER_COLOR_CURVE_PQ_INVERSE;
+		ok = true;
+		break;
 	}
 	if (!ok) {
 		gl_renderer_color_transform_destroy(gl_xform);
@@ -369,6 +387,8 @@ gl_shader_config_set_color_transform(struct gl_renderer *gr,
 	sconf->req.color_pre_curve = gl_xform->pre_curve.type;
 	switch (gl_xform->pre_curve.type) {
 	case SHADER_COLOR_CURVE_IDENTITY:
+	case SHADER_COLOR_CURVE_PQ:
+	case SHADER_COLOR_CURVE_PQ_INVERSE:
 		break;
 	case SHADER_COLOR_CURVE_LUT_3x1D:
 		sconf->color_pre_curve.lut_3x1d.tex = gl_xform->pre_curve.u.lut_3x1d.tex;
@@ -388,6 +408,8 @@ gl_shader_config_set_color_transform(struct gl_renderer *gr,
 	sconf->req.color_post_curve = gl_xform->post_curve.type;
 	switch (gl_xform->post_curve.type) {
 	case SHADER_COLOR_CURVE_IDENTITY:
+	case SHADER_COLOR_CURVE_PQ:
+	case SHADER_COLOR_CURVE_PQ_INVERSE:
 		break;
 	case SHADER_COLOR_CURVE_LUT_3x1D:
 		sconf->color_post_curve.lut_3x1d.tex = gl_xform->post_curve.u.lut_3x1d.tex;

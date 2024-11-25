@@ -82,6 +82,7 @@
 #include "libweston-internal.h"
 #include "color.h"
 #include "color-management.h"
+#include "color-representation.h"
 #include "id-number-allocator.h"
 #include "output-capture.h"
 #include "pixman-renderer.h"
@@ -9812,7 +9813,8 @@ weston_compositor_backends_loaded(struct weston_compositor *compositor)
 			    yesno(compositor->color_manager->supports_client_protocol));
 
 	if (compositor->color_manager->supports_client_protocol &&
-	    weston_compositor_enable_color_management_protocol(compositor) < 0) {
+	    (weston_compositor_enable_color_management_protocol(compositor) < 0 ||
+	     weston_compositor_enable_color_representation_protocol(compositor) < 0)) {
 		/*
 		 * The only way out is to quit the compositor,
 		 * and that will clean up.
