@@ -2408,7 +2408,9 @@ drm_output_destroy(struct weston_output *base)
 	assert(output);
 	assert(!output->is_virtual);
 
-	if (output->page_flip_pending || output->atomic_complete_pending) {
+	output->atomic_complete_pending = false;
+
+	if (output->page_flip_pending) {
 		if (!base->compositor->shutting_down) {
 			/* We are not shutting down, so we can wait for flip
 			 * completion. */
