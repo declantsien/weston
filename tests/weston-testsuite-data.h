@@ -183,6 +183,8 @@ struct wet_testsuite_data {
 	unsigned skipped;
 	unsigned failed;
 	unsigned total;
+
+	void *user_data;
 };
 
 #endif /* WESTON_TESTSUITE_DATA_H */

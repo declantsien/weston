@@ -501,6 +501,7 @@ weston_test_harness_create(int argc, char **argv)
 		harness->data.case_index = -1;
 	}
 
+	harness->data.user_data = fixture_init_(harness);
 	harness->data.run = testsuite_run;
 
 	return harness;
@@ -509,6 +510,7 @@ weston_test_harness_create(int argc, char **argv)
 static void
 weston_test_harness_destroy(struct weston_test_harness *harness)
 {
+	fixture_teardown_(harness, harness->data.user_data);
 	free(harness);
 }
 
@@ -618,6 +620,34 @@ fixture_setup_array_get_(void)
 
 	return &default_fsa;
 }
+
+/** Fixture initialization
+ *
+ * DECLARE_FIXTURE_INIT() overrides this in test programs.
+ * The default implementation just does nothing.
+ * Use this to make invariant data available to each fixture.
+ *
+ * \ingroup testharness
+ */
+__attribute__((weak)) void *
+fixture_init_(struct weston_test_harness *harness)
+{
+	return NULL;
+}
+
+/** Fixture initialization
+ *
+ * DECLARE_FIXTURE_INIT() overrides this in test programs.
+ * The default implementation just does nothing.
+ * Use this to destroy invariant data.
+ *
+ * \ingroup testharness
+ */
+__attribute__((weak)) void
+fixture_teardown_(struct weston_test_harness *harness, void *data)
+{
+}
+
 
 /** Fixture setup function
  *

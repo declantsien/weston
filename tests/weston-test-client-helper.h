@@ -169,6 +169,11 @@ struct output {
 
 struct buffer {
 	struct wl_buffer *proxy;
+	const struct pixel_format_info *format;
+	int fd;
+	int width;
+	int height;
+	size_t stride_bytes;
 	size_t len;
 	pixman_image_t *image;
 };
@@ -214,6 +219,12 @@ surface_set_opaque_rect(struct surface *surface, const struct rectangle *rect);
 
 struct client *
 create_client_and_test_surface(int x, int y, int width, int height);
+
+struct buffer *
+create_shm_storage(int width, int height, uint32_t drm_format);
+
+void
+ensure_wl_buffer(struct client *client, struct buffer *buffer);
 
 struct buffer *
 create_shm_buffer(struct client *client, int width, int height,
@@ -317,9 +328,7 @@ verify_screen_content(struct client *client,
 		      int seq_no, const char *output_name);
 
 struct buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
-			      int scale);
+buffer_from_image_file(const char *basename, int scale);
 
 void *
 bind_to_singleton_global(struct client *client,

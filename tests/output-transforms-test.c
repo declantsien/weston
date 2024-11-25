@@ -29,6 +29,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include "shared/xalloc.h"
 #include "weston-test-client-helper.h"
 #include "weston-test-fixture-compositor.h"
 
@@ -92,10 +93,45 @@ fixture_setup(struct weston_test_harness *harness, const struct setup_args *arg)
 	setup.scale = arg->scale;
 	setup.transform = arg->transform;
 	setup.shell = SHELL_TEST_DESKTOP;
+	setup.refresh = 0;
 
 	return weston_test_harness_execute_as_client(harness, &setup);
 }
 DECLARE_FIXTURE_SETUP_WITH_ARG(fixture_setup, my_setup_args, meta);
+
+#define MAX_CLIENT_SCALE 2
+
+struct global_test_data {
+	struct buffer *buf[MAX_CLIENT_SCALE];
+};
+
+static void *
+global_test_data_init(struct weston_test_harness *harness)
+{
+	struct global_test_data *global_data = xzalloc(sizeof(*global_data));
+	int i;
+
+	for (i = 0; i < MAX_CLIENT_SCALE; i++) {
+		global_data->buf[i] =
+			buffer_from_image_file("basic-test-card", i + 1);
+	}
+
+	return global_data;
+}
+
+static void
+global_test_data_teardown(struct weston_test_harness *harness, void *data_)
+{
+	struct global_test_data *global_data = data_;
+	int i;
+
+	for (i = 0; i < MAX_CLIENT_SCALE; i++)
+		buffer_destroy(global_data->buf[i]);
+
+	free(global_data);
+}
+
+DECLARE_FIXTURE_INIT(global_test_data_init, global_test_data_teardown);
 
 struct buffer_args {
 	int scale;
@@ -112,6 +148,8 @@ TEST_P(output_transform, my_buffer_args)
 {
 	const struct buffer_args *bargs = data;
 	const struct setup_args *oargs;
+	struct global_test_data *global_data = _wet_suite_data->user_data;
+	struct buffer *buf = global_data->buf[bargs->scale - 1];
 	struct client *client;
 	bool match;
 	char *refname;
@@ -135,9 +173,8 @@ TEST_P(output_transform, my_buffer_args)
 	client->surface = create_test_surface(client);
 	client->surface->width = 10000; /* used only for damage */
 	client->surface->height = 10000;
-	client->surface->buffer = client_buffer_from_image_file(client,
-							"basic-test-card",
-							bargs->scale);
+	client->surface->buffer = buf;
+	ensure_wl_buffer(client, buf);
 	wl_surface_set_buffer_scale(client->surface->wl_surface, bargs->scale);
 	wl_surface_set_buffer_transform(client->surface->wl_surface,
 					bargs->transform);
@@ -145,6 +182,10 @@ TEST_P(output_transform, my_buffer_args)
 
 	match = verify_screen_content(client, refname, 0, NULL, 0, NULL);
 	assert(match);
+
+	wl_buffer_destroy(buf->proxy);
+	buf->proxy = NULL;
+	client->surface->buffer = NULL;
 
 	client_destroy(client);
 	free(refname);

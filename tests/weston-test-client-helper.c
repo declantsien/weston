@@ -473,58 +473,75 @@ static const struct wl_surface_listener surface_listener = {
 };
 
 struct buffer *
-create_shm_buffer(struct client *client, int width, int height,
-		  uint32_t drm_format)
+create_shm_storage(int width, int height, uint32_t drm_format)
 {
-	const struct pixel_format_info *pfmt;
-	struct wl_shm *shm = client->wl_shm;
 	struct buffer *buf;
-	size_t stride_bytes;
-	struct wl_shm_pool *pool;
-	int fd;
 	void *data;
 	size_t bytes_pp;
 
 	assert(width > 0);
 	assert(height > 0);
 
-	pfmt = pixel_format_get_info(drm_format);
-	assert(pfmt);
-	assert(pixel_format_get_plane_count(pfmt) == 1);
-
 	buf = xzalloc(sizeof *buf);
+	buf->width = width;
+	buf->height = height;
+	buf->format = pixel_format_get_info(drm_format);
+	assert(buf->format);
+	assert(pixel_format_get_plane_count(buf->format) == 1);
 
-	bytes_pp = pfmt->bpp / 8;
-	stride_bytes = width * bytes_pp;
+	bytes_pp = buf->format->bpp / 8;
+	buf->stride_bytes = width * bytes_pp;
 	/* round up to multiple of 4 bytes for Pixman */
-	stride_bytes = (stride_bytes + 3) & ~3u;
-	assert(stride_bytes / bytes_pp >= (unsigned)width);
+	buf->stride_bytes = (buf->stride_bytes + 3) & ~3u;
+	assert(buf->stride_bytes / bytes_pp >= (unsigned)width);
 
-	buf->len = stride_bytes * height;
-	assert(buf->len / stride_bytes == (unsigned)height);
+	buf->len = buf->stride_bytes * height;
+	assert(buf->len / buf->stride_bytes == (unsigned)height);
 
-	fd = os_create_anonymous_file(buf->len);
-	assert(fd >= 0);
+	buf->fd = os_create_anonymous_file(buf->len);
+	assert(buf->fd >= 0);
 
-	data = mmap(NULL, buf->len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	data = mmap(NULL, buf->len, PROT_READ | PROT_WRITE, MAP_SHARED, buf->fd, 0);
 	if (data == MAP_FAILED) {
-		close(fd);
+		close(buf->fd);
 		assert(data != MAP_FAILED);
 	}
 
-	pool = wl_shm_create_pool(shm, fd, buf->len);
-	buf->proxy = wl_shm_pool_create_buffer(pool, 0, width, height,
-					       stride_bytes,
-					       pixel_format_get_shm_format(pfmt));
-	wl_shm_pool_destroy(pool);
-	close(fd);
-
-	buf->image = pixman_image_create_bits(pfmt->pixman_format,
+	buf->image = pixman_image_create_bits(buf->format->pixman_format,
 					      width, height,
-					      data, stride_bytes);
-
-	assert(buf->proxy);
+					      data, buf->stride_bytes);
 	assert(buf->image);
+
+	return buf;
+}
+
+void
+ensure_wl_buffer(struct client *client, struct buffer *buf)
+{
+	struct wl_shm *shm = client->wl_shm;
+	struct wl_shm_pool *pool;
+
+	assert(buf->fd > 0);
+	assert(buf->len > 0);
+	assert(buf->stride_bytes > 0);
+	assert(buf->format);
+
+	pool = wl_shm_create_pool(shm, buf->fd, buf->len);
+	buf->proxy = wl_shm_pool_create_buffer(pool, 0, buf->width, buf->height,
+					       buf->stride_bytes,
+					       pixel_format_get_shm_format(buf->format));
+	assert(buf->proxy);
+	wl_shm_pool_destroy(pool);
+}
+
+struct buffer *
+create_shm_buffer(struct client *client, int width, int height,
+		  uint32_t drm_format)
+{
+	struct buffer *buf = create_shm_storage(width, height, drm_format);
+
+	assert(buf);
+	ensure_wl_buffer(client, buf);
 
 	return buf;
 }
@@ -546,9 +563,14 @@ create_pixman_buffer(int width, int height, pixman_format_code_t pixman_format)
 	assert(height > 0);
 
 	buf = xzalloc(sizeof *buf);
+	buf->width = width;
+	buf->height = height;
+	buf->format = pixel_format_get_info_by_pixman(pixman_format);
+	buf->fd = -1;
 	buf->image = pixman_image_create_bits(pixman_format,
 					      width, height, NULL, 0);
 	assert(buf->image);
+	buf->stride_bytes = pixman_image_get_stride(buf->image);
 
 	return buf;
 }
@@ -564,6 +586,9 @@ buffer_destroy(struct buffer *buf)
 		wl_buffer_destroy(buf->proxy);
 		assert(munmap(pixels, buf->len) == 0);
 	}
+
+	if (buf->fd >= 0)
+		close(buf->fd);
 
 	assert(pixman_image_unref(buf->image));
 
@@ -2039,17 +2064,14 @@ verify_screen_content(struct client *client,
  * Create a wl_buffer from a PNG file
  *
  * Loads the named PNG file from the directory of reference images,
- * creates a wl_buffer with scale times the image dimensions in pixels,
+ * creates a buffer with scale times the image dimensions in pixels,
  * and copies the image content into the buffer using nearest-neighbor filter.
  *
- * \param client The client, for the Wayland connection.
  * \param basename The PNG file name without .png suffix.
  * \param scale Upscaling factor >= 1.
  */
 struct buffer *
-client_buffer_from_image_file(struct client *client,
-			      const char *basename,
-			      int scale)
+buffer_from_image_file(const char *basename, int scale)
 {
 	struct buffer *buf;
 	char *fname;
@@ -2066,7 +2088,7 @@ client_buffer_from_image_file(struct client *client,
 
 	buf_w = scale * pixman_image_get_width(img);
 	buf_h = scale * pixman_image_get_height(img);
-	buf = create_shm_buffer_a8r8g8b8(client, buf_w, buf_h);
+	buf = create_shm_storage(buf_w, buf_h, DRM_FORMAT_ARGB8888);
 
 	pixman_transform_init_scale(&scaling,
 				    pixman_fixed_1 / scale,
