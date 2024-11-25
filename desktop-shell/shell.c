@@ -2475,10 +2475,15 @@ desktop_surface_move(struct weston_desktop_surface *desktop_surface,
 	struct weston_touch *touch = weston_seat_get_touch(seat);
 	struct shell_surface *shsurf =
 		weston_desktop_surface_get_user_data(desktop_surface);
-	struct weston_surface *surface =
-		weston_desktop_surface_get_surface(shsurf->desktop_surface);
-	struct wl_resource *resource = surface->resource;
+	struct weston_surface *surface;
+	struct wl_resource *resource;
 	struct weston_surface *focus;
+
+	if (!shsurf)
+		return;
+
+	surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+	resource = surface->resource;
 
 	if (pointer &&
 	    pointer->focus &&
