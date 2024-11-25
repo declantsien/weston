@@ -1119,6 +1119,20 @@ init_pixman(struct drm_backend *b)
 }
 
 /**
+ * Frees drm plane format modifiers.
+ */
+static void
+drm_plane_formats_free(struct drm_plane *plane)
+{
+	unsigned int i;
+
+	for (i = 0; i < plane->count_formats; i++) {
+		if (plane->formats[i].modifiers)
+				free(plane->formats[i].modifiers);
+	}
+}
+
+/**
  * Create a drm_plane for a hardware plane
  *
  * Creates one drm_plane structure for a hardware plane, and initialises its
@@ -1223,6 +1237,7 @@ drm_plane_create(struct drm_device *device, const drmModePlane *kplane)
 
 err_props:
 	drm_property_info_free(plane->props, WDRM_PLANE__COUNT);
+	drm_plane_formats_free(plane);
 err:
 	weston_drm_format_array_fini(&plane->formats);
 	drm_plane_state_free(plane->state_cur, true);
@@ -1305,6 +1320,7 @@ drm_plane_destroy(struct drm_plane *plane)
 				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 	drm_plane_state_free(plane->state_cur, true);
 	drm_property_info_free(plane->props, WDRM_PLANE__COUNT);
+	drm_plane_formats_free(plane);
 	weston_plane_release(&plane->base);
 	weston_drm_format_array_fini(&plane->formats);
 	wl_list_remove(&plane->link);
