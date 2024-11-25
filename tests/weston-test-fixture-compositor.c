@@ -227,6 +227,7 @@ renderer_to_str(enum weston_renderer_type t)
 		[WESTON_RENDERER_NOOP] = "noop",
 		[WESTON_RENDERER_PIXMAN] = "pixman",
 		[WESTON_RENDERER_GL] = "gl",
+		[WESTON_RENDERER_ETNA] = "etnaviv",
 	};
 	assert(t >= 0 && t <= ARRAY_LENGTH(names));
 	return names[t];

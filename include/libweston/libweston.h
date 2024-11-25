@@ -2467,6 +2467,7 @@ enum weston_renderer_type {
 	WESTON_RENDERER_NOOP = 1,
 	WESTON_RENDERER_PIXMAN = 2,
 	WESTON_RENDERER_GL = 3,
+	WESTON_RENDERER_ETNA = 4,
 };
 
 struct weston_backend *

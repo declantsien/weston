@@ -423,6 +423,8 @@ drm_output_render(struct drm_output_state *state)
 		fb = drm_fb_ref(scanout_plane->state_cur->fb);
 	} else if (c->renderer->type == WESTON_RENDERER_PIXMAN) {
 		fb = drm_output_render_pixman(state, &damage);
+	} else if (c->renderer->type == WESTON_RENDERER_ETNA) {
+		fb = drm_output_render_etna(state, &damage);
 	} else {
 		fb = drm_output_render_gl(state, &damage);
 	}
@@ -1089,6 +1091,13 @@ drm_output_apply_mode(struct drm_output *output)
 		drm_output_fini_pixman(output);
 		if (drm_output_init_pixman(output, b) < 0) {
 			weston_log("failed to init output pixman state with "
+				   "new mode\n");
+			return -1;
+		}
+	} else if (b->compositor->renderer->type == WESTON_RENDERER_ETNA) {
+		drm_output_fini_etna(output);
+		if (drm_output_init_etna(output, b) < 0) {
+			weston_log("failed to init output etnaviv state with "
 				   "new mode\n");
 			return -1;
 		}
@@ -2336,6 +2345,11 @@ drm_output_enable(struct weston_output *base)
 			weston_log("Failed to init output pixman state\n");
 			goto err_planes;
 		}
+	} else if (b->compositor->renderer->type == WESTON_RENDERER_ETNA) {
+		if (drm_output_init_etna(output, b) < 0) {
+			weston_log("Failed to init output etnaviv state\n");
+			goto err_planes;
+		}
 	} else if (drm_output_init_egl(output, b) < 0) {
 		weston_log("Failed to init output gl state\n");
 		goto err_planes;
@@ -2386,6 +2400,8 @@ drm_output_deinit(struct weston_output *base)
 
 	if (b->compositor->renderer->type == WESTON_RENDERER_PIXMAN)
 		drm_output_fini_pixman(output);
+	else if (b->compositor->renderer->type == WESTON_RENDERER_ETNA)
+		drm_output_fini_etna(output);
 	else
 		drm_output_fini_egl(output);
 
@@ -4062,6 +4078,12 @@ drm_backend_create(struct weston_compositor *compositor,
 	case WESTON_RENDERER_GL:
 		if (init_egl(b) < 0) {
 			weston_log("failed to initialize egl\n");
+			goto err_udev_dev;
+		}
+		break;
+	case WESTON_RENDERER_ETNA:
+		if (init_etna(b) < 0) {
+			weston_log("failed to initialize etnaviv renderer\n");
 			goto err_udev_dev;
 		}
 		break;

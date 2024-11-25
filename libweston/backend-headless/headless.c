@@ -42,6 +42,7 @@
 #include "pixel-formats.h"
 #include "pixman-renderer.h"
 #include "renderer-gl/gl-renderer.h"
+#include "renderer-etna/etna-renderer.h"
 #include "gl-borders.h"
 #include "shared/weston-drm-fourcc.h"
 #include "shared/weston-egl-ext.h"
@@ -212,6 +213,16 @@ headless_output_disable_pixman(struct headless_output *output)
 	renderer->pixman->output_destroy(&output->base);
 }
 
+static void
+headless_output_disable_etna(struct headless_output *output)
+{
+	struct weston_renderer *renderer = output->base.compositor->renderer;
+
+	weston_renderbuffer_unref(output->renderbuffer);
+	output->renderbuffer = NULL;
+	renderer->etna->output_destroy(&output->base);
+}
+
 static int
 headless_output_disable(struct weston_output *base)
 {
@@ -233,6 +244,9 @@ headless_output_disable(struct weston_output *base)
 		break;
 	case WESTON_RENDERER_PIXMAN:
 		headless_output_disable_pixman(output);
+		break;
+	case WESTON_RENDERER_ETNA:
+		headless_output_disable_etna(output);
 		break;
 	case WESTON_RENDERER_NOOP:
 		break;
@@ -349,6 +363,32 @@ err_renderer:
 }
 
 static int
+headless_output_enable_etna(struct headless_output *output)
+{
+	const struct etna_renderer_interface *etna;
+
+	etna = output->base.compositor->renderer->etna;
+
+	if (etna->output_create(&output->base) < 0)
+		return -1;
+
+	output->renderbuffer =
+		etna->create_renderbuffer(&output->base,
+					  pixel_format_get_info(headless_formats[0]),
+					  output->base.current_mode->width,
+					  output->base.current_mode->height);
+	if (!output->renderbuffer)
+		goto err_renderer;
+
+	return 0;
+
+err_renderer:
+	etna->output_destroy(&output->base);
+
+	return -1;
+}
+
+static int
 headless_output_enable(struct weston_output *base)
 {
 	struct headless_output *output = to_headless_output(base);
@@ -375,6 +415,9 @@ headless_output_enable(struct weston_output *base)
 		break;
 	case WESTON_RENDERER_PIXMAN:
 		ret = headless_output_enable_pixman(output);
+		break;
+	case WESTON_RENDERER_ETNA:
+		ret = headless_output_enable_etna(output);
 		break;
 	case WESTON_RENDERER_NOOP:
 		break;
@@ -616,6 +659,15 @@ headless_backend_create(struct weston_compositor *compositor,
 				goto err_input;
 			}
 			ret = noop_renderer_init(compositor);
+			break;
+		case WESTON_RENDERER_ETNA:
+			if (config->decorate) {
+				weston_log("Error: Etnaviv renderer does not support decorations.\n");
+				goto err_input;
+			}
+			ret = weston_compositor_init_renderer(compositor,
+							      WESTON_RENDERER_ETNA,
+							      NULL);
 			break;
 		default:
 			weston_log("Error: unsupported renderer\n");

@@ -164,6 +164,7 @@ struct weston_renderer {
 
 	enum weston_renderer_type type;
 	const struct gl_renderer_interface *gl;
+	const struct etna_renderer_interface *etna;
 	const struct pixman_renderer_interface *pixman;
 };
 

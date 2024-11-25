@@ -32,7 +32,7 @@
 #include "weston-test-client-helper.h"
 #include "weston-test-fixture-compositor.h"
 
-#define RENDERERS(s, t)							\
+#define COMMON_RENDERERS(s, t)						\
 	{								\
 		.renderer = WESTON_RENDERER_PIXMAN,			\
 		.scale = s,						\
@@ -57,6 +57,20 @@
 		.gl_shadow_fb = true,					\
 		.meta.name = "GL shadow " #s " " #t,			\
 	}
+#ifdef ENABLE_ETNA_TESTS
+#define RENDERERS(s, t)							\
+	COMMON_RENDERERS(s, t),						\
+	{								\
+		.renderer = WESTON_RENDERER_ETNA,			\
+		.scale = s,						\
+		.transform = WL_OUTPUT_TRANSFORM_ ## t,			\
+		.transform_name = #t,					\
+		.gl_shadow_fb = false,					\
+		.meta.name = "etnaviv " #s " " #t,			\
+	}
+#else
+#define RENDERERS(s, t) COMMON_RENDERERS(s, t)
+#endif
 
 struct setup_args {
 	struct fixture_metadata meta;
