@@ -37,6 +37,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <strings.h>
+#include <fcntl.h>
 #include <sys/utsname.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -4433,6 +4434,7 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 	char *server_socket = NULL;
 	char *require_outputs = NULL;
 	int32_t idle_time = -1;
+	int32_t daemonize = 0;
 	int32_t help = 0;
 	char *socket_name = NULL;
 	int32_t version = 0;
@@ -4456,6 +4458,7 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 
 	bool wait_for_debugger = false;
 	struct wl_protocol_logger *protologger = NULL;
+	int pipefd[2];
 
 	const struct weston_option core_options[] = {
 		{ WESTON_OPTION_STRING, "backend", 'B', &backends },
@@ -4469,6 +4472,7 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 #endif
 		{ WESTON_OPTION_STRING, "modules", 0, &option_modules },
 		{ WESTON_OPTION_STRING, "log", 0, &log },
+		{ WESTON_OPTION_BOOLEAN, "daemonize", 'd', &daemonize },
 		{ WESTON_OPTION_BOOLEAN, "help", 'h', &help },
 		{ WESTON_OPTION_BOOLEAN, "version", 0, &version },
 		{ WESTON_OPTION_BOOLEAN, "no-config", 0, &noconfig },
@@ -4536,6 +4540,30 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 
 	weston_log("Flight recorder: %s\n", flight_rec ? "enabled" : "disabled");
 	verify_xdg_runtime_dir();
+
+	if (daemonize) {
+		pid_t pid;
+
+		if (pipe2(pipefd, O_CLOEXEC) < 0) {
+			weston_log("fatal: pipe2 failed: %m\n");
+			return EXIT_FAILURE;
+		}
+
+		pid = fork();
+		if (pid < 0) {
+			weston_log("fatal: fork failed: %m\n");
+			return EXIT_FAILURE;
+		}
+
+		if (pid > 0) {
+			close(pipefd[1]);
+			if (read(pipefd[0], &ret, sizeof (ret)) <= 0)
+				ret = EXIT_FAILURE;
+			_exit(ret);
+		}
+
+		close(pipefd[0]);
+	}
 
 	display = wl_display_create();
 	if (display == NULL) {
@@ -4765,6 +4793,29 @@ wet_main(int argc, char *argv[], const struct weston_testsuite_data *test_data)
 			weston_log("fatal: unhandled option: %s\n", argv[i]);
 		if (argc > 1)
 			goto out;
+	}
+
+	if (daemonize) {
+		int devnull;
+		ssize_t written __attribute__ ((unused));
+
+		if (setsid() < 0) {
+			weston_log("fatal: setsid failed: %m\n");
+			goto out;
+		}
+
+		if ((devnull = open("/dev/null", O_RDWR, 0)) != -1) {
+			dup2(devnull, 0);
+			dup2(devnull, 1);
+			dup2(devnull, 2);
+			if (devnull > 2)
+				close(devnull);
+		}
+
+		ret = EXIT_SUCCESS;
+
+		written = write(pipefd[1], &ret, sizeof (ret));
+		close(pipefd[1]);
 	}
 
 	weston_compositor_wake(wet.compositor);
