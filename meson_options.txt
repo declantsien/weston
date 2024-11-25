@@ -160,7 +160,8 @@ option(
 option(
 	'tools',
 	type: 'array',
-	choices: [ 'calibrator', 'debug', 'info', 'terminal', 'touch-calibrator' ],
+	choices: [ 'all', 'calibrator', 'debug', 'info', 'terminal', 'touch-calibrator' ],
+	value: [ 'terminal' ],
 	description: 'List of accessory clients to build and install'
 )
 option(

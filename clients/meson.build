@@ -251,8 +251,9 @@ tools_list = [
 	},
 ]
 
+tools_build_all = tools_enabled.contains('all')
 foreach t : tools_list
-	if tools_enabled.contains(t.get('name'))
+	if tools_build_all or tools_enabled.contains(t.get('name'))
 		executable(
 			'weston-@0@'.format(t.get('name')),
 			t.get('sources'),
