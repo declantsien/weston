@@ -67,7 +67,7 @@ cmlcms_reasonable_3D_points(void)
 	return 33;
 }
 
-static void
+static bool
 fill_in_curves(cmsToneCurve *curves[3], float *values, unsigned len)
 {
 	float *R_lut = values;
@@ -86,24 +86,26 @@ fill_in_curves(cmsToneCurve *curves[3], float *values, unsigned len)
 		G_lut[i] = cmsEvalToneCurveFloat(curves[1], x);
 		B_lut[i] = cmsEvalToneCurveFloat(curves[2], x);
 	}
+
+	return true;
 }
 
-static void
+static bool
 cmlcms_fill_in_pre_curve(struct weston_color_transform *xform_base,
 			 float *values, unsigned len)
 {
 	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
 
-	fill_in_curves(xform->pre_curve, values, len);
+	return fill_in_curves(xform->pre_curve, values, len);
 }
 
-static void
+static bool
 cmlcms_fill_in_post_curve(struct weston_color_transform *xform_base,
 			 float *values, unsigned len)
 {
 	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
 
-	fill_in_curves(xform->post_curve, values, len);
+	return fill_in_curves(xform->post_curve, values, len);
 }
 
 /**
@@ -121,33 +123,267 @@ ensure_unorm(float v)
 	return v;
 }
 
-static void
-cmlcms_fill_in_3dlut(struct weston_color_transform *xform_base,
-		     float *lut, unsigned int len)
+static float
+linear_interpolation(struct weston_compositor *compositor,
+		     float x, float x0, float y0, float x1, float y1)
 {
-	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
-	float rgb_in[3];
-	float rgb_out[3];
-	unsigned int index;
-	unsigned int value_b, value_r, value_g;
-	float divider = len - 1;
+	double precision = 1e-7;
 
-	for (value_b = 0; value_b < len; value_b++) {
-		for (value_g = 0; value_g < len; value_g++) {
-			for (value_r = 0; value_r < len; value_r++) {
-				rgb_in[0] = (float)value_r / divider;
-				rgb_in[1] = (float)value_g / divider;
-				rgb_in[2] = (float)value_b / divider;
+	if (x0 == x1 && y0 == y1)
+		return y0;
 
-				cmsDoTransform(xform->cmap_3dlut, rgb_in, rgb_out, 1);
+	/**
+	 * As y0 != y1, we'd have two points like this to hit the assert below:
+	 *
+	 * A (x, yi)
+	 * B (x, yj)
+	 *
+	 * Something that has two points like this is not a function, and color
+	 * curves are functions. Also, besides the semantic meaning, points like
+	 * that would result in division by zero in the code below.
+	 */
+	weston_assert_double_gt(compositor, x1 - x0, precision);
 
-				index = 3 * (value_r + len * (value_g + len * value_b));
+	return y0 * ((x1 - x) / (x1 - x0)) + y1 * ((x - x0) / (x1 - x0));
+}
+
+static void
+find_neighbors(struct weston_compositor *compositor, float *array, uint32_t len,
+	       float val, uint32_t *neigh_A_index, uint32_t *neigh_B_index)
+{
+	uint32_t index_closest;
+	float lowest_diff = (float)UINT32_MAX;
+	float diff;
+	uint32_t low, high, mid;
+
+	assert(len > 0);
+
+	/* Corner case. */
+	if (len == 1) {
+		*neigh_A_index = *neigh_B_index = 0;
+		return;
+	}
+
+	/* This gives us the index of the point whose y(point) is closer to what
+	 * we want. */
+	for (low = 0, high = len - 1; low < high; ) {
+		mid = low + (high - low) / 2;
+		diff = fabs(array[mid] - val);
+
+		if (diff < lowest_diff) {
+			index_closest = mid;
+			lowest_diff = diff;
+		}
+
+		if (fabs(array[mid - 1] - val) > fabs(array[mid + 1] - val))
+			low = mid + 1;
+		else
+			high = mid - 1;
+	}
+
+	/* The y(point) for the closest is exactly the point we want. */
+	if (array[index_closest] == val) {
+		*neigh_A_index = *neigh_B_index = index_closest;
+		return;
+	}
+
+	if (index_closest == 0) {
+		/* 0 is the closest, so 1 is the second closest. */
+		*neigh_A_index = 0;
+		*neigh_B_index = 1;
+	} else if (index_closest == len - 1) {
+		/* len - 1 is the closest, so len - 2 is the second closest. */
+		*neigh_A_index = len - 2;
+		*neigh_B_index = len - 1;
+	} else if (array[index_closest] > val) {
+		/* the y(point) for the closest is bigger than val, so
+		* closest - 1 is the second closest. */
+		*neigh_A_index = index_closest - 1;
+		*neigh_B_index = index_closest;
+	} else if (array[index_closest] < val) {
+		/* the y(point) for the closest is lesser than val, so
+		 * closest + 1 is the second closest. */
+		*neigh_A_index = index_closest;
+		*neigh_B_index = index_closest + 1;
+	} else {
+		weston_assert_not_reached(compositor, "case already handled above: " \
+						      "array[index_closest] == val");
+	}
+}
+
+static bool
+invert_shaper(struct weston_compositor *compositor, cmsContext lcms_ctx,
+	      unsigned int shaper_len, float *shaper, cmsToneCurve *tc_inverse[3])
+{
+	float *curves[3] = {
+		&shaper[0],
+		&shaper[shaper_len],
+		&shaper[2 * shaper_len]
+	};
+	float divider = shaper_len - 1;
+	float *inv;
+	uint32_t neighbor_A_index, neighbor_B_index;
+	float input;
+	unsigned int ch, i;
+
+	inv = xzalloc(shaper_len * sizeof(*inv));
+
+	for (ch = 0; ch < 3; ch++) {
+		for (i = 0; i < shaper_len; i++) {
+			input = (float)i / divider;
+			find_neighbors(compositor, curves[ch], shaper_len, input,
+				       &neighbor_A_index, &neighbor_B_index);
+			inv[i] = linear_interpolation(compositor, input,
+						      curves[ch][neighbor_A_index],
+						      (float)neighbor_A_index / divider,
+						      curves[ch][neighbor_B_index],
+						      (float)neighbor_B_index / divider);
+			inv[i] = ensure_unorm(inv[i]);
+		}
+
+		tc_inverse[ch] = cmsBuildTabulatedToneCurveFloat(lcms_ctx,
+								 shaper_len, inv);
+		if (!tc_inverse[ch])
+			goto err;
+	}
+
+	free(inv);
+
+	return true;
+
+err:
+	for (int j = i; j >= 0; j--) {
+		cmsFreeToneCurve(tc_inverse[j]);
+		tc_inverse[j] = NULL;
+	}
+
+	return false;
+}
+
+static bool
+build_shaper(cmsContext lcms_ctx, cmsHTRANSFORM cmap_3dlut,
+	     unsigned int shaper_len, float *shaper)
+{
+	float *curves[3] = {
+		&shaper[0],
+		&shaper[shaper_len],
+		&shaper[2 * shaper_len],
+	};
+	float divider = shaper_len - 1;
+	float rgb_in[3], rgb_out[3];
+	cmsToneCurve *tc[3];
+	unsigned int ch, i;
+	float smoothing_param = 0.5; /* TODO: how to properly decide this? */
+
+	for (i = 0; i < shaper_len; i++) {
+		rgb_in[0] = rgb_in[1] = rgb_in[2] = (float)i / divider;
+		cmsDoTransform(cmap_3dlut, rgb_in, rgb_out, 1);
+		for (ch = 0; ch < 3; ch++)
+			curves[ch][i] = ensure_unorm(rgb_out[ch]);
+	}
+
+	for (ch = 0; ch < 3; ch++) {
+		tc[ch] = cmsBuildTabulatedToneCurveFloat(lcms_ctx, shaper_len,
+							 curves[ch]);
+		if (!tc[ch])
+			goto err;
+
+		/* Ignore if that fails. It's still valuable using the shaper in
+		 * such case. */
+		if (!cmsSmoothToneCurve(tc[ch], smoothing_param))
+			continue;
+
+		for (i = 0; i < shaper_len; i++)
+			curves[ch][i] = cmsEvalToneCurveFloat(tc[ch],
+							      (float)i / divider);
+	}
+
+	cmsFreeToneCurveTriple(tc);
+
+	return true;
+
+err:
+	for (int j = i; j >= 0; j--)
+		cmsFreeToneCurve(tc[j]);
+	return false;
+}
+
+static bool
+build_3d_lut(cmsHTRANSFORM cmap_3dlut, float *lut, unsigned int lut_len,
+	     cmsToneCurve *tc_inv[3])
+{
+	float divider = lut_len - 1;
+	float rgb_in[3], rgb_out[3];
+	unsigned int index, index_r, index_g, index_b;
+
+	for (index_b = 0; index_b < lut_len; index_b++) {
+		for (index_g = 0; index_g < lut_len; index_g++) {
+			for (index_r = 0; index_r < lut_len; index_r++) {
+				rgb_in[0] = cmsEvalToneCurveFloat(tc_inv[0],
+								  (float)index_r / divider);
+
+				rgb_in[1] = cmsEvalToneCurveFloat(tc_inv[1],
+								  (float)index_g / divider);
+
+				rgb_in[2] = cmsEvalToneCurveFloat(tc_inv[2],
+								  (float)index_b / divider);
+
+				cmsDoTransform(cmap_3dlut, rgb_in, rgb_out, 1);
+
+				index = 3 * (index_r + lut_len * (index_g + lut_len * index_b));
 				lut[index    ] = ensure_unorm(rgb_out[0]);
 				lut[index + 1] = ensure_unorm(rgb_out[1]);
 				lut[index + 2] = ensure_unorm(rgb_out[2]);
 			}
 		}
 	}
+
+	return true;
+}
+
+static bool
+cmlcms_fill_in_shaper(struct weston_color_transform *xform_base,
+		      float *shaper, unsigned shaper_len)
+{
+	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
+
+	return build_shaper(xform->lcms_ctx, xform->cmap_3dlut, shaper_len, shaper);
+}
+
+static bool
+cmlcms_fill_in_3dlut(struct weston_color_transform *xform_base,
+		     float *lut, unsigned lut_dim_len)
+{
+	struct weston_compositor *compositor = xform_base->cm->compositor;
+	struct cmlcms_color_transform *xform = to_cmlcms_xform(xform_base);
+	unsigned int shaper_dim_len = xform->base.mapping.u.lut3d.shaper_optimal_len;
+	cmsToneCurve *tc_inverse[3];
+	float *shaper;
+	bool ret;
+	
+	shaper = xzalloc(3 * shaper_dim_len * sizeof(float));
+
+	ret = build_shaper(xform->lcms_ctx, xform->cmap_3dlut,
+			   shaper_dim_len, shaper);
+	if (!ret) {
+		free(shaper);
+		return false;
+	}
+
+	ret = invert_shaper(compositor, xform->lcms_ctx,
+			    shaper_dim_len, shaper, tc_inverse);
+	if (!ret) {
+		free(shaper);
+		return false;
+	}
+
+	free(shaper);
+
+	ret = build_3d_lut(xform->cmap_3dlut, lut, lut_dim_len, tc_inverse);
+
+	cmsFreeToneCurveTriple(tc_inverse);
+
+	return ret;
 }
 
 void
@@ -959,10 +1195,13 @@ optimize_float_pipeline(cmsPipeline **lut, cmsContext context_id,
 		return TRUE;
 	}
 
-	xform->base.pre_curve.type = WESTON_COLOR_CURVE_TYPE_IDENTITY;
+	xform->base.pre_curve.type = WESTON_COLOR_CURVE_TYPE_LUT_3x1D;
+	xform->base.pre_curve.u.lut_3x1d.optimal_len = cmlcms_reasonable_1D_points();
+	xform->base.pre_curve.u.lut_3x1d.fill_in = cmlcms_fill_in_shaper;
 	xform->base.mapping.type = WESTON_COLOR_MAPPING_TYPE_3D_LUT;
 	xform->base.mapping.u.lut3d.fill_in = cmlcms_fill_in_3dlut;
 	xform->base.mapping.u.lut3d.optimal_len = cmlcms_reasonable_3D_points();
+	xform->base.mapping.u.lut3d.shaper_optimal_len = cmlcms_reasonable_1D_points();
 	xform->base.post_curve.type = WESTON_COLOR_CURVE_TYPE_IDENTITY;
 
 	xform->status = CMLCMS_TRANSFORM_3DLUT;

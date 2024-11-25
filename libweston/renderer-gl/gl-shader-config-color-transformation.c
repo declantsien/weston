@@ -199,7 +199,10 @@ gl_color_curve_lut_3x1d(struct gl_renderer *gr,
 	if (!lut)
 		return false;
 
-	curve->u.lut_3x1d.fill_in(xform, lut, lut_len);
+	if (!curve->u.lut_3x1d.fill_in(xform, lut, lut_len)) {
+		free(lut);
+		return false;
+	}
 
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
@@ -235,7 +238,10 @@ gl_3d_lut(struct gl_renderer *gr,
 	if (!lut)
 		return false;
 
-	xform->mapping.u.lut3d.fill_in(xform, lut, dim_size);
+	if (!xform->mapping.u.lut3d.fill_in(xform, lut, dim_size)) {
+		free(lut);
+		return false;
+	}
 
 	glGenTextures(1, &tex3d);
 	glBindTexture(GL_TEXTURE_3D, tex3d);
