@@ -534,6 +534,8 @@ platform_to_extension(EGLenum platform)
 		return "wayland";
 	case EGL_PLATFORM_X11_KHR:
 		return "x11";
+	case EGL_PLATFORM_XCB_EXT:
+		return "xcb";
 	case EGL_PLATFORM_SURFACELESS_MESA:
 		return "surfaceless";
 	default:

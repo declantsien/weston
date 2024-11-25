@@ -45,7 +45,8 @@
 #include <xcb/xkb.h>
 #endif
 
-#include <X11/Xlib.h>
+#include "shared/platform.h"
+
 #include <X11/Xlib-xcb.h>
 
 #include <xkbcommon/xkbcommon.h>
@@ -75,6 +76,16 @@
 #define WINDOW_MAX_WIDTH 8192
 #define WINDOW_MAX_HEIGHT 8192
 
+/* we use screen 0 (DEFAULT_SCREEN) as we don't use
+ * EGL_PLATFORM_XCB_SCREEN_EXT or set native_display to
+ * EGL_DEFAULT_DISPLAY.
+ *
+ * Otherwise we would need to pass the screen number when initializing the gl
+ * renderer by having an attrib_list passed to get_platform_display(), which we
+ * don't have the infra in place to do it
+ */
+#define DEFAULT_SCREEN	0
+
 static const uint32_t x11_formats[] = {
 	DRM_FORMAT_XRGB8888,
 };
@@ -83,7 +94,6 @@ struct x11_backend {
 	struct weston_backend	 base;
 	struct weston_compositor *compositor;
 
-	Display			*dpy;
 	xcb_connection_t	*conn;
 	xcb_screen_t		*screen;
 	xcb_cursor_t		 null_cursor;
@@ -183,14 +193,14 @@ to_x11_backend(struct weston_backend *backend)
 }
 
 static xcb_screen_t *
-x11_compositor_get_default_screen(struct x11_backend *b)
+x11_compositor_get_default_screen(struct x11_backend *b, int screen_no)
 {
 	xcb_screen_iterator_t iter;
-	int i, screen_nbr = XDefaultScreen(b->dpy);
+	int i;
 
 	iter = xcb_setup_roots_iterator(xcb_get_setup(b->conn));
 	for (i = 0; iter.rem; xcb_screen_next(&iter), i++)
-		if (i == screen_nbr)
+		if (i == screen_no)
 			return iter.data;
 
 	return xcb_setup_roots_iterator(xcb_get_setup(b->conn)).data;
@@ -748,7 +758,7 @@ x11_output_get_shm_pixel_format(struct x11_output *output)
 		return NULL;
 	}
 
-	screen = x11_compositor_get_default_screen(b);
+	screen = x11_compositor_get_default_screen(b, DEFAULT_SCREEN);
 	visual_type = find_visual_by_id(screen, screen->root_visual);
 	if (!visual_type) {
 		weston_log("Failed to lookup visual for root window\n");
@@ -986,7 +996,7 @@ x11_output_enable(struct weston_output *base)
 
 	values[1] = b->null_cursor;
 	output->window = xcb_generate_id(b->conn);
-	screen = x11_compositor_get_default_screen(b);
+	screen = x11_compositor_get_default_screen(b, DEFAULT_SCREEN);
 	xcb_create_window(b->conn,
 			  XCB_COPY_FROM_PARENT,
 			  output->window,
@@ -1872,7 +1882,7 @@ x11_destroy(struct weston_backend *base)
 			x11_head_destroy(head);
 	}
 
-	XCloseDisplay(backend->dpy);
+	xcb_disconnect(backend->conn);
 	free(backend->formats);
 	free(backend);
 }
@@ -1903,17 +1913,11 @@ x11_backend_create(struct weston_compositor *compositor,
 	b->base.supported_presentation_clocks =
 			WESTON_PRESENTATION_CLOCKS_SOFTWARE;
 
-	b->dpy = XOpenDisplay(NULL);
-	if (b->dpy == NULL)
+	b->conn = xcb_connect(NULL, NULL);
+	if (xcb_connection_has_error(b->conn))
 		goto err_free;
 
-	b->conn = XGetXCBConnection(b->dpy);
-	XSetEventQueueOwner(b->dpy, XCBOwnsEventQueue);
-
-	if (xcb_connection_has_error(b->conn))
-		goto err_xdisplay;
-
-	b->screen = x11_compositor_get_default_screen(b);
+	b->screen = x11_compositor_get_default_screen(b, DEFAULT_SCREEN);
 	wl_array_init(&b->keys);
 
 	x11_backend_get_resources(b);
@@ -1940,8 +1944,8 @@ x11_backend_create(struct weston_compositor *compositor,
 	case WESTON_RENDERER_AUTO:
 	case WESTON_RENDERER_GL: {
 		const struct gl_renderer_display_options options = {
-			.egl_platform = EGL_PLATFORM_X11_KHR,
-			.egl_native_display = b->dpy,
+			.egl_platform = EGL_PLATFORM_XCB_EXT,
+			.egl_native_display = b->conn,
 			.egl_surface_type = EGL_WINDOW_BIT,
 			.formats = b->formats,
 			.formats_count = b->formats_count,
@@ -1996,7 +2000,7 @@ err_x11_input:
 err_renderer:
 	compositor->renderer->destroy(compositor);
 err_xdisplay:
-	XCloseDisplay(b->dpy);
+	xcb_disconnect(b->conn);
 err_free:
 	wl_list_remove(&b->base.link);
 	free(b->formats);
