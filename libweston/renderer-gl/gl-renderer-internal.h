@@ -216,7 +216,8 @@ struct gl_renderer {
 	EGLDeviceEXT egl_device;
 	const char *drm_device;
 
-	struct weston_drm_format_array supported_formats;
+	struct weston_drm_format_array supported_dmabuf_formats;
+	struct weston_drm_format_array supported_rendering_formats;
 
 	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC image_target_texture_2d;
 	PFNGLTEXIMAGE3DOESPROC tex_image_3d;
@@ -233,6 +234,8 @@ struct gl_renderer {
 	PFNEGLUNBINDWAYLANDDISPLAYWL unbind_display;
 	PFNEGLQUERYWAYLANDBUFFERWL query_buffer;
 	bool has_bind_display;
+
+	bool has_float_point_configs;
 
 	bool has_context_priority;
 
@@ -322,6 +325,10 @@ gl_renderer_log_extensions(struct gl_renderer *gr,
 
 void
 log_egl_config_info(EGLDisplay egldpy, EGLConfig eglconfig);
+
+int
+egl_set_supported_rendering_formats(EGLDisplay egldpy,
+				    struct weston_drm_format_array *supported_formats);
 
 EGLConfig
 gl_renderer_get_egl_config(struct gl_renderer *gr,

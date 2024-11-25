@@ -658,13 +658,6 @@ struct weston_output {
 	void (*set_backlight)(struct weston_output *output, uint32_t value);
 	void (*set_dpms)(struct weston_output *output, enum dpms_enum level);
 
-	uint16_t gamma_size;
-	void (*set_gamma)(struct weston_output *output,
-			  uint16_t size,
-			  uint16_t *r,
-			  uint16_t *g,
-			  uint16_t *b);
-
 	bool enabled; /**< is in the output_list, not pending list */
 
 	struct weston_color_profile *color_profile;
@@ -1546,6 +1539,8 @@ struct weston_compositor {
 	struct weston_color_manager *color_manager;
 	struct weston_idalloc *color_profile_id_generator;
 	struct weston_idalloc *color_transform_id_generator;
+
+	bool offload_blend_to_output;
 
 	struct weston_renderer *renderer;
 	const struct pixel_format_info *read_format;

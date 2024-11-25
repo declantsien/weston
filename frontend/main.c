@@ -1210,6 +1210,14 @@ weston_compositor_init_config(struct weston_compositor *ec,
 			compositor->use_color_manager = true;
 	}
 
+	weston_config_section_get_bool(s, "offload-blend-to-output",
+				       &ec->offload_blend_to_output, false);
+	if (!color_management && ec->offload_blend_to_output) {
+		ec->offload_blend_to_output = false;
+		weston_log("Color-management is disabled, so config option " \
+			   "offload-blend-to-output won't be honored.\n");
+	}
+
 	/* weston.ini [libinput] */
 	s = weston_config_get_section(config, "libinput", NULL, NULL);
 	weston_config_section_get_bool(s, "touchscreen_calibrator", &cal, 0);

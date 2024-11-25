@@ -173,6 +173,11 @@ cmlcms_get_color_profile_from_params(struct weston_color_manager *cm_base,
 				     struct weston_color_profile **cprof_out,
 				     char **errmsg);
 
+float *
+cmlcms_get_output_to_blend_lut(struct weston_color_manager *cm_base,
+			       struct weston_output *output,
+			       uint32_t len);
+
 bool
 cmlcms_send_image_desc_info(struct cm_image_desc_info *cm_image_desc_info,
 			    struct weston_color_profile *cprof_base);
