@@ -1155,7 +1155,6 @@ drm_plane_create(struct drm_device *device, const drmModePlane *kplane)
 	plane->possible_crtcs = kplane->possible_crtcs;
 	plane->plane_id = kplane->plane_id;
 	plane->crtc_id = kplane->crtc_id;
-	plane->is_underlay = false;
 
 	weston_drm_format_array_init(&plane->formats);
 
@@ -1362,8 +1361,8 @@ create_sprites(struct drm_device *device)
 
 		if (primary_plane_zpos_min != DRM_PLANE_ZPOS_INVALID_PLANE &&
 		    drm_plane->zpos_max != DRM_PLANE_ZPOS_INVALID_PLANE &&
-		    drm_plane->zpos_max < primary_plane_zpos_min) {
-			drm_plane->is_underlay = true;
+		    drm_plane->zpos_min != DRM_PLANE_ZPOS_INVALID_PLANE &&
+		    drm_plane->zpos_min < primary_plane_zpos_min) {
 			b->has_underlay = true;
 		}
 	}
