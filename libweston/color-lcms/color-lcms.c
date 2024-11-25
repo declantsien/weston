@@ -497,8 +497,14 @@ weston_color_manager_create(struct weston_compositor *compositor)
 	cm->base.get_surface_color_transform = cmlcms_get_surface_color_transform;
 	cm->base.create_output_color_outcome = cmlcms_create_output_color_outcome;
 
-	/* We still do not support creating parametric color profiles. */
-	cm->base.supported_color_features = (1 << WESTON_COLOR_FEATURE_ICC);
+	/* We support all color features. */
+	cm->base.supported_color_features = (1 << WESTON_COLOR_FEATURE_ICC) |
+					    (1 << WESTON_COLOR_FEATURE_PARAMETRIC) |
+					    (1 << WESTON_COLOR_FEATURE_SET_PRIMARIES) |
+					    (1 << WESTON_COLOR_FEATURE_SET_TF_POWER) |
+					    (1 << WESTON_COLOR_FEATURE_SET_LUMINANCES) |
+					    (1 << WESTON_COLOR_FEATURE_SET_MASTERING_DISPLAY_PRIMARIES) |
+					    (1 << WESTON_COLOR_FEATURE_EXTENDED_TARGET_VOLUME);
 
 	/* We support all rendering intents. */
 	cm->base.supported_rendering_intents = (1 << WESTON_RENDER_INTENT_PERCEPTUAL) |
@@ -519,8 +525,11 @@ weston_color_manager_create(struct weston_compositor *compositor)
 					     (1 << WESTON_PRIMARIES_CICP_DISPLAY_P3) |
 					     (1 << WESTON_PRIMARIES_ADOBE_RGB);
 
-	/* We still don't support any tf named. */
-	cm->base.supported_tf_named = 0;
+	/* We need to implement each tf, and we support only a few of them. */
+	cm->base.supported_tf_named = (1 << WESTON_TF_GAMMA22) |
+				      (1 << WESTON_TF_GAMMA28) |
+				      (1 << WESTON_TF_SRGB) |
+				      (1 << WESTON_TF_ST2084_PQ);
 
 	wl_list_init(&cm->color_transform_list);
 	wl_list_init(&cm->color_profile_list);

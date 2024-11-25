@@ -41,6 +41,7 @@ enum weston_color_feature {
 	WESTON_COLOR_FEATURE_PARAMETRIC,
 	WESTON_COLOR_FEATURE_SET_PRIMARIES,
 	WESTON_COLOR_FEATURE_SET_TF_POWER,
+	WESTON_COLOR_FEATURE_SET_LUMINANCES,
 	WESTON_COLOR_FEATURE_SET_MASTERING_DISPLAY_PRIMARIES,
 	WESTON_COLOR_FEATURE_EXTENDED_TARGET_VOLUME,
 };
@@ -130,8 +131,16 @@ const struct weston_color_primaries_info *
 weston_color_primaries_info_from(struct weston_compositor *compositor,
                                  enum weston_color_primaries primaries);
 
+const struct weston_color_primaries_info *
+weston_color_primaries_info_from_protocol(struct weston_compositor *compositor,
+                                          uint32_t protocol_primaries);
+
 const struct weston_color_tf_info *
 weston_color_tf_info_from(struct weston_compositor *compositor,
 			  enum weston_transfer_function tf);
+
+const struct weston_color_tf_info *
+weston_color_tf_info_from_protocol(struct weston_compositor *compositor,
+                                   uint32_t protocol_tf);
 
 #endif /* WESTON_COLOR_CHARACTERISTICS_H */

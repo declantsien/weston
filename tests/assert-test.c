@@ -120,6 +120,12 @@ TEST(asserts)
 	ret = weston_assert_double_eq(compositor, fifteen, 15);
 	abort_if_not(ret);
 
+	ret = weston_assert_double_neq(compositor, fifteen, 15.000001);
+	abort_if_not(ret == true);
+
+	ret = weston_assert_double_neq(compositor, fifteen, 15);
+	abort_if_not(ret == false);
+
 	const char *nom = "bar";
 	ret = weston_assert_str_eq(compositor, nom, "bar");
 	abort_if_not(ret);
