@@ -374,7 +374,7 @@ is_y_flipped(const struct gl_output_state *go)
 	return go->y_flip < 0.0f;
 }
 
-struct yuv_format_descriptor yuv_formats[] = {
+static const struct yuv_format_descriptor yuv_formats[] = {
 	{
 		.format = DRM_FORMAT_YUYV,
 		.output_planes = 2,
@@ -3051,7 +3051,7 @@ gl_renderer_fill_buffer_info(struct weston_compositor *ec,
 			SHADER_VARIANT_EXTERNAL : SHADER_VARIANT_RGBA;
 		gb->num_images = 1;
 	} else {
-		struct yuv_format_descriptor *desc = NULL;
+		const struct yuv_format_descriptor *desc = NULL;
 
 		for (i = 0; i < (int) ARRAY_LENGTH(yuv_formats); i++) {
 			if (fourcc == yuv_formats[i].format) {
@@ -3222,10 +3222,10 @@ import_simple_dmabuf(struct gl_renderer *gr,
 
 static EGLImageKHR
 import_dmabuf_single_plane(struct gl_renderer *gr,
-                           const struct pixel_format_info *info,
-                           int idx,
-                           const struct dmabuf_attributes *attributes,
-                           struct yuv_plane_descriptor *descriptor)
+			   const struct pixel_format_info *info,
+			   int idx,
+			   const struct dmabuf_attributes *attributes,
+			   const struct yuv_plane_descriptor *descriptor)
 {
 	struct dmabuf_attributes plane;
 	EGLImageKHR image;
@@ -3259,7 +3259,7 @@ import_yuv_dmabuf(struct gl_renderer *gr, struct gl_buffer_state *gb,
 {
 	unsigned i;
 	int j;
-	struct yuv_format_descriptor *format = NULL;
+	const struct yuv_format_descriptor *format = NULL;
 	const struct pixel_format_info *info;
 	int plane_count;
 	GLenum target;
