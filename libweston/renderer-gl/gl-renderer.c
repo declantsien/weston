@@ -1985,6 +1985,7 @@ static void
 update_borders_tex(struct gl_renderer *gr,
 		   struct gl_output_state *go)
 {
+	GLint swizzles[] = { GL_BLUE, GL_GREEN, GL_RED, GL_ALPHA };
 	int i;
 
 	for (i = 0; i < 4; i++) {
@@ -2001,18 +2002,19 @@ update_borders_tex(struct gl_renderer *gr,
 
 			if (pending->data) {
 				gl_texture_2d_init(
-					gr, 1, GL_BGRA8_EXT, pending->tex_width,
+					gr, 1, GL_RGBA8, pending->tex_width,
 					pending->height, &go->borders_tex[i]);
 				gl_texture_parameters_init(
 					gr, &go->borders_param[i],
-					GL_TEXTURE_2D, NULL, NULL, NULL, false);
+					GL_TEXTURE_2D, NULL, NULL, swizzles,
+					false);
 			}
 		}
 
 		if (pending->data) {
 			glBindTexture(GL_TEXTURE_2D, go->borders_tex[i]);
 			gl_texture_2d_store(gr, 0, 0, 0, pending->tex_width,
-					    pending->height, GL_BGRA_EXT,
+					    pending->height, GL_RGBA,
 					    GL_UNSIGNED_BYTE, pending->data);
 		}
 		*current = *pending;
@@ -4709,11 +4711,6 @@ gl_renderer_setup(struct weston_compositor *ec)
 				 "glEGLImageTargetTexture2DOES");
 		GET_PROC_ADDRESS(gr->image_target_renderbuffer_storage,
 				 "glEGLImageTargetRenderbufferStorageOES");
-	}
-
-	if (!gl_extensions_has(gr, EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888)) {
-		weston_log("GL_EXT_texture_format_BGRA8888 not available\n");
-		return -1;
 	}
 
 	if (gl_extensions_has(gr, EXTENSION_EXT_READ_FORMAT_BGRA))
