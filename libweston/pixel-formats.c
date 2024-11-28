@@ -816,6 +816,58 @@ pixel_format_get_info_by_drm_name(const char *drm_format_name)
 }
 
 WL_EXPORT const struct pixel_format_info *
+pixel_format_get_info_by_gl(unsigned int format, unsigned int type)
+{
+#ifdef ENABLE_EGL
+	GLint swizzles_default[] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
+	unsigned int i, j, components;
+	bool swizzles_match;
+
+	/* Handle the formats returned by calling glGetIntegerv() with the
+	 * GL_IMPLEMENTATION_READ_FORMAT token. */
+	switch (format) {
+	case GL_RED:
+	case GL_RED_INTEGER:
+	case GL_LUMINANCE:
+		components = 1;
+		break;
+	case GL_LUMINANCE_ALPHA:
+	case GL_RG:
+		components = 2;
+		break;
+	case GL_RGB:
+	case GL_RGB_INTEGER:
+		components = 3;
+		break;
+	case GL_RGBA:
+	case GL_RGBA_INTEGER:
+		components = 4;
+		break;
+	default:
+		return NULL;
+	}
+
+	for (i = 0; i < ARRAY_LENGTH(pixel_format_table); i++) {
+		if (pixel_format_table[i].gl.external == format &&
+		    pixel_format_table[i].gl.type == type) {
+			swizzles_match = true;
+			for (j = 0; j < components; j++) {
+				if (pixel_format_table[i].gl.swizzles.array[j] !=
+				    swizzles_default[j]) {
+					swizzles_match = false;
+					break;
+				}
+			}
+			if (swizzles_match)
+				return &pixel_format_table[i];
+		}
+	}
+#endif
+
+	return NULL;
+}
+
+WL_EXPORT const struct pixel_format_info *
 pixel_format_get_info_by_pixman(pixman_format_code_t pixman_format)
 {
 	unsigned int i;

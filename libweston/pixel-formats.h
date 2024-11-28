@@ -223,6 +223,21 @@ const struct pixel_format_info *
 pixel_format_get_info_by_drm_name(const char *drm_format_name);
 
 /**
+ * Get pixel format information for an OpenGL ES format and type combination
+ * using the default R, G, B and A swizzles.
+ *
+ * Given an OpenGL ES format and type combination, return a pixel format info
+ * structure describing the properties of that format.
+ *
+ * @param format OpenGL ES external format
+ * @param type OpenGL ES type
+ * @returns A pixel format structure (must not be freed), or NULL if the
+ *          format could not be found
+ */
+const struct pixel_format_info *
+pixel_format_get_info_by_gl(unsigned int format, unsigned int type);
+
+/**
  * Get pixel format information for a Pixman format code
  *
  * Given a Pixman format code, return a pixel format info structure describing

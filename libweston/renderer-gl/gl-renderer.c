@@ -144,6 +144,8 @@ struct gl_renderbuffer {
 		struct gl_renderbuffer_dmabuf dmabuf;
 	};
 
+	const struct pixel_format_info *readback_format;
+
 	weston_renderbuffer_discarded_func discarded_cb;
 	void *user_data;
 	struct wl_list link;
@@ -658,7 +660,23 @@ gl_renderbuffer_init(struct gl_renderbuffer *renderbuffer,
 		     void *user_data,
 		     struct weston_output *output)
 {
+	static const struct pixel_format_info argb8888_alt = {
+		.format = DRM_FORMAT_ARGB8888,
+		.drm_format_name = "ARGB8888 (GL_EXT_read_format_bgra)",
+		.gl.internal = GL_BGRA8_EXT,
+		.gl.external = GL_BGRA_EXT,
+		.gl.type = GL_UNSIGNED_BYTE,
+		.gl.swizzles.array = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA },
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+		.pixman_format = PIXMAN_a8r8g8b8,
+#else
+		.pixman_format = PIXMAN_b8g8r8a8,
+#endif
+	};
+	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
+	const struct pixel_format_info *readback_format;
+	GLint gl_format, gl_type;
 
 	renderbuffer->output = output;
 	renderbuffer->type = type;
@@ -670,6 +688,28 @@ gl_renderbuffer_init(struct gl_renderbuffer *renderbuffer,
 	renderbuffer->user_data = user_data;
 
 	wl_list_insert(&go->renderbuffer_list, &renderbuffer->link);
+
+	/* Find the pixel format that provides the best read-back performance.
+	 * It must have a valid Pixman format so that we can rely on optimised
+	 * Pixman routines to efficiently convert and/or copy pixel regions. The
+	 * GL info declared in the pixel formats table aren't specififed for the
+	 * GL_BGRA_EXT format (see GL_EXT_read_format_bgra) so we redefine the
+	 * ARGB8888 format here in order to support GL_BGRA_EXT, which also
+	 * serves as our fallback (if supported). */
+	glBindFramebuffer(gr->read_target, framebuffer);
+	glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_FORMAT, &gl_format);
+	glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_TYPE, &gl_type);
+	readback_format = pixel_format_get_info_by_gl(gl_format, gl_type);
+	if (!readback_format || !readback_format->pixman_format) {
+		if (gl_extensions_has(gr, EXTENSION_EXT_READ_FORMAT_BGRA)) {
+			readback_format = &argb8888_alt;
+		} else {
+			readback_format =
+				pixel_format_get_info(DRM_FORMAT_ABGR8888);
+			assert(readback_format);
+		}
+	}
+	renderbuffer->readback_format = readback_format;
 }
 
 static void
