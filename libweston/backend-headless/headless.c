@@ -81,7 +81,7 @@ struct headless_output {
 
 	struct weston_mode mode;
 	struct wl_event_source *finish_frame_timer;
-	struct weston_renderbuffer *renderbuffer;
+	weston_renderbuffer_t renderbuffer;
 
 	struct frame *frame;
 	struct {
@@ -192,7 +192,7 @@ headless_output_disable_gl(struct headless_output *output)
 
 	weston_gl_borders_fini(&output->gl.borders, &output->base);
 
-	weston_renderbuffer_unref(output->renderbuffer);
+	renderer->destroy_renderbuffer(output->renderbuffer);
 	output->renderbuffer = NULL;
 	renderer->gl->output_destroy(&output->base);
 
@@ -207,7 +207,7 @@ headless_output_disable_pixman(struct headless_output *output)
 {
 	struct weston_renderer *renderer = output->base.compositor->renderer;
 
-	weston_renderbuffer_unref(output->renderbuffer);
+	renderer->destroy_renderbuffer(output->renderbuffer);
 	output->renderbuffer = NULL;
 	renderer->pixman->output_destroy(&output->base);
 }
@@ -301,9 +301,8 @@ headless_output_enable_gl(struct headless_output *output)
 	}
 
 	output->renderbuffer =
-		renderer->gl->create_fbo(&output->base, b->formats[0],
-					 options.fb_size.width,
-					 options.fb_size.height, NULL);
+		renderer->create_renderbuffer(&output->base, b->formats[0],
+					      NULL, 0, NULL, NULL);
 	if (!output->renderbuffer)
 		goto err_renderbuffer;
 
@@ -318,7 +317,7 @@ err_renderbuffer:
 static int
 headless_output_enable_pixman(struct headless_output *output)
 {
-	const struct pixman_renderer_interface *pixman;
+	struct weston_renderer *renderer = output->base.compositor->renderer;
 	const struct pixman_renderer_output_options options = {
 		.use_shadow = true,
 		.fb_size = {
@@ -328,22 +327,19 @@ headless_output_enable_pixman(struct headless_output *output)
 		.format = pixel_format_get_info(headless_formats[0])
 	};
 
-	pixman = output->base.compositor->renderer->pixman;
-
-	if (pixman->output_create(&output->base, &options) < 0)
+	if (renderer->pixman->output_create(&output->base, &options) < 0)
 		return -1;
 
 	output->renderbuffer =
-		pixman->create_image(&output->base, options.format,
-				     output->base.current_mode->width,
-				     output->base.current_mode->height);
+		renderer->create_renderbuffer(&output->base, options.format,
+					      NULL, 0, NULL, NULL);
 	if (!output->renderbuffer)
 		goto err_renderer;
 
 	return 0;
 
 err_renderer:
-	pixman->output_destroy(&output->base);
+	renderer->pixman->output_destroy(&output->base);
 
 	return -1;
 }

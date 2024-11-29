@@ -10382,25 +10382,6 @@ weston_output_disable_planes_decr(struct weston_output *output)
 
 }
 
-WL_EXPORT struct weston_renderbuffer *
-weston_renderbuffer_ref(struct weston_renderbuffer *renderbuffer)
-{
-	renderbuffer->refcount++;
-
-	return renderbuffer;
-}
-
-WL_EXPORT void
-weston_renderbuffer_unref(struct weston_renderbuffer *renderbuffer)
-{
-	assert(renderbuffer->refcount > 0);
-
-	if (--renderbuffer->refcount > 0)
-		return;
-
-	renderbuffer->destroy(renderbuffer);
-}
-
 /** Tell the renderer that the target framebuffer size has changed
  *
  * \param output The output that was resized.
@@ -10408,8 +10389,9 @@ weston_renderbuffer_unref(struct weston_renderbuffer *renderbuffer)
  * \param area The composited area inside the framebuffer, excluding
  * decorations. This can also be NULL, which means the whole fb_size is
  * the composited area.
+ * \return true on success, false otherwise.
  */
-WL_EXPORT void
+WL_EXPORT bool
 weston_renderer_resize_output(struct weston_output *output,
 			      const struct weston_size *fb_size,
 			      const struct weston_geometry *area)
@@ -10425,7 +10407,10 @@ weston_renderer_resize_output(struct weston_output *output,
 	if (!r->resize_output(output, fb_size, area ?: &def)) {
 		weston_log("Error: Resizing output '%s' failed.\n",
 			   output->name);
+		return false;
 	}
+
+	return true;
 }
 
 /** Queue a frame timer callback

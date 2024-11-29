@@ -140,7 +140,7 @@ struct x11_output {
 
 	xcb_gc_t		gc;
 	xcb_shm_seg_t		segment;
-	struct weston_renderbuffer *renderbuffer;
+	weston_renderbuffer_t	renderbuffer;
 	int			shm_id;
 	void		       *buf;
 	uint8_t			depth;
@@ -167,6 +167,10 @@ to_x11_head(struct weston_head *base)
 
 static void
 x11_output_destroy(struct weston_output *base);
+
+static int
+x11_output_init_shm(struct x11_backend *b, struct x11_output *output,
+		    const struct pixel_format_info *pfmt);
 
 static inline struct x11_output *
 to_x11_output(struct weston_output *base)
@@ -507,8 +511,6 @@ static int
 x11_output_repaint_shm(struct weston_output *output_base)
 {
 	struct x11_output *output = to_x11_output(output_base);
-	const struct weston_renderer *renderer;
-	pixman_image_t *image;
 	struct weston_compositor *ec;
 	struct x11_backend *b;
 	xcb_void_cookie_t cookie;
@@ -518,10 +520,7 @@ x11_output_repaint_shm(struct weston_output *output_base)
 	assert(output);
 
 	ec = output->base.compositor;
-	renderer = ec->renderer;
 	b = output->backend;
-
-	image = renderer->pixman->renderbuffer_get_image(output->renderbuffer);
 
 	pixman_region32_init(&damage);
 
@@ -534,13 +533,13 @@ x11_output_repaint_shm(struct weston_output *output_base)
 	pixman_region32_fini(&damage);
 
 	cookie = xcb_shm_put_image_checked(b->conn, output->window, output->gc,
-					pixman_image_get_width(image),
-					pixman_image_get_height(image),
-					0, 0,
-					pixman_image_get_width(image),
-					pixman_image_get_height(image),
-					0, 0, output->depth, XCB_IMAGE_FORMAT_Z_PIXMAP,
-					0, output->segment, 0);
+					   output_base->current_mode->width,
+					   output_base->current_mode->height,
+					   0, 0,
+					   output_base->current_mode->width,
+					   output_base->current_mode->height,
+					   0, 0, output->depth, XCB_IMAGE_FORMAT_Z_PIXMAP,
+					   0, output->segment, 0);
 	err = xcb_request_check(b->conn, cookie);
 	if (err != NULL) {
 		weston_log("Failed to put shm image, err: %d\n", err->error_code);
@@ -568,7 +567,7 @@ x11_output_deinit_shm(struct x11_backend *b, struct x11_output *output)
 	xcb_generic_error_t *err;
 	xcb_free_gc(b->conn, output->gc);
 
-	weston_renderbuffer_unref(output->renderbuffer);
+	b->compositor->renderer->destroy_renderbuffer(output->renderbuffer);
 	output->renderbuffer = NULL;
 	cookie = xcb_shm_detach_checked(b->conn, output->segment);
 	err = xcb_request_check(b->conn, cookie);
@@ -793,17 +792,40 @@ x11_output_get_shm_pixel_format(struct x11_output *output)
 	}
 }
 
+static bool
+x11_rb_discarded_cb(weston_renderbuffer_t rb, void *data)
+{
+	struct x11_output *output = (struct x11_output *) data;
+	const struct pixel_format_info *pfmt;
+
+	if (output->base.compositor->renderer->type == WESTON_RENDERER_PIXMAN) {
+		x11_output_deinit_shm(output->backend, output);
+		pfmt = x11_output_get_shm_pixel_format(output);
+		if (!pfmt)
+			return false;
+		if (x11_output_init_shm(output->backend, output, pfmt) < 0) {
+			weston_log("Failed to initialize SHM for the X11 output\n");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static int
 x11_output_init_shm(struct x11_backend *b, struct x11_output *output,
-		    const struct pixel_format_info *pfmt, int width, int height)
+		    const struct pixel_format_info *pfmt)
 {
 	struct weston_renderer *renderer = output->base.compositor->renderer;
 	int bitsperpixel = pfmt->bpp;
+	size_t size = output->base.current_mode->width *
+		output->base.current_mode->height * (bitsperpixel / 8);
+	int stride = output->base.current_mode->width * (bitsperpixel / 8);
 	xcb_void_cookie_t cookie;
 	xcb_generic_error_t *err;
 
 	/* Create SHM segment and attach it */
-	output->shm_id = shmget(IPC_PRIVATE, width * height * (bitsperpixel / 8), IPC_CREAT | S_IRWXU);
+	output->shm_id = shmget(IPC_PRIVATE, size, IPC_CREAT | S_IRWXU);
 	if (output->shm_id == -1) {
 		weston_log("x11shm: failed to allocate SHM segment\n");
 		return -1;
@@ -827,10 +849,9 @@ x11_output_init_shm(struct x11_backend *b, struct x11_output *output,
 
 	/* Now create pixman image */
 	output->renderbuffer =
-		renderer->pixman->create_image_from_ptr(&output->base,
-							pfmt, width, height,
-							output->buf,
-							width * (bitsperpixel / 8));
+		renderer->create_renderbuffer(&output->base, pfmt, output->buf,
+					      stride, x11_rb_discarded_cb,
+					      output);
 
 	output->gc = xcb_generate_id(b->conn);
 	xcb_create_gc(b->conn, output->gc, output->window, 0, NULL);
@@ -875,20 +896,8 @@ x11_output_switch_mode(struct weston_output *base, struct weston_mode *mode)
 	fb_size.width = output->mode.width = mode->width;
 	fb_size.height = output->mode.height = mode->height;
 
-	weston_renderer_resize_output(&output->base, &fb_size, NULL);
-
-	if (base->compositor->renderer->type == WESTON_RENDERER_PIXMAN) {
-		const struct pixel_format_info *pfmt;
-		x11_output_deinit_shm(b, output);
-		pfmt = x11_output_get_shm_pixel_format(output);
-		if (!pfmt)
-			return -1;
-		if (x11_output_init_shm(b, output, pfmt,
-					fb_size.width, fb_size.height) < 0) {
-			weston_log("Failed to initialize SHM for the X11 output\n");
-			return -1;
-		}
-	}
+	if (!weston_renderer_resize_output(&output->base, &fb_size, NULL))
+		return -1;
 
 	output->resize_pending = false;
 	output->window_resized = false;
@@ -1068,8 +1077,7 @@ x11_output_enable(struct weston_output *base)
 			weston_log("Failed to create pixman renderer for output\n");
 			goto err;
 		}
-		if (x11_output_init_shm(b, output, options.format,
-					mode->width, mode->height) < 0) {
+		if (x11_output_init_shm(b, output, options.format) < 0) {
 			weston_log("Failed to initialize SHM for the X11 output\n");
 			renderer->pixman->output_destroy(&output->base);
 			goto err;

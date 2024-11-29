@@ -192,7 +192,7 @@ struct wayland_shm_buffer {
 	int height;
 	int frame_damaged;
 
-	struct weston_renderbuffer *renderbuffer;
+	weston_renderbuffer_t renderbuffer;
 	cairo_surface_t *c_surface;
 };
 
@@ -266,9 +266,14 @@ to_wayland_backend(struct weston_backend *base)
 static void
 wayland_shm_buffer_destroy(struct wayland_shm_buffer *buffer)
 {
+	struct wayland_output *output = buffer->output;
+	const struct weston_renderer *renderer;
+
 	cairo_surface_destroy(buffer->c_surface);
-	if (buffer->output)
-		weston_renderbuffer_unref(buffer->renderbuffer);
+	if (output) {
+		renderer = output->base.compositor->renderer;
+		renderer->destroy_renderbuffer(buffer->renderbuffer);
+	}
 
 	wl_buffer_destroy(buffer->buffer);
 	munmap(buffer->data, buffer->size);
@@ -290,6 +295,22 @@ buffer_release(void *data, struct wl_buffer *buffer)
 	}
 }
 
+static bool
+wayland_rb_discarded_cb(weston_renderbuffer_t renderbuffer, void *data)
+{
+	struct wayland_shm_buffer *sb = data;
+	const struct weston_renderer *renderer;
+
+	if (sb->renderbuffer) {
+		renderer = sb->output->backend->compositor->renderer;
+		renderer->destroy_renderbuffer(sb->renderbuffer);
+		sb->renderbuffer = NULL;
+	}
+	sb->output = NULL;
+
+	return true;
+}
+
 static const struct wl_buffer_listener buffer_listener = {
 	buffer_release
 };
@@ -298,7 +319,6 @@ static struct wayland_shm_buffer *
 wayland_output_get_shm_buffer(struct wayland_output *output)
 {
 	const struct weston_renderer *renderer;
-	const struct pixman_renderer_interface *pixman;
 	struct wayland_backend *b = output->backend;
 	const struct pixel_format_info *pfmt = b->formats[0];
 	uint32_t shm_format = pixel_format_get_shm_format(pfmt);
@@ -384,26 +404,23 @@ wayland_output_get_shm_buffer(struct wayland_output *output)
 	if (output->frame) {
 		frame_interior(output->frame, &area.x, &area.y,
 			       &area.width, &area.height);
+		assert(area.width == output->base.current_mode->width);
+		assert(area.height == output->base.current_mode->height);
 	} else {
 		area.x = 0;
 		area.y = 0;
-		area.width = output->base.current_mode->width;
-		area.height = output->base.current_mode->height;
 	}
 
 	renderer = b->compositor->renderer;
-	pixman = renderer->pixman;
 
 	/* Address only the interior, excluding output decorations */
-	if (renderer->type == WESTON_RENDERER_PIXMAN) {
+	if (renderer->type == WESTON_RENDERER_PIXMAN)
 		sb->renderbuffer =
-			pixman->create_image_from_ptr(&output->base, pfmt,
-						      area.width, area.height,
+			renderer->create_renderbuffer(&output->base, pfmt,
 						      (uint32_t *)(data + area.y * stride) + area.x,
-						      stride);
-		pixman_region32_copy(&sb->renderbuffer->damage,
-				     &output->base.region);
-	}
+						      stride,
+						      wayland_rb_discarded_cb,
+						      sb);
 
 	return sb;
 }
@@ -665,14 +682,6 @@ wayland_output_destroy_shm_buffers(struct wayland_output *output)
 	/* Throw away any remaining SHM buffers */
 	wl_list_for_each_safe(buffer, next, &output->shm.free_buffers, free_link)
 		wayland_shm_buffer_destroy(buffer);
-	/* These will get thrown away when they get released */
-	wl_list_for_each(buffer, &output->shm.buffers, link) {
-		if (buffer->renderbuffer) {
-			weston_renderbuffer_unref(buffer->renderbuffer);
-			buffer->renderbuffer = NULL;
-		}
-		buffer->output = NULL;
-	}
 }
 
 static int

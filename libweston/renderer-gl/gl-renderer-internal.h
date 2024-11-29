@@ -29,14 +29,30 @@
 /*
  * GL renderer best practices:
  *
- * 1. Texture units
+ * 1. Extensions and features
+ *
+ *    1. An extension flag ensures the availability of an EGL or OpenGL ES
+ *       extension at run-time, independently of the version.
+ *    2. A feature flag ensures the availability of a minimal OpenGL ES version
+ *       and/or extensions at run-time in order to enable the use of a specific
+ *       feature.
+ *    3. Any function pointers declared in the gl_renderer structure must be
+ *       loaded at setup so that an extension availability check can ensure
+ *       valid pointers.
+ *    4. OpenGL ES 3 functions must be loaded at run-time after having checked
+ *       for EGL_KHR_get_all_proc_addresses extension availability in order to
+ *       correctly link against OpenGL ES 2 only implementations.
+ *
+ * 2. Pixel storage modes
+ *
+ *    1. Any functions changing modes must restore them to their default values
+ *       before return so that other functions can assume default values.
+ *
+ * 3. Texture units
+ *
  *    1. Fixed allocation using the gl_tex_unit enumeration.
  *    2. Any functions changing the active unit must restore it to 0 before
  *       return so that other functions can assume a default value.
- *
- * 1. Pixel storage modes
- *    1. Any functions changing modes must restore them to their default values
- *       before return so that other functions can assume default values.
  */
 
 #ifndef GL_RENDERER_INTERNAL_H
@@ -53,6 +69,102 @@
 
 /* Max number of images per buffer. */
 #define SHADER_INPUT_TEX_MAX 3
+
+#define GET_PROC_ADDRESS(dest, proc) do { \
+	dest = (void *) eglGetProcAddress(proc); \
+	assert(dest); \
+} while (0)
+
+#define EXT(string, flag) { string, ARRAY_LENGTH(string) - 1, (uint64_t) flag }
+
+/* Keep in sync with egl-glue.c. */
+enum egl_client_extension_flag {
+	EXTENSION_EXT_DEVICE_QUERY          = 1ull << 0,
+	EXTENSION_EXT_PLATFORM_BASE         = 1ull << 1,
+	EXTENSION_EXT_PLATFORM_WAYLAND      = 1ull << 2,
+	EXTENSION_EXT_PLATFORM_X11          = 1ull << 3,
+	EXTENSION_KHR_PLATFORM_GBM          = 1ull << 4,
+	EXTENSION_KHR_PLATFORM_WAYLAND      = 1ull << 5,
+	EXTENSION_KHR_PLATFORM_X11          = 1ull << 6,
+	EXTENSION_MESA_PLATFORM_GBM         = 1ull << 7,
+	EXTENSION_MESA_PLATFORM_SURFACELESS = 1ull << 8,
+};
+
+/* Keep in sync with egl-glue.c. */
+enum egl_device_extension_flag {
+	EXTENSION_EXT_DEVICE_DRM             = 1ull << 0,
+	EXTENSION_EXT_DEVICE_DRM_RENDER_NODE = 1ull << 1,
+};
+
+/* Keep in sync with egl-glue.c. */
+enum egl_display_extension_flag {
+	EXTENSION_ANDROID_NATIVE_FENCE_SYNC          = 1ull << 0,
+	EXTENSION_EXT_BUFFER_AGE                     = 1ull << 1,
+	EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT           = 1ull << 2,
+	EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS = 1ull << 3,
+	EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE       = 1ull << 4,
+	EXTENSION_IMG_CONTEXT_PRIORITY               = 1ull << 5,
+	EXTENSION_KHR_FENCE_SYNC                     = 1ull << 6,
+	EXTENSION_KHR_GET_ALL_PROC_ADDRESSES         = 1ull << 7,
+	EXTENSION_KHR_IMAGE_BASE                     = 1ull << 8,
+	EXTENSION_KHR_NO_CONFIG_CONTEXT              = 1ull << 9,
+	EXTENSION_KHR_PARTIAL_UPDATE                 = 1ull << 10,
+	EXTENSION_KHR_SURFACELESS_CONTEXT            = 1ull << 11,
+	EXTENSION_KHR_SWAP_BUFFERS_WITH_DAMAGE       = 1ull << 12,
+	EXTENSION_KHR_WAIT_SYNC                      = 1ull << 13,
+	EXTENSION_MESA_CONFIGLESS_CONTEXT            = 1ull << 14,
+	EXTENSION_WL_BIND_WAYLAND_DISPLAY            = 1ull << 15,
+};
+
+/* Keep in sync with gl-renderer.c. */
+enum gl_extension_flag {
+	EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER    = 1ull << 0,
+	EXTENSION_EXT_COLOR_BUFFER_HALF_FLOAT     = 1ull << 1,
+	EXTENSION_EXT_DISJOINT_TIMER_QUERY        = 1ull << 2,
+	EXTENSION_EXT_MAP_BUFFER_RANGE            = 1ull << 3,
+	EXTENSION_EXT_READ_FORMAT_BGRA            = 1ull << 4,
+	EXTENSION_EXT_TEXTURE_FORMAT_BGRA8888     = 1ull << 5,
+	EXTENSION_EXT_TEXTURE_NORM16              = 1ull << 6,
+	EXTENSION_EXT_TEXTURE_RG                  = 1ull << 7,
+	EXTENSION_EXT_TEXTURE_STORAGE             = 1ull << 8,
+	EXTENSION_EXT_TEXTURE_TYPE_2_10_10_10_REV = 1ull << 9,
+	EXTENSION_EXT_UNPACK_SUBIMAGE             = 1ull << 10,
+	EXTENSION_NV_PIXEL_BUFFER_OBJECT          = 1ull << 11,
+	EXTENSION_OES_EGL_IMAGE                   = 1ull << 12,
+	EXTENSION_OES_EGL_IMAGE_EXTERNAL          = 1ull << 13,
+	EXTENSION_OES_MAPBUFFER                   = 1ull << 14,
+	EXTENSION_OES_RGB8_RGBA8                  = 1ull << 15,
+	EXTENSION_OES_TEXTURE_FLOAT_LINEAR        = 1ull << 16,
+};
+
+enum gl_feature_flag {
+	/* GL renderer can create contexts without specifying an EGLConfig. */
+	FEATURE_NO_CONFIG_CONTEXT = 1ull << 0,
+
+	/* GL renderer can pass a list of damage rectangles at buffer swap in
+	 * order to reduce recomposition costs. */
+	FEATURE_SWAP_BUFFERS_WITH_DAMAGE = 1ull << 1,
+
+	/* GL renderer can create native sync objects and wait on them. This
+	 * enables support for the Linux explicit sync Wayland protocol. */
+	FEATURE_EXPLICIT_SYNC = 1ull << 2,
+
+	/* GL renderer can asynchronously map the framebuffer into CPU memory
+	 * for reading. This is exposed by binding a Pixel Buffer Object (PBO)
+	 * to the GL_PIXEL_PACK_BUFFER target before read-back with
+	 * glReadPixels(). map_buffer_range() is then called to sync and map and
+	 * unmap_buffer() to unmap once read. A fence sync can be used to signal
+	 * pixel transfer completion, this is flagged as another feature. */
+	FEATURE_ASYNC_READBACK = 1ull << 3,
+
+	/* GL renderer can create 16-bit floating-point framebuffers and
+	 * transform colours using linearly interpolated 3D look-up tables. */
+	FEATURE_COLOR_TRANSFORMS = 1ull << 4,
+
+	/* GL renderer can instrument output repaint time and report it through
+	 * the timeline logging scope. */
+	FEATURE_GPU_TIMELINE = 1ull << 5,
+};
 
 /* Keep the following in sync with vertex.glsl. */
 enum gl_shader_texcoord_input {
@@ -106,6 +218,12 @@ static_assert(TEX_UNIT_LAST < 8, "OpenGL ES 2.0 requires at least 8 texture "
 	      "units. Consider replacing this assert with a "
 	      "GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS check at display creation "
 	      "to require more.");
+
+struct gl_extension_table {
+	const char *str;
+	size_t len;
+	uint64_t flag;
+};
 
 /** GL shader requirements key
  *
@@ -218,74 +336,65 @@ struct gl_renderer {
 
 	struct weston_drm_format_array supported_formats;
 
-	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC image_target_texture_2d;
-	PFNGLTEXIMAGE3DOESPROC tex_image_3d;
-	PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC image_target_renderbuffer_storage;
-	PFNEGLCREATEIMAGEKHRPROC create_image;
-	PFNEGLDESTROYIMAGEKHRPROC destroy_image;
-	PFNEGLSWAPBUFFERSWITHDAMAGEEXTPROC swap_buffers_with_damage;
+	uint64_t egl_client_extensions;
+	uint64_t egl_device_extensions;
+	uint64_t egl_display_extensions;
 
-	PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display;
-	PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC create_platform_window;
-	bool has_platform_base;
-
-	PFNEGLBINDWAYLANDDISPLAYWL bind_display;
-	PFNEGLUNBINDWAYLANDDISPLAYWL unbind_display;
-	PFNEGLQUERYWAYLANDBUFFERWL query_buffer;
-	bool has_bind_display;
-
-	bool has_context_priority;
-
-	bool has_egl_image_external;
-
-	bool has_egl_buffer_age;
-	bool has_egl_partial_update;
-	PFNEGLSETDAMAGEREGIONKHRPROC set_damage_region;
-
-	bool has_configless_context;
-
-	bool has_surfaceless_context;
-
-	bool has_dmabuf_import;
-	struct wl_list dmabuf_images;
-	struct wl_list dmabuf_formats;
-
-	bool has_texture_type_2_10_10_10_rev;
-	bool has_gl_texture_rg;
-	bool has_texture_norm16;
-	bool has_texture_storage;
-	bool has_pack_reverse;
-	bool has_rgb8_rgba8;
-
-	bool has_pbo;
-	GLenum pbo_usage;
-	PFNGLMAPBUFFERRANGEEXTPROC map_buffer_range;
-	PFNGLUNMAPBUFFEROESPROC unmap_buffer;
-
-	struct wl_list pending_capture_list;
-
-	struct gl_shader *current_shader;
-	struct gl_shader *fallback_shader;
-
-	struct wl_signal destroy_signal;
-
-	bool has_dmabuf_import_modifiers;
-	PFNEGLQUERYDMABUFFORMATSEXTPROC query_dmabuf_formats;
-	PFNEGLQUERYDMABUFMODIFIERSEXTPROC query_dmabuf_modifiers;
-
-	bool has_device_query;
+	/* EGL_EXT_device_query */
 	PFNEGLQUERYDISPLAYATTRIBEXTPROC query_display_attrib;
 	PFNEGLQUERYDEVICESTRINGEXTPROC query_device_string;
 
-	bool has_native_fence_sync;
+	/* EGL_EXT_platform_base */
+	PFNEGLGETPLATFORMDISPLAYEXTPROC get_platform_display;
+	PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC create_platform_window;
+
+	/* EGL_KHR_image_base */
+	PFNEGLCREATEIMAGEKHRPROC create_image;
+	PFNEGLDESTROYIMAGEKHRPROC destroy_image;
+
+	/* EGL_WL_bind_wayland_display */
+	PFNEGLBINDWAYLANDDISPLAYWL bind_display;
+	PFNEGLUNBINDWAYLANDDISPLAYWL unbind_display;
+	PFNEGLQUERYWAYLANDBUFFERWL query_buffer;
+	bool display_bound;
+
+	/* EGL_KHR_partial_update */
+	PFNEGLSETDAMAGEREGIONKHRPROC set_damage_region;
+
+	/* EGL_KHR_swap_buffers_with_damage
+	 * EGL_EXT_swap_buffers_with_damage */
+	PFNEGLSWAPBUFFERSWITHDAMAGEEXTPROC swap_buffers_with_damage;
+
+	/* EGL_EXT_image_dma_buf_import_modifiers */
+	PFNEGLQUERYDMABUFFORMATSEXTPROC query_dmabuf_formats;
+	PFNEGLQUERYDMABUFMODIFIERSEXTPROC query_dmabuf_modifiers;
+
+	/* EGL_KHR_fence_sync */
 	PFNEGLCREATESYNCKHRPROC create_sync;
 	PFNEGLDESTROYSYNCKHRPROC destroy_sync;
+
+	/* EGL_ANDROID_native_fence_sync */
 	PFNEGLDUPNATIVEFENCEFDANDROIDPROC dup_native_fence_fd;
 
-	bool has_wait_sync;
+	/* EGL_KHR_wait_sync */
 	PFNEGLWAITSYNCKHRPROC wait_sync;
 
-	bool has_disjoint_timer_query;
+	uint64_t gl_extensions;
+
+	/* GL_OES_EGL_image */
+	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC image_target_texture_2d;
+	PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC image_target_renderbuffer_storage;
+
+	/* GL_OES_mapbuffer */
+	PFNGLUNMAPBUFFEROESPROC unmap_buffer;
+
+	/* GL_EXT_map_buffer_range */
+	PFNGLMAPBUFFERRANGEEXTPROC map_buffer_range;
+
+	/* GL_OES_texture_3d */
+	PFNGLTEXIMAGE3DOESPROC tex_image_3d;
+
+	/* GL_EXT_disjoint_timer_query */
 	PFNGLGENQUERIESEXTPROC gen_queries;
 	PFNGLDELETEQUERIESEXTPROC delete_queries;
 	PFNGLBEGINQUERYEXTPROC begin_query;
@@ -295,7 +404,18 @@ struct gl_renderer {
 #endif
 	PFNGLGETQUERYOBJECTUI64VEXTPROC get_query_object_ui64v;
 
-	bool gl_supports_color_transforms;
+	uint64_t features;
+
+	GLenum pbo_usage;
+
+	struct wl_list dmabuf_images;
+	struct wl_list dmabuf_formats;
+	struct wl_list pending_capture_list;
+
+	struct gl_shader *current_shader;
+	struct gl_shader *fallback_shader;
+
+	struct wl_signal destroy_signal;
 
 	/** Shader program cache in most recently used order
 	 *
@@ -306,6 +426,64 @@ struct gl_renderer {
 
 	struct dmabuf_allocator *allocator;
 };
+
+static inline uint32_t
+gl_version(uint16_t major, uint16_t minor)
+{
+	return ((uint32_t)major << 16) | minor;
+}
+
+static inline int
+gl_version_major(uint32_t ver)
+{
+	return ver >> 16;
+}
+
+static inline int
+gl_version_minor(uint32_t ver)
+{
+	return ver & 0xffff;
+}
+
+void
+gl_extensions_add(const struct gl_extension_table *table,
+		  const char *extensions,
+		  uint64_t *flags_out);
+
+static inline bool
+egl_client_has(struct gl_renderer *gr,
+	       enum egl_client_extension_flag flag)
+{
+	return (bool) (gr->egl_client_extensions & ((uint64_t) flag));
+}
+
+static inline bool
+egl_device_has(struct gl_renderer *gr,
+	       enum egl_device_extension_flag flag)
+{
+	return (bool) (gr->egl_device_extensions & ((uint64_t) flag));
+}
+
+static inline bool
+egl_display_has(struct gl_renderer *gr,
+		enum egl_display_extension_flag flag)
+{
+	return (bool) (gr->egl_display_extensions & ((uint64_t) flag));
+}
+
+static inline bool
+gl_extensions_has(struct gl_renderer *gr,
+		  enum gl_extension_flag flag)
+{
+	return (bool) (gr->gl_extensions & ((uint64_t) flag));
+}
+
+static inline bool
+gl_features_has(struct gl_renderer *gr,
+		enum gl_feature_flag flag)
+{
+	return (bool) (gr->features & ((uint64_t) flag));
+}
 
 static inline struct gl_renderer *
 get_renderer(struct weston_compositor *ec)

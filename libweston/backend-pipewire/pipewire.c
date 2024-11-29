@@ -102,7 +102,7 @@ struct pipewire_head {
 };
 
 struct pipewire_frame_data {
-	struct weston_renderbuffer *renderbuffer;
+	weston_renderbuffer_t renderbuffer;
 	struct pipewire_memfd *memfd;
 	struct pipewire_dmabuf *dmabuf;
 };
@@ -267,14 +267,16 @@ pipewire_output_connect(struct pipewire_output *output)
 		/* TODO: Add support for modifier discovery and negotiation. */
 		uint64_t modifier[] = { DRM_FORMAT_MOD_LINEAR };
 		params[i++] = spa_pod_build_format(&builder,
-						   output->base.width, output->base.height,
+						   output->base.current_mode->width,
+						   output->base.current_mode->height,
 						   output->base.current_mode->refresh / 1000,
 						   output->pixel_format->format,
 						   modifier);
 	}
 
 	params[i++] = spa_pod_build_format(&builder,
-					   output->base.width, output->base.height,
+					   output->base.current_mode->width,
+					   output->base.current_mode->height,
 					   output->base.current_mode->refresh / 1000,
 					   output->pixel_format->format, NULL);
 
@@ -308,8 +310,8 @@ pipewire_output_enable_pixman(struct pipewire_output *output)
 	const struct pixman_renderer_output_options options = {
 		.use_shadow = true,
 		.fb_size = {
-			.width = output->base.width,
-			.height = output->base.height,
+			.width = output->base.current_mode->width,
+			.height = output->base.current_mode->height,
 		},
 		.format = output->pixel_format,
 	};
@@ -491,8 +493,8 @@ pipewire_output_create_dmabuf(struct pipewire_output *output)
 	uint64_t modifier[] = { DRM_FORMAT_MOD_LINEAR };
 
 	format = output->pixel_format;
-	width = output->base.width;
-	height = output->base.height;
+	width = output->base.current_mode->width;
+	height = output->base.current_mode->height;
 
 	linux_dmabuf_memory = renderer->dmabuf_alloc(renderer, width, height,
 						     format->format,
@@ -594,59 +596,6 @@ pipewire_output_stream_param_changed(void *data, uint32_t id,
 	pw_stream_update_params(output->stream, params, 2);
 }
 
-static struct weston_renderbuffer *
-pipewire_output_stream_add_buffer_pixman(struct pipewire_output *output,
-					 struct pw_buffer *buffer)
-{
-	struct weston_compositor *ec = output->base.compositor;
-	const struct weston_renderer *renderer = ec->renderer;
-	struct spa_buffer *buf = buffer->buffer;
-	struct spa_data *d = buf->datas;
-	const struct pixel_format_info *format;
-	unsigned int width;
-	unsigned int height;
-	unsigned int stride;
-	void *ptr;
-
-	format = output->pixel_format;
-	width = output->base.width;
-	height = output->base.height;
-	stride = width * format->bpp / 8;
-	ptr = d[0].data;
-
-	return renderer->pixman->create_image_from_ptr(&output->base,
-						       format, width, height,
-						       ptr, stride);
-}
-
-static struct weston_renderbuffer *
-pipewire_output_stream_add_buffer_gl(struct pipewire_output *output,
-				     struct pw_buffer *buffer)
-{
-	struct weston_compositor *ec = output->base.compositor;
-	const struct weston_renderer *renderer = ec->renderer;
-	struct spa_buffer *buf = buffer->buffer;
-	struct spa_data *d = buf->datas;
-	const struct pixel_format_info *format;
-	unsigned int width;
-	unsigned int height;
-	void *ptr;
-	struct pipewire_frame_data *frame_data = buffer->user_data;
-	struct pipewire_dmabuf *dmabuf = frame_data->dmabuf;
-
-	if (dmabuf)
-		return renderer->create_renderbuffer_dmabuf(&output->base,
-							    dmabuf->linux_dmabuf_memory);
-
-	format = output->pixel_format;
-	width = output->base.width;
-	height = output->base.height;
-	ptr = d[0].data;
-
-	return renderer->gl->create_fbo(&output->base,
-					format, width, height, ptr);
-}
-
 struct pipewire_memfd {
 	int fd;
 	unsigned int size;
@@ -666,8 +615,8 @@ pipewire_output_create_memfd(struct pipewire_output *output)
 	memfd = xzalloc(sizeof *memfd);
 
 	format = output->pixel_format;
-	width = output->base.width;
-	height = output->base.height;
+	width = output->base.current_mode->width;
+	height = output->base.current_mode->height;
 	stride = width * format->bpp / 8;
 	size = height * stride;
 
@@ -756,8 +705,15 @@ pipewire_output_stream_add_buffer(void *data, struct pw_buffer *buffer)
 			return;
 		}
 		pipewire_output_setup_dmabuf(output, buffer, dmabuf);
+
+		frame_data->renderbuffer =
+			renderer->create_renderbuffer_dmabuf(&output->base,
+							     dmabuf->linux_dmabuf_memory,
+							     NULL, NULL);
 		frame_data->dmabuf = dmabuf;
 	} else if (buffertype & (1u << SPA_DATA_MemFd)) {
+		const struct pixel_format_info *format = output->pixel_format;
+		int stride = output->base.current_mode->width * format->bpp / 8;
 		struct pipewire_memfd *memfd;
 
 		memfd = pipewire_output_create_memfd(output);
@@ -767,18 +723,12 @@ pipewire_output_stream_add_buffer(void *data, struct pw_buffer *buffer)
 			return;
 		}
 		pipewire_output_setup_memfd(output, buffer, memfd);
-		frame_data->memfd = memfd;
-	}
 
-	switch (renderer->type) {
-	case WESTON_RENDERER_PIXMAN:
-		frame_data->renderbuffer = pipewire_output_stream_add_buffer_pixman(output, buffer);
-		break;
-	case WESTON_RENDERER_GL:
-		frame_data->renderbuffer = pipewire_output_stream_add_buffer_gl(output, buffer);
-		break;
-	default:
-		unreachable("Valid renderer should have been selected");
+		frame_data->renderbuffer =
+			renderer->create_renderbuffer(&output->base, format,
+						      d[0].data, stride, NULL,
+						      NULL);
+		frame_data->memfd = memfd;
 	}
 }
 
@@ -801,21 +751,20 @@ pipewire_output_stream_remove_buffer(void *data, struct pw_buffer *buffer)
 
 	pipewire_output_debug(output, "remove buffer: %p", buffer);
 
-	if (frame_data->dmabuf) {
-		struct weston_compositor *ec = output->base.compositor;
-		const struct weston_renderer *renderer = ec->renderer;
-
-		renderer->remove_renderbuffer_dmabuf(&output->base,
-						     frame_data->renderbuffer);
+	if (frame_data->dmabuf)
 		pipewire_destroy_dmabuf(output, frame_data->dmabuf);
-	}
+
 	if (frame_data->memfd) {
 		munmap(d[0].data, d[0].maxsize);
 		pipewire_destroy_memfd(output, frame_data->memfd);
 	}
 
-	if (frame_data->renderbuffer)
-		weston_renderbuffer_unref(frame_data->renderbuffer);
+	if (frame_data->renderbuffer) {
+		struct weston_compositor *ec = output->base.compositor;
+		const struct weston_renderer *renderer = ec->renderer;
+
+		renderer->destroy_renderbuffer(frame_data->renderbuffer);
+	}
 	wl_list_for_each(fence_data, &output->fence_list, link) {
 		if (fence_data->buffer == buffer)
 			fence_data->buffer = NULL;
@@ -956,7 +905,7 @@ pipewire_submit_buffer(struct pipewire_output *output,
 	if (dmabuf)
 		stride = dmabuf->linux_dmabuf_memory->attributes->stride[0];
 	else
-		stride = output->base.width * pixel_format->bpp / 8;
+		stride = output->base.current_mode->width * pixel_format->bpp / 8;
 	size = output->base.height * stride;
 
 	spa_buffer = buffer->buffer;
