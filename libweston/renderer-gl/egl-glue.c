@@ -48,6 +48,48 @@ struct egl_config_print_info {
 	int field_width;
 };
 
+/* Keep in sync with gl-renderer-internal.h. */
+static const struct gl_extension_table client_table[] = {
+	EXT("EGL_EXT_device_query", EXTENSION_EXT_DEVICE_QUERY),
+	EXT("EGL_EXT_platform_base", EXTENSION_EXT_PLATFORM_BASE),
+	EXT("EGL_EXT_platform_wayland", EXTENSION_EXT_PLATFORM_WAYLAND),
+	EXT("EGL_EXT_platform_x11", EXTENSION_EXT_PLATFORM_X11),
+	EXT("EGL_KHR_platform_gbm", EXTENSION_KHR_PLATFORM_GBM),
+	EXT("EGL_KHR_platform_wayland", EXTENSION_KHR_PLATFORM_WAYLAND),
+	EXT("EGL_KHR_platform_x11", EXTENSION_KHR_PLATFORM_X11),
+	EXT("EGL_MESA_platform_gbm", EXTENSION_MESA_PLATFORM_GBM),
+	EXT("EGL_MESA_platform_surfaceless", EXTENSION_MESA_PLATFORM_SURFACELESS),
+	{ NULL, 0, 0 }
+};
+
+/* Keep in sync with gl-renderer-internal.h. */
+static const struct gl_extension_table device_table[] = {
+	EXT("EGL_EXT_device_drm", EXTENSION_EXT_DEVICE_DRM),
+	EXT("EGL_EXT_device_drm_render_node", EXTENSION_EXT_DEVICE_DRM_RENDER_NODE),
+	{ NULL, 0, 0 }
+};
+
+/* Keep in sync with gl-renderer-internal.h. */
+static const struct gl_extension_table display_table[] = {
+	EXT("EGL_ANDROID_native_fence_sync", EXTENSION_ANDROID_NATIVE_FENCE_SYNC),
+	EXT("EGL_EXT_buffer_age", EXTENSION_EXT_BUFFER_AGE),
+	EXT("EGL_EXT_image_dma_buf_import", EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT),
+	EXT("EGL_EXT_image_dma_buf_import_modifiers", EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS),
+	EXT("EGL_EXT_swap_buffers_with_damage", EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE),
+	EXT("EGL_IMG_context_priority", EXTENSION_IMG_CONTEXT_PRIORITY),
+	EXT("EGL_KHR_fence_sync", EXTENSION_KHR_FENCE_SYNC),
+	EXT("EGL_KHR_get_all_proc_addresses", EXTENSION_KHR_GET_ALL_PROC_ADDRESSES),
+	EXT("EGL_KHR_image_base", EXTENSION_KHR_IMAGE_BASE),
+	EXT("EGL_KHR_no_config_context", EXTENSION_KHR_NO_CONFIG_CONTEXT),
+	EXT("EGL_KHR_partial_update", EXTENSION_KHR_PARTIAL_UPDATE),
+	EXT("EGL_KHR_surfaceless_context", EXTENSION_KHR_SURFACELESS_CONTEXT),
+	EXT("EGL_KHR_swap_buffers_with_damage", EXTENSION_KHR_SWAP_BUFFERS_WITH_DAMAGE),
+	EXT("EGL_KHR_wait_sync", EXTENSION_KHR_WAIT_SYNC),
+	EXT("EGL_MESA_configless_context", EXTENSION_MESA_CONFIGLESS_CONTEXT),
+	EXT("EGL_WL_bind_wayland_display", EXTENSION_WL_BIND_WAYLAND_DISPLAY),
+	{ NULL, 0, 0 }
+};
+
 static const char *
 egl_error_string(EGLint code)
 {
@@ -450,7 +492,7 @@ gl_renderer_set_egl_device(struct gl_renderer *gr)
 	EGLAttrib attrib;
 	const char *extensions;
 
-	assert(gr->has_device_query);
+	assert(egl_client_has(gr, EXTENSION_EXT_DEVICE_QUERY));
 
 	if (!gr->query_display_attrib(gr->egl_display, EGL_DEVICE_EXT, &attrib)) {
 		weston_log("failed to get EGL device\n");
@@ -467,15 +509,17 @@ gl_renderer_set_egl_device(struct gl_renderer *gr)
 	}
 
 	gl_renderer_log_extensions(gr, "EGL device extensions", extensions);
+	gl_extensions_add(device_table, extensions, &gr->egl_device_extensions);
 
 	/* Try to query the render node using EGL_DRM_RENDER_NODE_FILE_EXT */
-	if (weston_check_egl_extension(extensions, "EGL_EXT_device_drm_render_node"))
+	if (egl_device_has(gr, EXTENSION_EXT_DEVICE_DRM_RENDER_NODE))
 		gr->drm_device = gr->query_device_string(gr->egl_device,
 							 EGL_DRM_RENDER_NODE_FILE_EXT);
 
 	/* The extension is not supported by the Mesa version of the system or
 	 * the query failed. Fallback to EGL_DRM_DEVICE_FILE_EXT */
-	if (!gr->drm_device && weston_check_egl_extension(extensions, "EGL_EXT_device_drm"))
+	if (!gr->drm_device &&
+	    egl_device_has(gr, EXTENSION_EXT_DEVICE_DRM))
 		gr->drm_device = gr->query_device_string(gr->egl_device,
 							 EGL_DRM_DEVICE_FILE_EXT);
 
@@ -489,10 +533,10 @@ int
 gl_renderer_setup_egl_display(struct gl_renderer *gr,
 			      void *native_display)
 {
+	EGLint major, minor;
 	gr->egl_display = NULL;
 
-	/* extension_suffix is supported */
-	if (gr->has_platform_base)
+	if (egl_client_has(gr, EXTENSION_EXT_PLATFORM_BASE))
 		gr->egl_display = gr->get_platform_display(gr->platform,
 							   native_display,
 							   NULL);
@@ -509,12 +553,17 @@ gl_renderer_setup_egl_display(struct gl_renderer *gr,
 		return -1;
 	}
 
-	if (!eglInitialize(gr->egl_display, NULL, NULL)) {
+	if (!eglInitialize(gr->egl_display, &major, &minor)) {
 		weston_log("failed to initialize display\n");
 		goto fail;
 	}
 
-	if (gr->has_device_query)
+	if (gl_version(major, minor) < gl_version(1, 2)) {
+		weston_log("EGL version >= 1.2 is required.\n");
+		return -1;
+	}
+
+	if (egl_client_has(gr, EXTENSION_EXT_DEVICE_QUERY))
 		gl_renderer_set_egl_device(gr);
 
 	return 0;
@@ -524,39 +573,17 @@ fail:
 	return -1;
 }
 
-static const char *
-platform_to_extension(EGLenum platform)
-{
-	switch (platform) {
-	case EGL_PLATFORM_GBM_KHR:
-		return "gbm";
-	case EGL_PLATFORM_WAYLAND_KHR:
-		return "wayland";
-	case EGL_PLATFORM_X11_KHR:
-		return "x11";
-	case EGL_PLATFORM_SURFACELESS_MESA:
-		return "surfaceless";
-	default:
-		assert(0 && "bad EGL platform enum");
-	}
-}
-
 /** Checks for EGL client extensions (i.e. independent of EGL display),
  * loads the function pointers, and checks if the platform is supported.
  *
  * \param gr The OpenGL renderer
  * \return 0 for success, -1 if platform is unsupported
- *
- * This function checks whether a specific platform_* extension is supported
- * by EGL by checking in order "EGL_KHR_platform_foo", "EGL_EXT_platform_foo",
- * and "EGL_MESA_platform_foo" in order, for some platform "foo".
  */
 int
 gl_renderer_setup_egl_client_extensions(struct gl_renderer *gr)
 {
 	const char *extensions;
-	const char *extension_suffix = platform_to_extension(gr->platform);
-	char s[64];
+	const char *platform = NULL;
 
 	extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
 	if (!extensions) {
@@ -565,49 +592,61 @@ gl_renderer_setup_egl_client_extensions(struct gl_renderer *gr)
 	}
 
 	gl_renderer_log_extensions(gr, "EGL client extensions", extensions);
+	gl_extensions_add(client_table, extensions, &gr->egl_client_extensions);
 
-	if (weston_check_egl_extension(extensions, "EGL_EXT_device_query")) {
-		gr->query_display_attrib =
-			(void *) eglGetProcAddress("eglQueryDisplayAttribEXT");
-		gr->query_device_string =
-			(void *) eglGetProcAddress("eglQueryDeviceStringEXT");
-		gr->has_device_query = true;
+	if (egl_client_has(gr, EXTENSION_EXT_DEVICE_QUERY)) {
+		GET_PROC_ADDRESS(gr->query_display_attrib,
+				 "eglQueryDisplayAttribEXT");
+		GET_PROC_ADDRESS(gr->query_device_string,
+				 "eglQueryDeviceStringEXT");
 	}
 
-	if (weston_check_egl_extension(extensions, "EGL_EXT_platform_base")) {
-		gr->get_platform_display =
-			(void *) eglGetProcAddress("eglGetPlatformDisplayEXT");
-		gr->create_platform_window =
-			(void *) eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT");
-		gr->has_platform_base = true;
-	} else {
+	if (egl_client_has(gr, EXTENSION_EXT_PLATFORM_BASE)) {
+		GET_PROC_ADDRESS(gr->get_platform_display,
+				 "eglGetPlatformDisplayEXT");
+		GET_PROC_ADDRESS(gr->create_platform_window,
+				 "eglCreatePlatformWindowSurfaceEXT");
+	} else if (gr->platform != EGL_PLATFORM_SURFACELESS_MESA) {
 		weston_log("warning: EGL_EXT_platform_base not supported.\n");
-
-		/* Surfaceless is unusable without platform_base extension */
-		if (gr->platform == EGL_PLATFORM_SURFACELESS_MESA) {
-			weston_log("Error: EGL surfaceless platform cannot be used.\n");
-			return -1;
-		}
-
 		return 0;
+	} else {
+		weston_log("Error: EGL surfaceless platform cannot be used.\n");
+		return -1;
 	}
 
-	snprintf(s, sizeof s, "EGL_KHR_platform_%s", extension_suffix);
-	if (weston_check_egl_extension(extensions, s))
-		return 0;
-
-	snprintf(s, sizeof s, "EGL_EXT_platform_%s", extension_suffix);
-	if (weston_check_egl_extension(extensions, s))
-		return 0;
-
-	snprintf(s, sizeof s, "EGL_MESA_platform_%s", extension_suffix);
-	if (weston_check_egl_extension(extensions, s))
-		return 0;
+	switch (gr->platform) {
+	case EGL_PLATFORM_GBM_KHR:
+		if (egl_client_has(gr, EXTENSION_KHR_PLATFORM_GBM) ||
+		    egl_client_has(gr, EXTENSION_MESA_PLATFORM_GBM))
+			return 0;
+		platform = "GBM";
+		break;
+	case EGL_PLATFORM_WAYLAND_KHR:
+		if (egl_client_has(gr, EXTENSION_KHR_PLATFORM_WAYLAND) ||
+		    egl_client_has(gr, EXTENSION_EXT_PLATFORM_WAYLAND))
+			return 0;
+		platform = "Wayland";
+		break;
+	case EGL_PLATFORM_X11_KHR:
+		if (egl_client_has(gr, EXTENSION_KHR_PLATFORM_X11) ||
+		    egl_client_has(gr, EXTENSION_EXT_PLATFORM_X11))
+			return 0;
+		platform = "X11";
+		break;
+	case EGL_PLATFORM_SURFACELESS_MESA:
+		if (egl_client_has(gr, EXTENSION_MESA_PLATFORM_SURFACELESS))
+			return 0;
+		platform = "surfaceless";
+		break;
+	default:
+		unreachable("bad EGL platform enum");
+		return -1;
+	}
 
 	/* at this point we definitely have some platform extensions but
 	 * haven't found the supplied platform, so chances are it's
 	 * not supported. */
-	weston_log("Error: EGL does not support %s platform.\n", extension_suffix);
+	weston_log("Error: EGL does not support %s platform.\n", platform);
 
 	return -1;
 }
@@ -615,34 +654,8 @@ gl_renderer_setup_egl_client_extensions(struct gl_renderer *gr)
 int
 gl_renderer_setup_egl_extensions(struct weston_compositor *ec)
 {
-	static const struct {
-		char *extension, *entrypoint;
-	} swap_damage_ext_to_entrypoint[] = {
-		{
-			.extension = "EGL_EXT_swap_buffers_with_damage",
-			.entrypoint = "eglSwapBuffersWithDamageEXT",
-		},
-		{
-			.extension = "EGL_KHR_swap_buffers_with_damage",
-			.entrypoint = "eglSwapBuffersWithDamageKHR",
-		},
-	};
 	struct gl_renderer *gr = get_renderer(ec);
 	const char *extensions;
-	EGLBoolean ret;
-	unsigned i;
-
-	gr->create_image = (void *) eglGetProcAddress("eglCreateImageKHR");
-	gr->destroy_image = (void *) eglGetProcAddress("eglDestroyImageKHR");
-
-	gr->bind_display =
-		(void *) eglGetProcAddress("eglBindWaylandDisplayWL");
-	gr->unbind_display =
-		(void *) eglGetProcAddress("eglUnbindWaylandDisplayWL");
-	gr->query_buffer =
-		(void *) eglGetProcAddress("eglQueryWaylandBufferWL");
-	gr->set_damage_region =
-		(void *) eglGetProcAddress("eglSetDamageRegionKHR");
 
 	extensions =
 		(const char *) eglQueryString(gr->egl_display, EGL_EXTENSIONS);
@@ -651,106 +664,95 @@ gl_renderer_setup_egl_extensions(struct weston_compositor *ec)
 		return -1;
 	}
 
-	if (weston_check_egl_extension(extensions, "EGL_IMG_context_priority"))
-		gr->has_context_priority = true;
+	gl_extensions_add(display_table, extensions,
+			  &gr->egl_display_extensions);
 
-	if (weston_check_egl_extension(extensions, "EGL_WL_bind_wayland_display"))
-		gr->has_bind_display = true;
-	if (gr->has_bind_display) {
-		assert(gr->bind_display);
-		assert(gr->unbind_display);
-		assert(gr->query_buffer);
-		ret = gr->bind_display(gr->egl_display, ec->wl_display);
-		if (!ret)
-			gr->has_bind_display = false;
+	/* eglCreateImage() and eglDestroyImage() from EGL 1.5 could be used
+	 * instead when available but the type of the attribute list passed to
+	 * eglCreateImage() is different and Mesa does a conversion anyway. */
+	if (egl_display_has(gr, EXTENSION_KHR_IMAGE_BASE)) {
+		GET_PROC_ADDRESS(gr->create_image, "eglCreateImageKHR");
+		GET_PROC_ADDRESS(gr->destroy_image, "eglDestroyImageKHR");
 	}
 
-	if (weston_check_egl_extension(extensions, "EGL_EXT_buffer_age"))
-		gr->has_egl_buffer_age = true;
-
-	if (weston_check_egl_extension(extensions, "EGL_KHR_partial_update")) {
-		assert(gr->set_damage_region);
-		gr->has_egl_partial_update = true;
+	if (egl_display_has(gr, EXTENSION_WL_BIND_WAYLAND_DISPLAY)) {
+		GET_PROC_ADDRESS(gr->bind_display, "eglBindWaylandDisplayWL");
+		GET_PROC_ADDRESS(gr->unbind_display,
+				 "eglUnbindWaylandDisplayWL");
+		GET_PROC_ADDRESS(gr->query_buffer, "eglQueryWaylandBufferWL");
 	}
 
-	for (i = 0; i < ARRAY_LENGTH(swap_damage_ext_to_entrypoint); i++) {
-		if (weston_check_egl_extension(extensions,
-				swap_damage_ext_to_entrypoint[i].extension)) {
-			gr->swap_buffers_with_damage =
-				(void *) eglGetProcAddress(
-						swap_damage_ext_to_entrypoint[i].entrypoint);
-			assert(gr->swap_buffers_with_damage);
-			break;
-		}
+	if (egl_display_has(gr, EXTENSION_KHR_PARTIAL_UPDATE))
+		GET_PROC_ADDRESS(gr->set_damage_region,
+				 "eglSetDamageRegionKHR");
+
+	if (egl_display_has(gr, EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE))
+		GET_PROC_ADDRESS(gr->swap_buffers_with_damage,
+				 "eglSwapBuffersWithDamageEXT");
+	else if (egl_display_has(gr, EXTENSION_KHR_SWAP_BUFFERS_WITH_DAMAGE))
+		GET_PROC_ADDRESS(gr->swap_buffers_with_damage,
+				 "eglSwapBuffersWithDamageKHR");
+
+	if (egl_display_has(gr, EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS)) {
+		GET_PROC_ADDRESS(gr->query_dmabuf_formats,
+				 "eglQueryDmaBufFormatsEXT");
+		GET_PROC_ADDRESS(gr->query_dmabuf_modifiers,
+				 "eglQueryDmaBufModifiersEXT");
 	}
 
-	if (weston_check_egl_extension(extensions, "EGL_KHR_no_config_context") ||
-	    weston_check_egl_extension(extensions, "EGL_MESA_configless_context"))
-		gr->has_configless_context = true;
-
-	if (weston_check_egl_extension(extensions, "EGL_KHR_surfaceless_context"))
-		gr->has_surfaceless_context = true;
-
-	if (weston_check_egl_extension(extensions, "EGL_EXT_image_dma_buf_import"))
-		gr->has_dmabuf_import = true;
-
-	if (weston_check_egl_extension(extensions,
-				"EGL_EXT_image_dma_buf_import_modifiers")) {
-		gr->query_dmabuf_formats =
-			(void *) eglGetProcAddress("eglQueryDmaBufFormatsEXT");
-		gr->query_dmabuf_modifiers =
-			(void *) eglGetProcAddress("eglQueryDmaBufModifiersEXT");
-		assert(gr->query_dmabuf_formats);
-		assert(gr->query_dmabuf_modifiers);
-		gr->has_dmabuf_import_modifiers = true;
+	if (egl_display_has(gr, EXTENSION_KHR_FENCE_SYNC)) {
+		GET_PROC_ADDRESS(gr->create_sync, "eglCreateSyncKHR");
+		GET_PROC_ADDRESS(gr->destroy_sync, "eglDestroySyncKHR");
 	}
 
-	if (weston_check_egl_extension(extensions, "EGL_KHR_fence_sync") &&
-	    weston_check_egl_extension(extensions, "EGL_ANDROID_native_fence_sync")) {
-		gr->create_sync =
-			(void *) eglGetProcAddress("eglCreateSyncKHR");
-		gr->destroy_sync =
-			(void *) eglGetProcAddress("eglDestroySyncKHR");
-		gr->dup_native_fence_fd =
-			(void *) eglGetProcAddress("eglDupNativeFenceFDANDROID");
-		assert(gr->create_sync);
-		assert(gr->destroy_sync);
-		assert(gr->dup_native_fence_fd);
-		gr->has_native_fence_sync = true;
-	} else {
-		weston_log("warning: Disabling render GPU timeline and explicit "
-			   "synchronization due to missing "
-			   "EGL_ANDROID_native_fence_sync extension\n");
-	}
+	if (egl_display_has(gr, EXTENSION_ANDROID_NATIVE_FENCE_SYNC))
+		GET_PROC_ADDRESS(gr->dup_native_fence_fd,
+				 "eglDupNativeFenceFDANDROID");
 
-	if (weston_check_egl_extension(extensions, "EGL_KHR_wait_sync")) {
-		gr->wait_sync = (void *) eglGetProcAddress("eglWaitSyncKHR");
-		assert(gr->wait_sync);
-		gr->has_wait_sync = true;
-	} else {
-		weston_log("warning: Disabling explicit synchronization due"
-			   "to missing EGL_KHR_wait_sync extension\n");
-	}
+	if (egl_display_has(gr, EXTENSION_KHR_WAIT_SYNC))
+		GET_PROC_ADDRESS(gr->wait_sync, "eglWaitSyncKHR");
+
+	/* No config context feature. */
+	if (egl_display_has(gr, EXTENSION_KHR_NO_CONFIG_CONTEXT) ||
+	    egl_display_has(gr, EXTENSION_MESA_CONFIGLESS_CONTEXT))
+		gr->features |= FEATURE_NO_CONFIG_CONTEXT;
+
+	/* Swap buffers with damage feature. */
+	if (egl_display_has(gr, EXTENSION_KHR_SWAP_BUFFERS_WITH_DAMAGE) ||
+	    egl_display_has(gr, EXTENSION_EXT_SWAP_BUFFERS_WITH_DAMAGE))
+		gr->features |= FEATURE_SWAP_BUFFERS_WITH_DAMAGE;
+
+	/* Explicit sync feature. */
+	if (egl_display_has(gr, EXTENSION_ANDROID_NATIVE_FENCE_SYNC) &&
+	    egl_display_has(gr, EXTENSION_KHR_WAIT_SYNC))
+		gr->features |= FEATURE_EXPLICIT_SYNC;
 
 	weston_log("EGL features:\n");
 	weston_log_continue(STAMP_SPACE "EGL Wayland extension: %s\n",
-			    yesno(gr->has_bind_display));
+			    yesno(egl_display_has(gr, EXTENSION_WL_BIND_WAYLAND_DISPLAY)));
 	weston_log_continue(STAMP_SPACE "context priority: %s\n",
-			    yesno(gr->has_context_priority));
+			    yesno(egl_display_has(gr, EXTENSION_IMG_CONTEXT_PRIORITY)));
 	weston_log_continue(STAMP_SPACE "buffer age: %s\n",
-			    yesno(gr->has_egl_buffer_age));
+			    yesno(egl_display_has(gr, EXTENSION_EXT_BUFFER_AGE)));
 	weston_log_continue(STAMP_SPACE "partial update: %s\n",
-			    yesno(gr->has_egl_partial_update));
+			    yesno(egl_display_has(gr, EXTENSION_KHR_PARTIAL_UPDATE)));
 	weston_log_continue(STAMP_SPACE "swap buffers with damage: %s\n",
-			    yesno(gr->swap_buffers_with_damage));
+			    yesno(gl_features_has(gr, FEATURE_SWAP_BUFFERS_WITH_DAMAGE)));
 	weston_log_continue(STAMP_SPACE "configless context: %s\n",
-			    yesno(gr->has_configless_context));
+			    yesno(gl_features_has(gr, FEATURE_NO_CONFIG_CONTEXT)));
 	weston_log_continue(STAMP_SPACE "surfaceless context: %s\n",
-			    yesno(gr->has_surfaceless_context));
+			    yesno(egl_display_has(gr, EXTENSION_KHR_SURFACELESS_CONTEXT)));
 	weston_log_continue(STAMP_SPACE "dmabuf support: %s\n",
-			    gr->has_dmabuf_import ?
-			    (gr->has_dmabuf_import_modifiers ? "modifiers" : "legacy") :
-			    "no");
+			    !egl_display_has(gr, EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT) ? "no" :
+			    !egl_display_has(gr, EXTENSION_EXT_IMAGE_DMA_BUF_IMPORT_MODIFIERS) ? "legacy" :
+			    "modifiers");
+	weston_log_continue(STAMP_SPACE "fence sync: %s\n",
+			    !egl_display_has(gr, EXTENSION_KHR_FENCE_SYNC) ? "no" :
+			    !egl_display_has(gr, EXTENSION_ANDROID_NATIVE_FENCE_SYNC) &&
+			    !egl_display_has(gr, EXTENSION_KHR_WAIT_SYNC) ? "yes" :
+			    !egl_display_has(gr, EXTENSION_ANDROID_NATIVE_FENCE_SYNC) ? "yes (wait)" :
+			    !egl_display_has(gr, EXTENSION_KHR_WAIT_SYNC) ? "yes (native)" :
+			    "yes (native, wait)");
 
 	return 0;
 }
