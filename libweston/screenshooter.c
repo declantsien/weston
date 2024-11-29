@@ -125,10 +125,17 @@ screenshooter_frame_notify(struct wl_listener *listener, void *data)
 			     frame_listener);
 	struct weston_output *output = l->output;
 	struct weston_compositor *compositor = output->compositor;
-	const pixman_format_code_t pixman_format =
-		output->read_format->pixman_format;
+	const struct pixel_format_info *pixel_format = output->read_format;
+	pixman_format_code_t pixman_format;
 	int32_t stride;
 	uint8_t *pixels, *d, *s;
+
+	if (pixel_format->pixman_format != PIXMAN_a8r8g8b8 &&
+	    pixel_format->pixman_format != PIXMAN_x8r8g8b8 &&
+	    pixel_format->pixman_format != PIXMAN_x8b8g8r8 &&
+	    pixel_format->pixman_format != PIXMAN_a8b8g8r8)
+		pixel_format = pixel_format_get_info_by_pixman(PIXMAN_x8r8g8b8);
+	pixman_format = pixel_format->pixman_format;
 
 	weston_output_disable_planes_decr(output);
 	wl_list_remove(&listener->link);
@@ -137,16 +144,14 @@ screenshooter_frame_notify(struct wl_listener *listener, void *data)
 	stride = l->buffer->width * (PIXMAN_FORMAT_BPP(pixman_format) / 8);
 	pixels = malloc(stride * l->buffer->height);
 
-	if (pixels == NULL) {
-		l->done(l->data, WESTON_SCREENSHOOTER_NO_MEMORY);
-		free(l);
-		return;
-	}
+	if (pixels == NULL)
+		goto error_malloc;
 
-	compositor->renderer->read_pixels(output,
-			     output->read_format, pixels,
-			     0, 0, output->current_mode->width,
-			     output->current_mode->height);
+	if (compositor->renderer->read_pixels(
+			output, pixel_format, pixels, stride, 0, 0,
+			output->current_mode->width,
+			output->current_mode->height) < 0)
+		goto error_read;
 
 	stride = l->buffer->stride;
 
@@ -176,8 +181,10 @@ screenshooter_frame_notify(struct wl_listener *listener, void *data)
 
 	wl_shm_buffer_end_access(l->buffer->shm_buffer);
 
-	l->done(l->data, WESTON_SCREENSHOOTER_SUCCESS);
+ error_read:
 	free(pixels);
+ error_malloc:
+	l->done(l->data, WESTON_SCREENSHOOTER_SUCCESS);
 	free(l);
 }
 
@@ -240,6 +247,7 @@ weston_screenshooter_shoot(struct weston_output *output,
 
 struct weston_recorder {
 	struct weston_output *output;
+	const struct pixel_format_info *format;
 	uint32_t *frame, *rect;
 	uint32_t *tmpbuf;
 	uint32_t total;
@@ -349,8 +357,8 @@ weston_recorder_frame_notify(struct wl_listener *listener, void *data)
 			y_orig = r[i].y1;
 
 		compositor->renderer->read_pixels(output,
-				output->read_format, recorder->rect,
-				r[i].x1, y_orig, width, height);
+				recorder->format, recorder->rect,
+				4 * width, r[i].x1, y_orig, width, height);
 
 		p = outbuf;
 		run = prev = 0; /* quiet gcc */
@@ -451,9 +459,14 @@ weston_recorder_create(struct weston_output *output, const char *filename)
 	switch (output->read_format->pixman_format) {
 	case PIXMAN_x8r8g8b8:
 	case PIXMAN_a8r8g8b8:
+		recorder->format =
+			pixel_format_get_info_by_pixman(PIXMAN_x8r8g8b8);
 		header.format = WCAP_FORMAT_XRGB8888;
 		break;
+	case PIXMAN_x8b8g8r8:
 	case PIXMAN_a8b8g8r8:
+		recorder->format =
+			pixel_format_get_info_by_pixman(PIXMAN_x8b8g8r8);
 		header.format = WCAP_FORMAT_XBGR8888;
 		break;
 	default:

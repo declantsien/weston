@@ -898,6 +898,7 @@ shared_output_repainted(struct wl_listener *listener, void *data)
 		y = r[i].y1;
 		width = r[i].x2 - r[i].x1;
 		height = r[i].y2 - r[i].y1;
+		stride = (PIXMAN_FORMAT_BPP(pixman_format) / 8) * width;
 
 		if (do_yflip)
 			y_orig = so->output->current_mode->height - r[i].y2;
@@ -906,12 +907,12 @@ shared_output_repainted(struct wl_listener *listener, void *data)
 
 		so->output->compositor->renderer->read_pixels(
 			so->output, read_format,
-			so->tmp_data, x, y_orig, width, height);
+			so->tmp_data, stride, x, y_orig, width, height);
 
 		damaged_image = pixman_image_create_bits(pixman_format,
 							 width, height,
 							 so->tmp_data,
-				(PIXMAN_FORMAT_BPP(pixman_format) / 8) * width);
+							 stride);
 		if (!damaged_image)
 			goto err_pixman_init;
 

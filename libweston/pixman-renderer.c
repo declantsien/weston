@@ -112,7 +112,7 @@ get_renderer(struct weston_compositor *ec)
 static int
 pixman_renderer_read_pixels(struct weston_output *output,
 			    const struct pixel_format_info *format, void *pixels,
-			    uint32_t x, uint32_t y,
+			    uint32_t stride, uint32_t x, uint32_t y,
 			    uint32_t width, uint32_t height)
 {
 	struct pixman_output_state *po = get_output_state(output);
@@ -123,11 +123,8 @@ pixman_renderer_read_pixels(struct weston_output *output,
 		return -1;
 	}
 
-	out_buf = pixman_image_create_bits(format->pixman_format,
-		width,
-		height,
-		pixels,
-		(PIXMAN_FORMAT_BPP(format->pixman_format) / 8) * width);
+	out_buf = pixman_image_create_bits(format->pixman_format, width, height,
+					   pixels, stride);
 
 	pixman_image_composite32(PIXMAN_OP_SRC,
 				 po->hw_buffer, /* src */

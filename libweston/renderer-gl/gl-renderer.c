@@ -119,6 +119,7 @@ struct gl_renderbuffer_window {
 
 struct gl_renderbuffer_buffer {
 	GLuint rb;
+	const struct pixel_format_info *format;
 	void *data;
 	int stride;
 };
@@ -922,6 +923,7 @@ gl_renderer_create_renderbuffer(struct weston_output *output,
 	renderbuffer = xzalloc(sizeof(*renderbuffer));
 
 	renderbuffer->buffer.rb = rb;
+	renderbuffer->buffer.format = format;
 	renderbuffer->buffer.data = buffer;
 	renderbuffer->buffer.stride = stride;
 	gl_renderbuffer_init(renderbuffer, RENDERBUFFER_BUFFER,
@@ -1018,77 +1020,93 @@ update_capture_info(struct weston_output *output)
 static bool
 gl_renderer_do_read_pixels(struct gl_renderer *gr,
 			   struct gl_output_state *go,
-			   const struct pixel_format_info *fmt,
+			   const struct pixel_format_info *read_format,
+			   const struct pixel_format_info *store_format,
 			   void *pixels, int stride,
 			   const struct weston_geometry *rect)
 {
-	pixman_image_t *tmp = NULL;
-	void *tmp_data = NULL;
-	pixman_image_t *image;
+	pixman_image_t *read_image = NULL;
+	void *read_pixels = NULL;
+	pixman_image_t *store_image;
 	pixman_transform_t flip;
+	int read_stride;
 
-	assert(fmt->gl.type != 0);
-	assert(fmt->gl.external != 0);
-	assert(fmt->pixman_format != 0);
+	assert(read_format->gl.type != 0);
+	assert(read_format->gl.external != 0);
+	assert(read_format->pixman_format != 0);
+	assert(store_format->pixman_format != 0);
 
-	if (!is_y_flipped(go)) {
+	/* XXX Use PACK_ROW_LENGTH when available. */
+
+	/* Fast path. */
+	if (read_format == store_format &&
+	    ((stride * 8) / read_format->bpp) == rect->width &&
+	    (!is_y_flipped(go) ||
+	     gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER))) {
+		if (is_y_flipped(go))
+			glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_TRUE);
 		glReadPixels(rect->x, rect->y, rect->width, rect->height,
-			     fmt->gl.external, fmt->gl.type, pixels);
-		return true;
+			     read_format->gl.external, read_format->gl.type,
+			     pixels);
+		if (is_y_flipped(go))
+			glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE,
+				      GL_FALSE);
 	}
 
-	if (gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER)) {
-		/* Make glReadPixels() return top row first. */
+	read_stride = (read_format->bpp / 8) * rect->width;
+	read_pixels = xzalloc(read_stride * rect->height);
+	read_image = pixman_image_create_bits(
+		read_format->pixman_format, rect->width, rect->height,
+		read_pixels, read_stride);
+	if (!read_image) {
+		free(read_pixels);
+		return false;
+	}
+
+	if (is_y_flipped(go) &&
+	    gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER))
 		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_TRUE);
-		glReadPixels(rect->x, rect->y, rect->width, rect->height,
-			     fmt->gl.external, fmt->gl.type, pixels);
-		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_FALSE);
-		return true;
-	}
-
-	/*
-	 * glReadPixels() returns bottom row first. We need to read into a
-	 * temporary buffer and y-flip it.
-	 */
-
-	tmp_data = malloc(stride * rect->height);
-	if (!tmp_data)
-		return false;
-
-	tmp = pixman_image_create_bits(fmt->pixman_format, rect->width,
-				       rect->height, tmp_data, stride);
-	if (!tmp) {
-		free(tmp_data);
-		return false;
-	}
-
 	glReadPixels(rect->x, rect->y, rect->width, rect->height,
-		     fmt->gl.external, fmt->gl.type,
-		     pixman_image_get_data(tmp));
+		     read_format->gl.external, read_format->gl.type,
+		     pixman_image_get_data(read_image));
+	if (is_y_flipped(go) &&
+	    gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER))
+		glPixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, GL_FALSE);
 
-	image = pixman_image_create_bits_no_clear(fmt->pixman_format,
-						  rect->width, rect->height,
-						  pixels, stride);
-	abort_oom_if_null(image);
+	store_image = pixman_image_create_bits_no_clear(
+		store_format->pixman_format, rect->width, rect->height, pixels,
+		stride);
+	abort_oom_if_null(store_image);
 
-	pixman_transform_init_scale(&flip, pixman_fixed_1,
-				    pixman_fixed_minus_1);
-	pixman_transform_translate(&flip, NULL, 0,
-				   pixman_int_to_fixed(rect->height));
-	pixman_image_set_transform(tmp, &flip);
+	if (is_y_flipped(go) &&
+	    !gl_extensions_has(gr, EXTENSION_ANGLE_PACK_REVERSE_ROW_ORDER)) {
+		pixman_transform_init_scale(&flip, pixman_fixed_1,
+					    pixman_fixed_minus_1);
+		pixman_transform_translate(&flip, NULL, 0,
+					   pixman_int_to_fixed(rect->height));
+		pixman_image_set_transform(read_image, &flip);
+		pixman_image_composite32(PIXMAN_OP_SRC,
+					 read_image,       /* src */
+					 NULL,      /* mask */
+					 store_image,     /* dest */
+					 0, 0,      /* src x,y */
+					 0, 0,      /* mask x,y */
+					 0, 0,      /* dest x,y */
+					 rect->width, rect->height);
+	} else {
+		pixman_image_composite32(PIXMAN_OP_SRC,
+					 read_image,       /* src */
+					 NULL,      /* mask */
+					 store_image,     /* dest */
+					 0, rect->y,      /* src x,y */
+					 0, 0,      /* mask x,y */
+					 0, 0,      /* dest x,y */
+					 rect->width, rect->height);
+	}
 
-	pixman_image_composite32(PIXMAN_OP_SRC,
-				 tmp,       /* src */
-				 NULL,      /* mask */
-				 image,     /* dest */
-				 0, 0,      /* src x,y */
-				 0, 0,      /* mask x,y */
-				 0, 0,      /* dest x,y */
-				 rect->width, rect->height);
-
-	pixman_image_unref(image);
-	pixman_image_unref(tmp);
-	free(tmp_data);
+	pixman_image_unref(store_image);
+	pixman_image_unref(read_image);
+	free(read_pixels);
 
 	return true;
 }
@@ -1107,7 +1125,8 @@ gl_renderer_do_capture(struct gl_renderer *gr, struct gl_output_state *go,
 
 	wl_shm_buffer_begin_access(shm);
 
-	ret = gl_renderer_do_read_pixels(gr, go, fmt, wl_shm_buffer_get_data(shm),
+	ret = gl_renderer_do_read_pixels(gr, go, fmt, fmt,
+					 wl_shm_buffer_get_data(shm),
 					 into->stride, rect);
 
 	wl_shm_buffer_end_access(shm);
@@ -2734,7 +2753,8 @@ gl_renderer_repaint_output(struct weston_output *output,
 		}
 
 		gl_renderer_do_read_pixels(gr, go, output->read_format,
-					   pixels, stride, &rect);
+					   rb->buffer.format, pixels, stride,
+					   &rect);
 
 		if (gr->gl_version >= gl_version(3, 0))
 			glPixelStorei(GL_PACK_ROW_LENGTH, 0);
@@ -2751,16 +2771,14 @@ gl_renderer_repaint_output(struct weston_output *output,
 static int
 gl_renderer_read_pixels(struct weston_output *output,
 			const struct pixel_format_info *format, void *pixels,
-			uint32_t x, uint32_t y,
-			uint32_t width, uint32_t height)
+			uint32_t stride, uint32_t x, uint32_t y, uint32_t width,
+			uint32_t height)
 {
 	struct gl_renderer *gr = get_renderer(output->compositor);
 	struct gl_output_state *go = get_output_state(output);
+	struct weston_geometry rect;
 
-	x += go->area.x;
-	y += go->fb_size.height - go->area.y - go->area.height;
-
-	if (format->gl.external == 0 || format->gl.type == 0)
+	if (format->pixman_format == 0)
 		return -1;
 
 	if (use_output(output) < 0)
@@ -2769,11 +2787,18 @@ gl_renderer_read_pixels(struct weston_output *output,
 	if (go->read_buffer == NULL)
 		return -1;
 
-	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	rect.x = go->area.x + x;
+	if (is_y_flipped(go))
+		rect.y = go->fb_size.height - go->area.y - go->area.height + y;
+	else
+		rect.y = go->area.y + y;
+	rect.width = (int) width - MAX(0, (int) (x + width) - go->area.width);
+	rect.height = (int) height - MAX(0, (int) (y + height) - go->area.height);
+
 	glBindFramebuffer(gr->read_target, go->read_buffer->fb);
-	glReadPixels(x, y, width, height, format->gl.external,
-		     format->gl.type, pixels);
-	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+	if (!gl_renderer_do_read_pixels(gr, go, output->read_format, format,
+					pixels, stride, &rect))
+		return -1;
 
 	return 0;
 }
@@ -4710,7 +4735,6 @@ gl_renderer_display_create(struct weston_compositor *ec,
 		goto fail_terminate;
 
 	ec->capabilities |= WESTON_CAP_ROTATION_ANY;
-	ec->capabilities |= WESTON_CAP_CAPTURE_YFLIP;
 	ec->capabilities |= WESTON_CAP_VIEW_CLIP_MASK;
 	if (gl_features_has(gr, FEATURE_EXPLICIT_SYNC))
 		ec->capabilities |= WESTON_CAP_EXPLICIT_SYNC;
