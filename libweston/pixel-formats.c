@@ -73,7 +73,7 @@
 #define SWIZZLES_RGB1 { GL_RED,   GL_GREEN, GL_BLUE,  1        }
 #define SWIZZLES_RGBA { GL_RED,   GL_GREEN, GL_BLUE,  GL_ALPHA }
 
-#define GL_FORMAT_INFO(internal_, external_, type_, swizzles_) \
+#define GL_FORMAT(internal_, external_, type_, swizzles_) \
 	.gl = { \
 		.internal = internal_, \
 		.external = external_, \
@@ -81,7 +81,7 @@
 		.swizzles.array = SWIZZLES_ ## swizzles_, \
 	}
 #else
-#define GL_FORMAT_INFO(internal_, external_, type_, swizzles_) \
+#define GL_FORMAT(internal_, external_, type_, swizzles_) \
 	.gl = { \
 		.internal = 0, \
 		.external = 0, \
@@ -119,51 +119,51 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(8, 0, 0, 0),
 		.bpp = 8,
 		.hide_from_clients = true,
-		GL_FORMAT_INFO(GL_R8, GL_RED, GL_UNSIGNED_BYTE, R001),
+		GL_FORMAT(GL_R8, GL_RED, GL_UNSIGNED_BYTE, R001),
 	},
 	{
 		DRM_FORMAT(R16),
 		BITS_RGBA_FIXED(16, 0, 0, 0),
 		.bpp = 16,
 		.hide_from_clients = true,
-		GL_FORMAT_INFO(GL_R16_EXT, GL_RED, GL_UNSIGNED_SHORT, R001),
+		GL_FORMAT(GL_R16_EXT, GL_RED, GL_UNSIGNED_SHORT, R001),
 	},
 	{
 		DRM_FORMAT(GR88),
 		BITS_RGBA_FIXED(8, 8, 0, 0),
 		.bpp = 16,
 		.hide_from_clients = true,
-		GL_FORMAT_INFO(GL_RG8, GL_RG, GL_UNSIGNED_BYTE, RG01),
+		GL_FORMAT(GL_RG8, GL_RG, GL_UNSIGNED_BYTE, RG01),
 	},
 	{
 		DRM_FORMAT(RG88),
 		BITS_RGBA_FIXED(8, 8, 0, 0),
 		.bpp = 16,
 		.hide_from_clients = true,
-		GL_FORMAT_INFO(GL_RG8, GL_RG, GL_UNSIGNED_BYTE, GR01),
+		GL_FORMAT(GL_RG8, GL_RG, GL_UNSIGNED_BYTE, GR01),
 	},
 	{
 		DRM_FORMAT(GR1616),
 		BITS_RGBA_FIXED(16, 16, 0, 0),
 		.bpp = 32,
 		.hide_from_clients = true,
-		GL_FORMAT_INFO(GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT, RG01),
+		GL_FORMAT(GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT, RG01),
 	},
 	{
 		DRM_FORMAT(RG1616),
 		BITS_RGBA_FIXED(16, 16, 0, 0),
 		.bpp = 32,
 		.hide_from_clients = true,
-		GL_FORMAT_INFO(GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT, GR01),
+		GL_FORMAT(GL_RG16_EXT, GL_RG, GL_UNSIGNED_SHORT, GR01),
 	},
 	{
 		DRM_FORMAT(XRGB4444),
 		BITS_RGBA_FIXED(4, 4, 4, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, GBA1),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, GBA1),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, A1GB),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, A1GB),
 #endif
 	},
 	{
@@ -172,9 +172,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 16,
 		.opaque_substitute = DRM_FORMAT_XRGB4444,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, GBAR),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, GBAR),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ARGB),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ARGB),
 #endif
 	},
 	{
@@ -182,9 +182,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(4, 4, 4, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ABG1),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ABG1),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, G1AB),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, G1AB),
 #endif
 	},
 	{
@@ -193,9 +193,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 16,
 		.opaque_substitute = DRM_FORMAT_XBGR4444,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ABGR),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, ABGR),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, GRAB),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, GRAB),
 #endif
 	},
 	{
@@ -203,9 +203,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(4, 4, 4, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, RGB1),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, RGB1),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, B1RG),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, B1RG),
 #endif
 	},
 	{
@@ -214,9 +214,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 16,
 		.opaque_substitute = DRM_FORMAT_RGBX4444,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, RGBA),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, RGBA),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, BARG),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, BARG),
 #endif
 	},
 	{
@@ -224,9 +224,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(4, 4, 4, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, BGR1),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, BGR1),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, R1BG),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, R1BG),
 #endif
 	},
 	{
@@ -235,9 +235,9 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 16,
 		.opaque_substitute = DRM_FORMAT_BGRX4444,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, BGRA),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, BGRA),
 #else
-		GL_FORMAT_INFO(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, RABG),
+		GL_FORMAT(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, RABG),
 #endif
 	},
 	{
@@ -268,7 +268,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(5, 5, 5, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, RGB1),
+		GL_FORMAT(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, RGB1),
 #endif
 	},
 	{
@@ -277,7 +277,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 16,
 		.opaque_substitute = DRM_FORMAT_RGBX5551,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, RGBA),
+		GL_FORMAT(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, RGBA),
 #endif
 	},
 	{
@@ -285,7 +285,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(5, 5, 5, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, BGR1),
+		GL_FORMAT(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, BGR1),
 #endif
 	},
 	{
@@ -294,7 +294,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 16,
 		.opaque_substitute = DRM_FORMAT_BGRX5551,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, BGRA),
+		GL_FORMAT(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, BGRA),
 #endif
 	},
 	{
@@ -303,7 +303,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.addfb_legacy_depth = 16,
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, RGB1),
+		GL_FORMAT(GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, RGB1),
 		PIXMAN_FMT(r5g6b5),
 #endif
 	},
@@ -312,27 +312,27 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(5, 6, 5, 0),
 		.bpp = 16,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, BGR1),
+		GL_FORMAT(GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, BGR1),
 #endif
 	},
 	{
 		DRM_FORMAT(RGB888),
 		BITS_RGBA_FIXED(8, 8, 8, 0),
 		.bpp = 24,
-		GL_FORMAT_INFO(GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE, RGB1),
+		GL_FORMAT(GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE, RGB1),
 	},
 	{
 		DRM_FORMAT(BGR888),
 		BITS_RGBA_FIXED(8, 8, 8, 0),
 		.bpp = 24,
-		GL_FORMAT_INFO(GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE, BGR1),
+		GL_FORMAT(GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE, BGR1),
 	},
 	{
 		DRM_FORMAT(XRGB8888),
 		BITS_RGBA_FIXED(8, 8, 8, 0),
 		.addfb_legacy_depth = 24,
 		.bpp = 32,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, BGR1),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, BGR1),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(x8r8g8b8),
 #else
@@ -345,7 +345,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.opaque_substitute = DRM_FORMAT_XRGB8888,
 		.addfb_legacy_depth = 32,
 		.bpp = 32,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, BGRA),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, BGRA),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(a8r8g8b8),
 #else
@@ -356,7 +356,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		DRM_FORMAT(XBGR8888),
 		BITS_RGBA_FIXED(8, 8, 8, 0),
 		.bpp = 32,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, RGB1),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, RGB1),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(x8b8g8r8),
 #else
@@ -368,7 +368,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(8, 8, 8, 8),
 		.bpp = 32,
 		.opaque_substitute = DRM_FORMAT_XBGR8888,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, RGBA),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, RGBA),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(a8b8g8r8),
 #else
@@ -379,7 +379,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		DRM_FORMAT(RGBX8888),
 		BITS_RGBA_FIXED(8, 8, 8, 0),
 		.bpp = 32,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, ABG1),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, ABG1),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(r8g8b8x8),
 #else
@@ -391,7 +391,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(8, 8, 8, 8),
 		.bpp = 32,
 		.opaque_substitute = DRM_FORMAT_RGBX8888,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, ABGR),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, ABGR),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(r8g8b8a8),
 #else
@@ -402,7 +402,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		DRM_FORMAT(BGRX8888),
 		BITS_RGBA_FIXED(8, 8, 8, 0),
 		.bpp = 32,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GBA1),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GBA1),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(b8g8r8x8),
 #else
@@ -414,7 +414,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(8, 8, 8, 8),
 		.bpp = 32,
 		.opaque_substitute = DRM_FORMAT_BGRX8888,
-		GL_FORMAT_INFO(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GBAR),
+		GL_FORMAT(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GBAR),
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 		PIXMAN_FMT(b8g8r8a8),
 #else
@@ -427,7 +427,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.addfb_legacy_depth = 30,
 		.bpp = 32,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, BGR1),
+		GL_FORMAT(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, BGR1),
 		PIXMAN_FMT(x2r10g10b10),
 #endif
 	},
@@ -437,7 +437,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 32,
 		.opaque_substitute = DRM_FORMAT_XRGB2101010,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, BGRA),
+		GL_FORMAT(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, BGRA),
 		PIXMAN_FMT(a2r10g10b10),
 #endif
 	},
@@ -446,7 +446,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		BITS_RGBA_FIXED(10, 10, 10, 0),
 		.bpp = 32,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, RGB1),
+		GL_FORMAT(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, RGB1),
 		PIXMAN_FMT(x2b10g10r10),
 #endif
 	},
@@ -456,7 +456,7 @@ static const struct pixel_format_info pixel_format_table[] = {
 		.bpp = 32,
 		.opaque_substitute = DRM_FORMAT_XBGR2101010,
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-		GL_FORMAT_INFO(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, RGBA),
+		GL_FORMAT(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV, RGBA),
 		PIXMAN_FMT(a2b10g10r10),
 #endif
 	},
@@ -486,53 +486,53 @@ static const struct pixel_format_info pixel_format_table[] = {
 		DRM_FORMAT(XBGR16161616),
 		BITS_RGBA_FIXED(16, 16, 16, 0),
 		.bpp = 64,
-		GL_FORMAT_INFO(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, RGB1),
+		GL_FORMAT(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, RGB1),
 	},
 	{
 		DRM_FORMAT(ABGR16161616),
 		BITS_RGBA_FIXED(16, 16, 16, 16),
 		.bpp = 64,
 		.opaque_substitute = DRM_FORMAT_XBGR16161616,
-		GL_FORMAT_INFO(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, RGBA),
+		GL_FORMAT(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, RGBA),
 	},
 	{
 		DRM_FORMAT(XRGB16161616),
 		BITS_RGBA_FIXED(16, 16, 16, 0),
 		.bpp = 64,
-		GL_FORMAT_INFO(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, BGR1),
+		GL_FORMAT(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, BGR1),
 	},
 	{
 		DRM_FORMAT(ARGB16161616),
 		BITS_RGBA_FIXED(16, 16, 16, 16),
 		.bpp = 64,
 		.opaque_substitute = DRM_FORMAT_XRGB16161616,
-		GL_FORMAT_INFO(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, BGRA),
+		GL_FORMAT(GL_RGBA16_EXT, GL_RGBA, GL_UNSIGNED_SHORT, BGRA),
 	},
 	{
 		DRM_FORMAT(XBGR16161616F),
 		BITS_RGBA_FLOAT(16, 16, 16, 0),
 		.bpp = 64,
-		GL_FORMAT_INFO(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, RGB1),
+		GL_FORMAT(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, RGB1),
 	},
 	{
 		DRM_FORMAT(ABGR16161616F),
 		BITS_RGBA_FLOAT(16, 16, 16, 16),
 		.bpp = 64,
 		.opaque_substitute = DRM_FORMAT_XBGR16161616F,
-		GL_FORMAT_INFO(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, RGBA),
+		GL_FORMAT(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, RGBA),
 	},
 	{
 		DRM_FORMAT(XRGB16161616F),
 		BITS_RGBA_FLOAT(16, 16, 16, 0),
 		.bpp = 64,
-		GL_FORMAT_INFO(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, BGR1),
+		GL_FORMAT(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, BGR1),
 	},
 	{
 		DRM_FORMAT(ARGB16161616F),
 		BITS_RGBA_FLOAT(16, 16, 16, 16),
 		.bpp = 64,
 		.opaque_substitute = DRM_FORMAT_XRGB16161616F,
-		GL_FORMAT_INFO(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, BGRA),
+		GL_FORMAT(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, BGRA),
 	},
 	{
 		DRM_FORMAT(YUYV),
