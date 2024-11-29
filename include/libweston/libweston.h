@@ -614,6 +614,8 @@ struct weston_output {
 	int disable_planes;
 	int destroying;
 	struct wl_list feedback_list;
+
+	const struct pixel_format_info *read_format;
 	struct weston_output_capture_info *capture_info;
 
 	uint32_t transform;
@@ -1548,7 +1550,6 @@ struct weston_compositor {
 	struct weston_idalloc *color_transform_id_generator;
 
 	struct weston_renderer *renderer;
-	const struct pixel_format_info *read_format;
 
 	/* Pointer to the first backend on backend_list */
 	struct weston_backend *primary_backend;

@@ -833,8 +833,7 @@ shared_output_repainted(struct wl_listener *listener, void *data)
 	pixman_box32_t *r;
 	pixman_image_t *damaged_image;
 	pixman_transform_t transform;
-	const struct pixel_format_info *read_format =
-		so->output->compositor->read_format;
+	const struct pixel_format_info *read_format = so->output->read_format;
 	const pixman_format_code_t pixman_format = read_format->pixman_format;
 
 	width = so->output->current_mode->width;

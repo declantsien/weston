@@ -1148,7 +1148,6 @@ static void
 pixman_renderer_output_set_buffer(struct weston_output *output,
 				  pixman_image_t *buffer)
 {
-	struct weston_compositor *compositor = output->compositor;
 	struct pixman_output_state *po = get_output_state(output);
 	pixman_format_code_t pixman_format;
 
@@ -1161,7 +1160,7 @@ pixman_renderer_output_set_buffer(struct weston_output *output,
 
 	pixman_format = pixman_image_get_format(po->hw_buffer);
 	po->hw_format = pixel_format_get_info_by_pixman(pixman_format);
-	compositor->read_format = po->hw_format;
+	output->read_format = po->hw_format;
 	assert(po->hw_format);
 
 	pixman_image_ref(po->hw_buffer);

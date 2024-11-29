@@ -91,22 +91,6 @@ struct pixel_format_info {
 	/** GL format information. */
 	struct gl_format_info gl;
 
-	/** GL internal format; to be used when creating FBO renderbuffers */
-	int gl_internalformat;
-
-	/** GL format, if data can be natively/directly uploaded. Note that
-	 *  whilst DRM formats are little-endian unless explicitly specified,
-	 *  (i.e. DRM_FORMAT_ARGB8888 is stored BGRA as sequential bytes in
-	 *  memory), GL uses the sequential byte order, so that format maps to
-	 *  GL_BGRA_EXT plus GL_UNSIGNED_BYTE. To add to the confusion, the
-	 *  explicitly-sized types (e.g. GL_UNSIGNED_SHORT_5_5_5_1) read in
-	 *  machine-endian order, so for these types, the correspondence
-	 *  depends on endianness. */
-	int gl_format;
-
-	/** GL data type, if data can be natively/directly uploaded. */
-	int gl_type;
-
 	/** Pixman data type, if it agrees exactly with the wl_shm format */
 	pixman_format_code_t pixman_format;
 
